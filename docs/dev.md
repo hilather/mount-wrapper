@@ -8,23 +8,21 @@
 
 ## CI (GitHub Actions)
 
-Workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+| Workflow | Jobs |
+|----------|------|
+| [`ci.yml`](../.github/workflows/ci.yml) | Unit tests, race subset, web check/test/build, optional Playwright dispatch |
+| [`smoke.yml`](../.github/workflows/smoke.yml) | Ubuntu binary smoke + Rocky 8 container smoke; optional FUSE dispatch |
+| [`release.yml`](../.github/workflows/release.yml) | Multi-arch publish on `v*` tags |
 
-| Job | Steps |
-|-----|--------|
-| `go-test` | `go vet`, `go test ./...`, `go test -race` on `internal/{control,state,service,api,mounter}`, `make build` |
-| `web-check` | `npm ci`, check, **vitest**, build, copy into `internal/webui/dist` + `go test ./internal/webui/...` |
-| `web-e2e` (optional) | **Not on push/PR.** `workflow_dispatch` + `run_e2e` input only — installs Chromium + deps, `RUN_E2E=1 npm run test:e2e` |
-
-Future (commented in workflow): Rocky 8 / glibc matrix; macOS + macFUSE.
-
-Security notes for operators: [security.md](./security.md). Man page sketch: `packaging/man/mount-wrapper.1`.
+Security notes for operators: [security.md](./security.md). Field-test: [field-test.md](./field-test.md). Man page: `packaging/man/mount-wrapper.1`.
 
 ## Quick start
 
 ```bash
 # Go
 make test
+make smoke         # version + doctor + serve --once
+# make smoke-rocky # docker/podman + rockylinux:8
 # Optional real-FUSE integration (skipped without /dev/fuse or engine on PATH):
 #   go test -tags=fuse ./internal/mounter/ -count=1 -run TestRealFUSEMountUnmount -v
 #   PATH=/path/to/ratarmount-rs/target/release:$PATH go test -tags=fuse ./internal/mounter/ -count=1

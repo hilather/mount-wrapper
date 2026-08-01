@@ -69,9 +69,10 @@ rot. Prefer fixing code over changing this list without evidence.
 | Gap | Severity | Notes |
 |-----|----------|-------|
 | **Flatten / convert edge paths** | medium | Built-in 7z flatten & zip repack library+runners exist; production hardening and some engine probe edges residual |
-| **Real FUSE integration tests** | low for CI | Optional `//go:build fuse` smoke in `internal/mounter` (`TestRealFUSEMountUnmount`); not in default CI/`make test` |
-| **Rocky 8 CI / musl matrix** | medium packaging | Docs + `CGO_ENABLED=0` interim; D7 musl release matrix and rocky:8 job residual |
-| **Full deb/rpm CI publish** | packaging | nfpm/goreleaser sketches in-tree; publish pipeline residual |
+| **Real FUSE integration tests** | low for CI | Optional `//go:build fuse` test; optional Actions job `smoke.yml` → `run_fuse` (not on every PR) |
+| **Rocky 8 binary smoke** | done in CI | `smoke.yml` builds CGO=0 binary on Ubuntu, runs `scripts/smoke-rocky8.sh` in `rockylinux:8` |
+| **Full musl static matrix (D7)** | residual | Pure-Go `CGO_ENABLED=0` interim; true musl toolchain residual |
+| **Full deb/rpm CI publish** | done on tags | `release.yml` publishes deb/rpm/tarballs on `v*` |
 | **Playwright SPA smoke** | optional / local | Landed: `web/e2e` mocked `/api/*` shell; `RUN_E2E=1` / optional CI job. Residual: settings validate E2E |
 | **OpenAPI / generated SPA client** | optional residual | Hand-written TS (`api-types.ts` + `types.ts`, D11); OpenAPI later |
 | **Windows parent `o+x` traverse notes** | docs/ops | Platform quirk; document/operate as needed |

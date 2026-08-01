@@ -208,6 +208,49 @@ func TestShouldRepackZip_EmbeddedSevenzMember(t *testing.T) {
 	}
 }
 
+// TestShouldPreconvert_Matrix covers preconvert gates without real engines.
+func TestShouldPreconvert_Matrix(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tarPath := filepath.Join(dir, "plain.tar.gz")
+	if err := os.WriteFile(tarPath, []byte("not-a-tar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sevenz := filepath.Join(dir, "archive.7z")
+	if err := os.WriteFile(sevenz, []byte("not-a-7z"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	zipPath := filepath.Join(dir, "with-nested.zip")
+	if err := writeZipMember(zipPath, "inner/payload.tar.gz", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.FromMap(map[string]any{
+		"convert_7z_nonsolid":       true,
+		"convert_7z_scope":          "flatten",
+		"convert_zip_to_7z":         true,
+		"archiveconverter_enabled":  false,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No flatten probe → flatten path stays false; zip with embedded archive → true.
+	if convert.ShouldPreconvert(cfg, tarPath, convert.ResolveOptions{}, nil) {
+		t.Fatal("plain tar.gz should not preconvert without AC/zip/flatten")
+	}
+	if convert.ShouldPreconvert(cfg, sevenz, convert.ResolveOptions{}, nil) {
+		t.Fatal("7z without probe/AC should not preconvert")
+	}
+	if !convert.ShouldPreconvert(cfg, zipPath, convert.ResolveOptions{}, nil) {
+		t.Fatal("zip with embedded tar.gz should preconvert (repack)")
+	}
+	// Explicit flatten probe forces 7z path.
+	probeTrue := func(string) bool { return true }
+	if !convert.ShouldPreconvert(cfg, sevenz, convert.ResolveOptions{}, probeTrue) {
+		t.Fatal("7z with FlattenNeeded true should preconvert")
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) string {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

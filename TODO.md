@@ -494,7 +494,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 - [~] `.rpm` via nfpm/goreleaser — sketch only
 - [x] systemd unit parity (same unit file)
 - [x] Document fuse3 / ratarmount install on Rocky (`docs/install.md`)
-- [ ] CI job or container smoke on rocky:8
+- [x] CI job or container smoke on rocky:8 — `.github/workflows/smoke.yml` + `scripts/smoke-rocky8.sh`
 
 ### 11.3 macOS
 

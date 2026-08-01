@@ -10,7 +10,7 @@ LDFLAGS  := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(D
 
 export PATH := $(HOME)/.local/go/bin:$(HOME)/.local/node-v22.14.0-linux-x64/bin:$(PATH)
 
-.PHONY: all build test vet lint web-install web-dev web-build web-check web-test web-e2e parity release-snapshot clean tidy fmt help
+.PHONY: all build test vet lint web-install web-dev web-build web-check web-test web-e2e parity release-snapshot smoke smoke-rocky clean tidy fmt help
 
 all: test build
 
@@ -30,6 +30,8 @@ help:
 	@echo "  make lint        golangci-lint if installed"
 	@echo "  make parity      Regenerate tools/parity inventories (offline)"
 	@echo "  make release-snapshot  goreleaser snapshot (linux/darwin amd64+arm64, deb/rpm)"
+	@echo "  make smoke       Binary smoke (version/doctor/serve --once)"
+	@echo "  make smoke-rocky Rocky 8 container binary smoke (docker/podman)"
 	@echo "  make clean       Remove bin/, dist/, and web/dist"
 
 build:
@@ -83,6 +85,14 @@ web-test:
 release-snapshot: web-build
 	@command -v goreleaser >/dev/null 2>&1 || { echo "install: go install github.com/goreleaser/goreleaser/v2@latest"; exit 1; }
 	goreleaser release --snapshot --clean
+
+# No FUSE: version, doctor, config show --local, serve --once.
+smoke:
+	./scripts/smoke-binary.sh --build
+
+# Needs docker or podman; runs CGO=0 binary inside rockylinux:8.
+smoke-rocky:
+	./scripts/smoke-rocky8.sh --build
 
 web-e2e:
 	cd web && RUN_E2E=1 npm run test:e2e

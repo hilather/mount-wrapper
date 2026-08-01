@@ -1,0 +1,85 @@
+name: smoke
+
+# Install / binary smoke for Ubuntu + Rocky 8 (no FUSE).
+# Optional FUSE job on workflow_dispatch only (needs /dev/fuse + engine install).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_fuse:
+        description: "Run optional FUSE integration test (installs fuse3; tries ratarmount-rs if available)"
+        type: boolean
+        default: false
+
+jobs:
+  ubuntu-binary:
+    name: ubuntu-binary-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+      - name: Build (CGO=0)
+        env:
+          CGO_ENABLED: "0"
+        run: make build
+      - name: Binary smoke
+        run: ./scripts/smoke-binary.sh
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mount-wrapper-linux-amd64
+          path: bin/mount-wrapper
+
+  rocky8-binary:
+    name: rocky8-binary-smoke
+    runs-on: ubuntu-latest
+    needs: ubuntu-binary
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: mount-wrapper-linux-amd64
+          path: bin
+      - name: Fix permissions
+        run: chmod +x bin/mount-wrapper
+      - name: Rocky 8 container smoke
+        run: ./scripts/smoke-rocky8.sh
+
+  # Optional: real FUSE. Not on push/PR by default (engine install + device).
+  fuse-integration:
+    name: fuse-integration (optional)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_fuse }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+      - name: Install fuse3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fuse3
+          # Allow fusermount for runner user when possible
+          if [[ -e /dev/fuse ]]; then ls -la /dev/fuse; else echo "no /dev/fuse"; fi
+      - name: Install ratarmount-rs (cargo) if possible
+        continue-on-error: true
+        run: |
+          if command -v cargo >/dev/null 2>&1; then
+            cargo install ratarmount-rs --locked 2>/dev/null || true
+          else
+            # Try prebuilt or skip — test will Skip if no engine
+            echo "cargo not available; fuse test may skip without ratarmount-rs"
+          fi
+          command -v ratarmount-rs || command -v ratarmount || true
+      - name: FUSE integration test
+        run: |
+          go test -tags=fuse ./internal/mounter/ -count=1 -run TestRealFUSEMountUnmount -v
+        env:
+          PATH: ${{ env.PATH }}:${{ runner.tool_cache }}

@@ -23,6 +23,15 @@ Local multi-arch snapshot (no publish):
 make release-snapshot   # needs goreleaser + node; writes dist/
 ```
 
+Binary smoke (no FUSE; works on Ubuntu host and Rocky 8 via container):
+
+```bash
+make smoke
+make smoke-rocky        # docker/podman + rockylinux:8
+```
+
+Field-test checklist: [field-test.md](./field-test.md).
+
 For local development see [dev.md](./dev.md). Architecture: [architecture.md](./architecture.md).
 Python → Go cutover: [migration.md](./migration.md). Parity inventories & platform checklists: [parity.md](./parity.md).
 Security review: [security.md](./security.md). Man page: `packaging/man/mount-wrapper.1`.
