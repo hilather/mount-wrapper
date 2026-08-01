@@ -60,9 +60,10 @@ type Service struct {
 
 	Clock func() float64
 
-	// opMu serializes Tick and external HandleRequest (HTTP / direct callers).
-	// Control-plane ServeReady runs only under Tick while opMu is held, so the
-	// control Handler is handleRequestLocked (no re-lock) to avoid deadlock.
+	// opMu serializes Tick, external HandleRequest (HTTP / direct callers),
+	// ConfigSnapshot, and Shutdown teardown (after HTTP close). Control-plane
+	// ServeReady runs only under Tick while opMu is held, so the control
+	// Handler is handleRequestLocked (no re-lock) to avoid deadlock.
 	opMu sync.Mutex
 
 	mu                sync.Mutex
@@ -391,16 +392,24 @@ func (s *Service) startWebIfEnabled() error {
 	case <-time.After(50 * time.Millisecond):
 		// still running — OK
 	}
+	s.mu.Lock()
 	s.web = srv
+	s.mu.Unlock()
 	return nil
 }
 
 // WebAddr returns the bound HTTP address when the web server is running.
 func (s *Service) WebAddr() string {
-	if s == nil || s.web == nil {
+	if s == nil {
 		return ""
 	}
-	return s.web.Bind()
+	s.mu.Lock()
+	web := s.web
+	s.mu.Unlock()
+	if web == nil {
+		return ""
+	}
+	return web.Bind()
 }
 
 // Run starts the service and loops Tick until stop. If once, runs a single tick.
@@ -508,6 +517,17 @@ func (s *Service) InotifyActive() bool {
 }
 
 // Shutdown unmounts live work, closes watchers, control socket, releases pidfile, closes store.
+//
+// Lock order / deadlock avoidance:
+//  1. Stop() under s.mu only (flag) — safe while a control "stop" holds opMu.
+//  2. Close HTTP without opMu: Server.Close waits for in-flight handlers, and
+//     those call HandleRequest/ConfigSnapshot which need opMu. Holding opMu
+//     across web.Close would deadlock.
+//  3. Take opMu for the rest of teardown so Tick / HandleRequest cannot race
+//     Engine/Store/control/inotify cleanup.
+//
+// Callers must not hold opMu (control "stop" only sets the flag; Run exits the
+// loop then defers Shutdown). Idempotent for t.Cleanup double-calls.
 func (s *Service) Shutdown() {
 	if s == nil {
 		return
@@ -515,12 +535,20 @@ func (s *Service) Shutdown() {
 	slog.Info("service shutting down")
 	s.Stop()
 
-	if s.web != nil {
-		if err := s.web.Close(); err != nil {
+	// Drain HTTP first without opMu (see comment above). Swap pointer under
+	// s.mu so concurrent WebAddr does not race the nil write.
+	s.mu.Lock()
+	web := s.web
+	s.web = nil
+	s.mu.Unlock()
+	if web != nil {
+		if err := web.Close(); err != nil {
 			slog.Warn("http api close", "err", err)
 		}
-		s.web = nil
 	}
+
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 
 	if s.control != nil {
 		if err := s.control.Close(); err != nil {
@@ -557,6 +585,18 @@ func (s *Service) Shutdown() {
 	s.started = false
 	s.mu.Unlock()
 	slog.Info("service stopped")
+}
+
+// ConfigSnapshot returns a deep copy of the effective config under opMu so
+// concurrent doReload / config_set cannot race field readers (health, doctor,
+// wsl-info). The returned pointer is independent of s.Config.
+func (s *Service) ConfigSnapshot() *config.Config {
+	if s == nil {
+		return nil
+	}
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	return config.Clone(s.Config)
 }
 
 // ControlActive reports whether the Unix control socket is listening.

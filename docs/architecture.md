@@ -208,7 +208,17 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 
 **Ops (via `HandleRequest`):** `status` (`include_sizes?`), `metrics`, `config_get`, `config_set`, `rescan`, `retry`, `mount`, `unmount`, `purge`, `hooks_*`, `reload`, `stop`.
 
-**Concurrency (`opMu`):** `Tick` and external `HandleRequest` (HTTP / in-process) share a dedicated op mutex so Config / engine / scanner rematerialization cannot race concurrent control ops. `Tick` holds `opMu` for the whole cycle, including `ServeReady`. Control connections therefore call `handleRequestLocked` (already under `opMu`) — registering full `HandleRequest` as the control Handler would deadlock on re-lock. `s.mu` remains a short flag/state lock (`stop`, `reloadRequested`, scan timestamps, `lowDisk`).
+**Concurrency (`opMu`):** `Tick`, external `HandleRequest` (HTTP / in-process), `ConfigSnapshot`, and most of `Shutdown` share a dedicated op mutex so Config / engine / scanner rematerialization cannot race concurrent control ops or teardown. `Tick` holds `opMu` for the whole cycle, including `ServeReady`. Control connections therefore call `handleRequestLocked` (already under `opMu`) — registering full `HandleRequest` as the control Handler would deadlock on re-lock. `s.mu` remains a short flag/state lock (`stop`, `reloadRequested`, scan timestamps, `lowDisk`).
+
+**Lock order (daemon):**
+
+| Step | Lock | Notes |
+|------|------|--------|
+| `Stop` / `RequestReload` / `RequestRescan` / scan timestamps | `s.mu` only | Never take `opMu` while holding `s.mu` in reverse order for long work |
+| `Tick` / `HandleRequest` / `ConfigSnapshot` | `opMu` (then brief `s.mu` inside) | Control path uses `handleRequestLocked` (no re-lock) |
+| `Shutdown` | (1) `Stop` via `s.mu` (2) **HTTP `Close` without `opMu`** (3) `opMu` for control / inotify / unmount / store / pidfile | HTTP handlers call `HandleRequest` / `ConfigSnapshot` and need `opMu`; holding `opMu` across `web.Close` deadlocks. Control op `stop` only sets the flag under `opMu` — `Run` exits then defers `Shutdown` (does not re-enter `Shutdown` while holding `opMu`). |
+
+**Config readers:** `APIBackend.Config()` returns `Service.ConfigSnapshot()` — a deep `config.Clone` under `opMu` — so health / doctor / wsl-info do not race `doReload` / `config_set` mutating the live `*Config` in place.
 
 ### Phase 8 — service loop + doctor
 

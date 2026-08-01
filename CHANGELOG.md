@@ -7,31 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-01
+
+Correctness and operator UX after v0.1.3. Mount backend remains
+**ratarmount-rs only**.
+
 ### Added
 
-- CLI tests for exit mapping: `handleControlError` maps `PERMISSION_DENIED` →
-  exit **5** and `UNAVAILABLE` → exit **4**; auth-deny control socket
-  integration covers `status` / `reload` → exit **5** (`ExitPermission`).
-- Doctor **`--fix-systemd --dry-run`**: preview generated systemd drop-in unit
-  text (report notes + JSON `details.content`) without writing the drop-in.
-- **SPA Settings:** sticky process-restart banner when Apply returns non-empty
-  `restart_required` (e.g. `web_token` / other `web_*`). Survives Validate and
-  Reload until Dismiss; optional `sessionStorage`. Does **not** live-apply
-  `web_token` (serve-start capture unchanged). Playwright e2e coverage.
+- Doctor **`--fix-systemd --dry-run`**: preview drop-in unit text without writing.
+- SPA sticky **restart-required** banner after Settings Apply (`web_*` etc.).
+- CLI tests: control `PERMISSION_DENIED` → exit **5**; `UNAVAILABLE` → **4**.
+- Playwright e2e for nested-skip warn chip + subtitle on Archives.
 
 ### Fixed
 
-- Hooks hard-fail / soft-fail-retry preserve nested-automount skip advisories in
-  `last_error` (append `; skipped N nested mounts: …` via
-  `PreserveNestedSkipInReason`) so status/SPA `nested_skips_*` still derive after
-  hook failure; success re-extracts pure skip when prior `last_error` was
-  enriched by a fail/retry finish.
-- `metrics.Cache` concurrent safety: `sync.RWMutex` around the dual-key
-  `(archive_id, prefer_mount)` entries map (`Get` / `Put` / `Invalidate`).
-- Service control/HTTP: serialize `HandleRequest` with `Tick` via `opMu` so
-  concurrent HTTP ops cannot race Config/engine/scanner rematerialization;
-  control `ServeReady` uses `handleRequestLocked` (no re-lock deadlock).
-  `config_set` live-applies `doReload` once (no deferred second reload).
+- Hooks hard-fail/retry preserve nested-skip advisories in `last_error`.
+- `metrics.Cache` concurrent-safe (`RWMutex`); dual-key PreferMount unchanged.
+- Service `opMu`: serialize `Tick` + `HandleRequest`; `config_set` reloads once.
+- `Shutdown` + `ConfigSnapshot`/`APIBackend.Config` under safe locking (race tests).
 
 ## [0.1.3] - 2026-08-01
 
@@ -163,7 +156,8 @@ feature-complete orchestrator with multi-arch packaging.
 - Engines not bundled: install **ratarmount-rs**, fuse3/macFUSE, optional
   archiveconverter and 7z separately.
 
-[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.4
 [0.1.3]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.3
 [0.1.2]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.2
 [0.1.1]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.1

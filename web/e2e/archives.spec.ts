@@ -2,7 +2,10 @@ import { expect, test } from '@playwright/test'
 import {
   MOCK_ARCHIVE_ROWS,
   MOCK_FAILED_ARCHIVE,
+  MOCK_FAILED_WITH_NESTED_SKIP_ERROR,
   MOCK_MOUNTED_ARCHIVE,
+  MOCK_MOUNTED_WITH_NESTED_SKIPS,
+  MOCK_NESTED_SKIP_ARCHIVE_ROWS,
   acceptNextDialog,
   mockShellApi,
   type ActionPostCall,
@@ -108,5 +111,36 @@ test.describe('Archives table + actions (mocked API)', () => {
       yes: true,
     })
     await expect(page.locator('.toast-stack')).toContainText(/Purged/i)
+  })
+
+  test('mounted row shows nested skips warning chip and subtitle', async ({ page }) => {
+    await mockShellApi(page, { archives: MOCK_NESTED_SKIP_ARCHIVE_ROWS })
+    await page.goto('/')
+
+    const mountedRow = page.locator('table.archives tbody tr').filter({
+      hasText: MOCK_MOUNTED_WITH_NESTED_SKIPS.archive_basename,
+    })
+    await expect(mountedRow).toBeVisible()
+    await expect(mountedRow.locator('.status-chip.mounted')).toHaveText(/mounted/i)
+    await expect(mountedRow.locator('.status-chip.nested-skips')).toHaveText('2 nested skips')
+    // Mounted success: pure skip summary as subtitle under status (not failed last_error path).
+    await expect(mountedRow.locator('.path-sub.nested-skips-sub')).toHaveText(
+      MOCK_MOUNTED_WITH_NESTED_SKIPS.nested_skips_summary,
+    )
+  })
+
+  test('failed row shows enriched last_error with nested skip segment', async ({ page }) => {
+    await mockShellApi(page, { archives: MOCK_NESTED_SKIP_ARCHIVE_ROWS })
+    await page.goto('/')
+
+    const failedRow = page.locator('table.archives tbody tr').filter({
+      hasText: MOCK_FAILED_WITH_NESTED_SKIP_ERROR.archive_basename,
+    })
+    await expect(failedRow).toBeVisible()
+    await expect(failedRow.locator('.status-chip.mount_failed')).toHaveText(/mount_failed/i)
+    await expect(failedRow.locator('.status-chip.nested-skips')).toHaveText('1 nested skip')
+    // Failed rows prefer full last_error (enriched) over nested-skips-sub alone.
+    await expect(failedRow.locator('.path-sub')).toHaveText(MOCK_FAILED_WITH_NESTED_SKIP_ERROR.last_error)
+    await expect(failedRow.locator('.path-sub')).toContainText(/skipped 1 nested mount/)
   })
 })

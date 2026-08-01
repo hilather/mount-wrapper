@@ -257,18 +257,18 @@ Example formula: [`packaging/homebrew/mount-wrapper.rb.example`](../packaging/ho
 are filled). Prefer **release tarballs** (GoReleaser):
 
 ```text
-https://github.com/hilather/mount-wrapper/releases/download/v0.1.3/mount-wrapper_0.1.3_darwin_arm64.tar.gz
-https://github.com/hilather/mount-wrapper/releases/download/v0.1.3/mount-wrapper_0.1.3_darwin_amd64.tar.gz
+https://github.com/hilather/mount-wrapper/releases/download/v0.1.4/mount-wrapper_0.1.4_darwin_arm64.tar.gz
+https://github.com/hilather/mount-wrapper/releases/download/v0.1.4/mount-wrapper_0.1.4_darwin_amd64.tar.gz
 ```
 
-(`arm64` = Apple Silicon, `amd64` = Intel; version in the sketch tracks **0.1.3**
+(`arm64` = Apple Silicon, `amd64` = Intel; version in the sketch tracks **0.1.4**
 until the next release bump.)
 
 Fill both platform `sha256` values from `SHA256SUMS` with the helper script:
 
 ```bash
 # After make release-snapshot (or download SHA256SUMS from a GitHub Release):
-VERSION=0.1.3 SHA256SUMS=dist/SHA256SUMS \
+VERSION=0.1.4 SHA256SUMS=dist/SHA256SUMS \
   OUT=packaging/homebrew/mount-wrapper.rb \
   ./scripts/update-homebrew-formula.sh
 

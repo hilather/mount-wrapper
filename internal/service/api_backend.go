@@ -27,11 +27,13 @@ func (b *APIBackend) Version() string {
 }
 
 // Config implements api.Backend.
+// Returns a deep snapshot under Service.opMu so concurrent doReload cannot race
+// HTTP health/doctor/wsl-info readers of config fields.
 func (b *APIBackend) Config() *config.Config {
 	if b == nil || b.S == nil {
 		return nil
 	}
-	return b.S.Config
+	return b.S.ConfigSnapshot()
 }
 
 // Notify implements api.ChangeNotifier so SSE streams wake early after

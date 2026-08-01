@@ -5,11 +5,14 @@
 // Tick polls ServeReady, and Shutdown closes the socket. HandleRequest is the
 // shared op dispatcher used by the socket and HTTP/SSE (via APIBackend).
 //
-// opMu serializes Tick and external HandleRequest so Config/engine/scanner
-// mutations cannot race concurrent HTTP control ops. ServeReady runs only
-// under Tick while opMu is held; the control Handler is handleRequestLocked
-// (no re-lock) to avoid deadlock. config_set live-applies doReload once and
-// does not also RequestReload for the next tick.
+// opMu serializes Tick, external HandleRequest, ConfigSnapshot, and the bulk of
+// Shutdown so Config/engine/scanner mutations cannot race concurrent HTTP ops or
+// teardown. ServeReady runs only under Tick while opMu is held; the control
+// Handler is handleRequestLocked (no re-lock) to avoid deadlock. config_set
+// live-applies doReload once and does not also RequestReload for the next tick.
+// Shutdown closes HTTP without opMu first (handlers need opMu), then takes opMu
+// for control/inotify/unmount/store teardown. APIBackend.Config returns
+// ConfigSnapshot (deep copy), not the live s.Config pointer.
 //
 // Start and doReload apply slog log_level (MOUNT_WRAPPER_LOG_LEVEL env
 // override) and sync the Linux inotify watcher from use_inotify + mapped

@@ -681,3 +681,129 @@ func TestConcurrentConfigSetAndTick(t *testing.T) {
 	}
 	_ = config.ApplyLogLevel("INFO")
 }
+
+// TestConcurrentHandleRequestAndShutdown races control ops with Shutdown under
+// -race. Shutdown must take opMu for teardown without deadlocking HTTP-style
+// HandleRequest (and double Shutdown from t.Cleanup must stay safe).
+func TestConcurrentHandleRequestAndShutdown(t *testing.T) {
+	svc, _ := testService(t)
+	svc.Config.UseInotify = false
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	const N = 60
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < N; i++ {
+			_ = svc.HandleRequest(map[string]any{"op": "status"})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < N; i++ {
+			ops := []map[string]any{
+				{"op": "config_get"},
+				{"op": "metrics"},
+				{"op": "reload"},
+			}
+			_ = svc.HandleRequest(ops[i%len(ops)])
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		// Let a few ops start, then tear down while they still run.
+		time.Sleep(5 * time.Millisecond)
+		svc.Shutdown()
+	}()
+	close(start)
+	wg.Wait()
+
+	// Post-shutdown ops should not panic (may error once store is gone).
+	_ = svc.HandleRequest(map[string]any{"op": "status"})
+	// Second Shutdown (also exercised by t.Cleanup) must be idempotent.
+	svc.Shutdown()
+}
+
+// TestConcurrentConfigReloadAndConfigSnapshot races doReload (via config_set /
+// scheduled reload+Tick) with ConfigSnapshot / APIBackend.Config readers under
+// -race. Snapshots must not share mutable slices with the live config.
+func TestConcurrentConfigReloadAndConfigSnapshot(t *testing.T) {
+	t.Setenv(config.LogLevelEnv, "")
+	svc, tmp := testService(t)
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	setupWritableConfig(t, svc, cfgPath)
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	backend := &service.APIBackend{S: svc}
+	const N = 50
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			svc.RequestReload()
+			svc.Tick()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			level := "INFO"
+			if i%2 == 0 {
+				level = "DEBUG"
+			}
+			_ = svc.HandleRequest(map[string]any{
+				"op": "config_set",
+				"patch": map[string]any{
+					"log_level": level,
+				},
+				"apply": true,
+			})
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			snap := svc.ConfigSnapshot()
+			if snap == nil {
+				t.Error("ConfigSnapshot returned nil")
+				return
+			}
+			// Touch fields/slices the race detector would flag on a shared pointer.
+			_ = snap.LogLevel
+			_ = len(snap.SourceDirs)
+			if len(snap.SourceDirs) > 0 {
+				_ = snap.SourceDirs[0]
+			}
+			_ = snap.ControlSocket
+			_ = snap.WebPort
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			cfg := backend.Config()
+			if cfg == nil {
+				t.Error("APIBackend.Config returned nil")
+				return
+			}
+			_ = cfg.LogLevel
+			_ = cfg.MountRoot
+			_ = len(cfg.SourceDirs)
+			// health-like path: snapshot then status under separate opMu acquires
+			_ = svc.HandleRequest(map[string]any{"op": "status"})
+		}
+	}()
+	wg.Wait()
+	_ = config.ApplyLogLevel("INFO")
+}

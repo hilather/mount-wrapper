@@ -124,7 +124,53 @@ export const MOCK_FAILED_ARCHIVE = {
   },
 }
 
+/**
+ * Mounted row with nested automount skips (status API nested_skips_* fields).
+ * SPA: warn chip "N nested skip(s)" + subtitle under status.
+ */
+export const MOCK_MOUNTED_WITH_NESTED_SKIPS = {
+  ...MOCK_MOUNTED_ARCHIVE,
+  archive_id: 'arc-mounted-nested-1',
+  archive_path: '/tmp/archives/demo-nested-skips.tar',
+  archive_basename: 'demo-nested-skips.tar',
+  mount_path: '/tmp/mount-wrapper/mounts/arc-mounted-nested-1',
+  index_path: '/tmp/mount-wrapper/indexes/arc-mounted-nested-1.sqlite',
+  nested_skips_count: 2,
+  nested_skips_summary: 'skipped 2 nested mounts: /inner/a.7z, /inner/b.7z',
+  last_error: 'skipped 2 nested mounts: /inner/a.7z, /inner/b.7z',
+  metrics: {
+    ...MOCK_MOUNTED_ARCHIVE.metrics,
+    archive_id: 'arc-mounted-nested-1',
+  },
+}
+
+/**
+ * Failed row with last_error enriched by nested-skip segment (MarkFailed path).
+ * SPA: full last_error under status (failed rows); chip when count is set.
+ */
+export const MOCK_FAILED_WITH_NESTED_SKIP_ERROR = {
+  ...MOCK_FAILED_ARCHIVE,
+  archive_id: 'arc-failed-nested-1',
+  archive_path: '/tmp/archives/demo-failed-nested.7z',
+  archive_basename: 'demo-failed-nested.7z',
+  index_path: '/tmp/mount-wrapper/indexes/arc-failed-nested-1.sqlite',
+  nested_skips_count: 1,
+  nested_skips_summary: 'skipped 1 nested mount: /inner/c.7z',
+  last_error:
+    'engine exit 1: fuse mount failed; skipped 1 nested mount: /inner/c.7z',
+  metrics: {
+    ...MOCK_FAILED_ARCHIVE.metrics,
+    archive_id: 'arc-failed-nested-1',
+  },
+}
+
 export const MOCK_ARCHIVE_ROWS = [MOCK_MOUNTED_ARCHIVE, MOCK_FAILED_ARCHIVE]
+
+/** Rows exercising nested-skip chip + failed last_error enrichment. */
+export const MOCK_NESTED_SKIP_ARCHIVE_ROWS = [
+  MOCK_MOUNTED_WITH_NESTED_SKIPS,
+  MOCK_FAILED_WITH_NESTED_SKIP_ERROR,
+]
 
 /**
  * Doctor report with check names aligned to internal/doctor inventory

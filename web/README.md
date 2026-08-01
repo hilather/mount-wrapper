@@ -25,8 +25,10 @@ Specs:
 | File | Coverage |
 |------|----------|
 | `e2e/smoke.spec.ts` | Archives heading + connection badge |
+| `e2e/archives.spec.ts` | Table rows + actions; nested skip chip/subtitle; failed `last_error` enrichment |
+| `e2e/doctor.spec.ts` | Doctor panel check names |
 | `e2e/settings.spec.ts` | Settings groups, Validate dry-run, Apply, sticky restart_required banner |
-| `e2e/helpers.ts` | Shared `page.route` mocks |
+| `e2e/helpers.ts` | Shared `page.route` mocks (incl. nested_skips mock rows) |
 
 Default CI `web-check` does **not** install browsers or set `RUN_E2E`.
 
