@@ -45,7 +45,8 @@ const (
 	CheckNameSystemdUnit = "systemd_unit"
 	// CheckNameLaunchdAgent is emitted on Darwin only. Best-effort launchctl
 	// list/print for the packaging example label (DefaultLaunchdLabel);
-	// not loaded / launchctl missing → warn (never hard-fail); loaded → info.
+	// not loaded / launchctl missing / unclassifiable → warn (never hard-fail);
+	// clear list/print loaded shape → info.
 	CheckNameLaunchdAgent = "launchd_agent"
 	// CheckNamePidfileLive is emitted when Config is non-nil and pid_file is
 	// non-empty. Stats the path, parses the PID, and probes process liveness;

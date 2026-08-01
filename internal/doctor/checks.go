@@ -587,8 +587,9 @@ func checkSystemdUnit(opts *Options) CheckResult {
 
 // checkLaunchdAgent best-effort probes launchctl list (then print) for the
 // packaging example user-agent label on Darwin. Skipped on non-Darwin.
-// Offline-safe: not loaded, not found, or missing launchctl are severity
-// warn (never hard-fail). Loaded → info.
+// Offline-safe: not loaded, not found, missing launchctl, or unclassifiable
+// diagnostics are severity warn (never hard-fail). Clear list/print loaded
+// shape → info.
 func checkLaunchdAgent(opts *Options) CheckResult {
 	plat := opts.platform()
 	if !platform.IsDarwin(plat) {
@@ -651,6 +652,15 @@ func checkLaunchdAgent(opts *Options) CheckResult {
 			details)
 	}
 
+	// Require a clear list- or print-shaped loaded signal. Other non-empty
+	// text without not-loaded phrases is warn "cannot classify" (never
+	// hard-fail) rather than assuming loaded.
+	if !launchdOutputLooksLoaded(out, label) {
+		return warnCheck(name, false,
+			fmt.Sprintf("cannot classify launchd agent %s from launchctl output (see details)", label),
+			details)
+	}
+
 	details["loaded"] = true
 	msg := label + " is loaded"
 	// list LABEL typically: "PID\tStatus\tLabel" (PID may be "-").
@@ -665,6 +675,33 @@ func checkLaunchdAgent(opts *Options) CheckResult {
 		}
 	}
 	return infoCheck(name, msg, details)
+}
+
+// launchdOutputLooksLoaded reports whether launchctl list/print output has a
+// clear loaded shape for label: list fields include the label (PID Status
+// Label), or print-style "label = {" / first line starts with the label
+// (including domain-qualified "…/label = {").
+func launchdOutputLooksLoaded(out, label string) bool {
+	trimmed := strings.TrimSpace(out)
+	if trimmed == "" || label == "" {
+		return false
+	}
+	// print success: "label = {" (optionally after a domain prefix).
+	if strings.Contains(trimmed, label+" = {") || strings.Contains(trimmed, label+"={") {
+		return true
+	}
+	first := firstLine(trimmed)
+	if strings.HasPrefix(first, label) {
+		return true
+	}
+	// list LABEL: whitespace-separated fields; label is typically last, or a
+	// domain-qualified token ending in /label.
+	for _, f := range strings.Fields(first) {
+		if f == label || strings.HasSuffix(f, "/"+label) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkPidfileLive probes configured pid_file path existence, PID parse, and

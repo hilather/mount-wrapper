@@ -34,7 +34,7 @@ probes that never hard-fail offline:
 | **`control_socket_live`** | non-empty `control_socket` | missing sock / dial fail / auth denied (group `mount-wrapper` hint) | **info** with serve version when reachable |
 | **`pidfile_live`** | non-empty `pid_file` | missing path / invalid or stale PID | **info** when the PID is alive |
 | **`systemd_unit`** | Linux + systemd is PID 1 | unit inactive/failed/not-found or `systemctl` unavailable | **info** when `mount-wrapper.service` is active |
-| **`launchd_agent`** | Darwin only | agent not loaded or `launchctl` unavailable | **info** when `com.hilather.mount-wrapper` is loaded |
+| **`launchd_agent`** | Darwin only | agent not loaded, `launchctl` unavailable, or unclassifiable output | **info** when `com.hilather.mount-wrapper` has a clear list/print loaded shape |
 
 On hosts without systemd (or Darwin), **`systemd_unit`** is omitted; **`systemd_pid1`**
 still reports platform guidance. On non-Darwin hosts, **`launchd_agent`** is
@@ -71,6 +71,7 @@ go test -tags=fuse ./internal/mounter/ -count=1 -run TestRealFUSEMountUnmount -v
 |------|-----------------|
 | Nested outer 7z | `testdata/nested7z/SUP-36264-nested-mini.7z` with `convert_7z_nonsolid` + `scope: flatten` |
 | Zip with nested archives | Drop a zip containing `.tar.gz`/`.7z` members; `convert_zip_to_7z: true` |
+| Nested zip fixture | `testdata/nestedzip/nested-with-archives.zip` (committed; `payloads/inner.7z` + `bundle.tar.gz`). With `7z` on PATH and `convert_zip_to_7z: true`, expect stored `.7z` + convert metadata (unit path: `RunZipRepack` when 7z present) |
 | Solid 7z + archiveconverter | Enable `archiveconverter_*` if the tool is on PATH |
 
 ## Web UI
@@ -112,23 +113,27 @@ Expect `mount_wrapper_archive_size_bytes`, `…_index_size_bytes`,
 `…_extracted_size_bytes`, `…_space_saved_bytes` (and optional convert totals).
 No per-archive label sets.
 
-## Operator surfaces (v0.1.3)
+## Operator surfaces (through v0.1.6)
 
-Exercise the post–v0.1.2 operator polish before filing issues:
+Exercise operator polish (v0.1.3–v0.1.6) before filing issues. CLI control ops
+default to **human** stdout; add **`--json`** for the control payload.
 
 | Surface | How to check |
 |---------|----------------|
-| **CLI `reload`** | With serve running: `mount-wrapper reload --config …` → prints `reload scheduled` (exit 0). With `--json` → parseable control ack `{"reload":"scheduled"}`. Or `kill -HUP $(pidof mount-wrapper)`. |
-| **CLI `stop`** | With serve running: `mount-wrapper stop --config …` → prints `stop scheduled` (exit 0); serve exits and runs Shutdown. With `--json` → `{"stop":"scheduled"}`. Or `kill -TERM $(pidof mount-wrapper)`. |
+| **CLI human defaults** | With serve: `status` → multi-line human; `status --sizes` → human + sizes appendix (totals + per-archive); `metrics` → human summary + per-archive sizes. `rescan` / `retry ARCHIVE_ID` / `mount PATH` / `unmount --all` / `purge ARCHIVE_ID --yes` / `hooks list` / `hooks status ARCHIVE_ID` → operator success lines/summaries. Same ops with `--json` → parseable control JSON. |
+| **CLI `reload`** | `mount-wrapper reload --config …` → `reload scheduled` (exit 0). With `--json` → `{"reload":"scheduled"}`. Or `kill -HUP $(pidof mount-wrapper)`. |
+| **CLI `stop`** | `mount-wrapper stop --config …` → `stop scheduled` (exit 0); serve exits and runs Shutdown. With `--json` → `{"stop":"scheduled"}`. Or `kill -TERM $(pidof mount-wrapper)`. |
 | **`log_level` hot-reload** | Set `log_level: DEBUG` in config YAML, `reload`, confirm slog verbosity changes without process restart. Env `MOUNT_WRAPPER_LOG_LEVEL` still overrides while set. |
 | **CLI `hooks rerun`** | On a **mounted** archive with terminal `hooks_status=success`: `mount-wrapper hooks rerun ARCHIVE_ID` → human `hooks skipped …` (exit 0). Then `… --force` (or `--json`) → `hooks ran … hooks_status=success` (or JSON `ran:true`). Failed status without `hook_rerun_on_failure` also skips unless `--force`. |
 | **SPA hooks force re-run** | Open Archives → row **Hooks** drawer. **Re-run** on terminal success → toast `Hooks skipped` (no force). **Force re-run** → confirm → toast `Hooks ran` (or API error). Same as `POST /api/hooks` `{archive_id, force}`. |
 | **SSE deltas** | Web UI open with badge **`live (SSE)`**: change one archive status (rescan / unmount single row) and confirm Archives table patches that row without a full wipe/flash; badge stays `live (SSE)`. Stop/block `/api/events` briefly and confirm badge moves to **`reconnecting`** / **`poll (SSE down)`** while data still refreshes via poll. |
 | **Nested skip (remount if known)** | Mount an outer archive that triggers nested automount skips. Confirm chip/summary on **mounted** status. If the archive is already known/mounted, **unmount + remount** (or restart serve with boot remount) and confirm skip advisory still appears after remount/hooks success. |
+| **Doctor live probes** | With `control_socket` / `pid_file` set: `doctor --json` → `control_socket_live`, `pidfile_live` (and on Linux/systemd PID 1: `systemd_unit`; on Darwin: `launchd_agent`). Offline/unreachable → **warn**, never hard-fail; live → **info**. See [Smoke](#smoke-no-fuse) table. |
+| **Prometheus size gauges** | `GET /metrics` (or `curl …/metrics \| grep mount_wrapper_`) → aggregate `archive` / `index` / `extracted` / `space_saved` size gauges (no per-archive labels). May be slower than count-only status. See [Web UI](#web-ui) scrape examples. |
 
 Also re-check convert paths and Web UI smoke above when those features are in scope.
 
-## File bugs for v0.1.3 (released)
+## File bugs for v0.1.6 (released)
 
 Capture at least:
 
@@ -136,8 +141,9 @@ Capture at least:
 - Config snippet (redact paths if needed)  
 - Engine binary versions  
 - Log lines around `event=` / `last_error`  
-- Repro archive class (DrvFs path, solid 7z, zip nested, large index)  
-- Whether issue is on first mount vs remount / boot remount
+- Repro archive class (DrvFs path, solid 7z, zip nested / nestedzip, large index)  
+- Whether issue is on first mount vs remount / boot remount  
+- CLI human vs `--json` output mismatch (if reporting operator UX)
 
 ## CI coverage map
 

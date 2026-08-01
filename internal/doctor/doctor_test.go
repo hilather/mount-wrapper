@@ -743,6 +743,105 @@ func TestDoctorCheckInventory(t *testing.T) {
 			},
 		},
 		{
+			// list empty+err → fall back to print success shape → info loaded.
+			name: "launchd_agent_list_err_print_loaded_info",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.platform = "darwin"
+				e.exists["/Library/Filesystems/macfuse.fs"] = true
+				e.which["umount"] = "/usr/bin/umount"
+				e.launchctlErr["list "+doctor.DefaultLaunchdLabel] = os.ErrPermission
+				e.launchctlOut["print "+doctor.DefaultLaunchdLabel] =
+					doctor.DefaultLaunchdLabel + " = {\n\tpath = /Users/me/Library/LaunchAgents/…\n}"
+				return nil
+			},
+			required:     []string{doctor.CheckNameLaunchdAgent},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameLaunchdAgent)
+				if !c.OK || c.Severity != doctor.SeverityInfo {
+					t.Fatalf("want print-fallback loaded info: %+v", c)
+				}
+				if !strings.Contains(c.Message, "loaded") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if probe, _ := c.Details["probe"].(string); probe != "print" {
+					t.Fatalf("details.probe=%v want print", c.Details["probe"])
+				}
+				if loaded, _ := c.Details["loaded"].(bool); !loaded {
+					t.Fatalf("details.loaded=%v", c.Details["loaded"])
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("print-fallback loaded must not hard-fail")
+				}
+			},
+		},
+		{
+			// list empty+err → print not-loaded diagnostic → warn.
+			name: "launchd_agent_list_err_print_not_loaded_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.platform = "darwin"
+				e.exists["/Library/Filesystems/macfuse.fs"] = true
+				e.which["umount"] = "/usr/bin/umount"
+				e.launchctlErr["list "+doctor.DefaultLaunchdLabel] = os.ErrPermission
+				e.launchctlOut["print "+doctor.DefaultLaunchdLabel] =
+					`Could not find service "com.hilather.mount-wrapper" in domain for user`
+				return nil
+			},
+			required:     []string{doctor.CheckNameLaunchdAgent},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameLaunchdAgent)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want print-fallback not-loaded warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "not loaded") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if probe, _ := c.Details["probe"].(string); probe != "print" {
+					t.Fatalf("details.probe=%v want print", c.Details["probe"])
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("print-fallback not-loaded must not hard-fail")
+				}
+			},
+		},
+		{
+			// Non-empty diagnostics that are neither not-loaded phrases nor a
+			// clear list/print loaded shape → warn cannot classify (not info).
+			name: "launchd_agent_unclassifiable_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.platform = "darwin"
+				e.exists["/Library/Filesystems/macfuse.fs"] = true
+				e.which["umount"] = "/usr/bin/umount"
+				e.launchctlOut["list "+doctor.DefaultLaunchdLabel] =
+					"Usage: launchctl list [label]"
+				return nil
+			},
+			required:     []string{doctor.CheckNameLaunchdAgent},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameLaunchdAgent)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want unclassifiable warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "cannot classify") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if loaded, ok := c.Details["loaded"].(bool); ok && loaded {
+					t.Fatalf("details.loaded should not be true: %v", c.Details["loaded"])
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("unclassifiable must not hard-fail")
+				}
+			},
+		},
+		{
 			name: "launchd_agent_skipped_on_linux",
 			setup: func(t *testing.T, e *testEnv) *config.Config {
 				t.Helper()

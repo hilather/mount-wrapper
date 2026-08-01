@@ -68,8 +68,10 @@ limit). Severity is warn only (report still OK).
 
 On Darwin, doctor also emits **`launchd_agent`**: best-effort `launchctl list`
 (and `print` fallback) for Label **`com.hilather.mount-wrapper`** (packaging
-example). **info** when loaded; **warn** when not loaded or `launchctl` is
-missing — never hard-fails the report. Omitted on Linux.
+example). **info** when output has a clear loaded shape (list fields include
+the label, or print-style `label = {`); **warn** when not loaded, `launchctl`
+is missing, or the diagnostic cannot be classified — never hard-fails the
+report. Omitted on Linux.
 
 Unit tests that bind real Unix sockets use
 `internal/testutil.ShortUnixSocketPath` (short `/tmp` dir on Darwin) so

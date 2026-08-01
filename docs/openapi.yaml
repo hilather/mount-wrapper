@@ -5,7 +5,7 @@
 openapi: 3.0.3
 info:
   title: mount-wrapper HTTP API
-  version: 0.1.3
+  version: 0.1.6
   description: |
     Embedded operator API served by `mount-wrapper serve` when `web_enabled: true`.
     Default bind `127.0.0.1:8787`. Optional Bearer token (`web_token`) or `?token=` on GET.
@@ -371,7 +371,22 @@ paths:
     get:
       tags: [doctor]
       summary: Offline-style doctor report (in-process)
-      description: Does not require control socket; uses in-process config.
+      description: |
+        In-process doctor report (same inventory as CLI `mount-wrapper doctor`).
+        Does not require a running serve for core offline probes; uses in-process
+        config when available.
+
+        **Live/platform checks that never hard-fail** (warn when offline/unreachable
+        or inactive; report stays `ok: true` unless a true `severity=error` check fails):
+
+        | Check | When | Behavior |
+        |-------|------|----------|
+        | `control_socket_live` | config `control_socket` set | stat path + short control `status` dial; missing/dial fail/auth deny → warn |
+        | `pidfile_live` | config `pid_file` set | stat + PID parse + process liveness; missing/stale → warn |
+        | `systemd_unit` | Linux + systemd is PID 1 | best-effort `systemctl is-active` / `is-enabled` for `mount-wrapper.service` |
+        | `launchd_agent` | Darwin | best-effort `launchctl list` / `print` for `com.hilather.mount-wrapper`; clear loaded shape → info; not loaded / missing tool / unclassifiable → warn |
+
+        See `docs/architecture.md` (doctor inventory) and `internal/doctor`.
       security: [{ bearerAuth: [] }, {}]
       responses:
         "200":

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Hand-written OpenAPI (`docs/openapi.yaml`) **info.version** **0.1.6**;
+  `GET /api/doctor` description documents live/platform checks that never
+  hard-fail offline (`control_socket_live`, `pidfile_live`, `systemd_unit`,
+  `launchd_agent`). Codegen residual (D11) unchanged.
+- Doctor **`launchd_agent`** (Darwin): stricter **loaded** classification —
+  requires a clear `launchctl list` line containing Label
+  `com.hilather.mount-wrapper` or a `print` success shape (`label = {` /
+  starts with the label). Other non-empty diagnostics that are not
+  not-loaded phrases → **warn** “cannot classify” (never hard-fail; was
+  previously treated as loaded/info). `list` empty+err still falls back to
+  `print`.
+
 ## [0.1.6] - 2026-08-01
 
 Operator polish and convert/doctor inventory after v0.1.5. Mount backend remains

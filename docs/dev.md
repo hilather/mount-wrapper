@@ -234,7 +234,7 @@ Hand-written OpenAPI 3 document (D11 — **not** generated from Go or used for S
 
 | Item | Detail |
 |------|--------|
-| Spec | [openapi.yaml](./openapi.yaml) (`info.version` tracks API sketch; currently **0.1.3**) |
+| Spec | [openapi.yaml](./openapi.yaml) (`info.version` tracks API sketch; currently **0.1.6**) |
 | Schemas | `components.schemas` for Health, Status, Archive, Metrics, Config, Doctor, Hooks, WSLInfo, ErrorBody, RATE_LIMITED, etc. |
 | Sources of truth | `web/src/lib/types.ts`, `internal/api` handlers/SSE, `internal/status`, `internal/doctor`, `internal/metrics` |
 | Guard test | `TestOpenAPIDocument` in `internal/api` (loads YAML, asserts paths + schema keys + non–description-only 200s) |

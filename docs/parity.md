@@ -77,11 +77,11 @@ rot. Prefer fixing code over changing this list without evidence.
 | **Config.yaml package seed** | done | `seed-config.sh` via postinstall: copies example → `/etc/mount-wrapper/config.yaml` only if missing (never overwrites) |
 | **Homebrew tap** | residual | Formula sketch under `packaging/homebrew/` is **usable** (`brew install --formula` after `scripts/update-homebrew-formula.sh` fills `SHA256SUMS`); **tap** publish / CI brew install still residual |
 | **Playwright SPA smoke** | optional / local | Landed: `web/e2e` mocked `/api/*` — Archives shell, table rows + Retry/Unmount/Purge/Rescan/Unmount-all, Doctor panel checks, Settings validate/apply; `RUN_E2E=1` / optional CI job |
-| **OpenAPI / generated SPA client** | optional residual | Hand-written OpenAPI schemas in `docs/openapi.yaml` (richer; version 0.1.3) + hand-written TS (`api-types.ts` + `types.ts`, D11); **codegen / generated SPA client still residual** (keep open) |
+| **OpenAPI / generated SPA client** | optional residual | Hand-written OpenAPI schemas in `docs/openapi.yaml` (richer; version 0.1.6) + hand-written TS (`api-types.ts` + `types.ts`, D11); **codegen / generated SPA client still residual** (keep open) |
 | **Windows parent `o+x` traverse** | done (doctor) | Docs + packaging `create-user.sh` o+x; doctor **`windows_visible_parent_ox`** warns on Linux when `windows_visible` and ancestors lack o+x (`chmod o+x` hint); macOS info-only |
 | **Control socket live reachability** | done (doctor) | Doctor **`control_socket_live`**: stat + short `status` dial when `control_socket` set; missing serve / dial fail / `PERMISSION_DENIED` → warn (group hint); ok → info with version; never hard-fail |
 | **Pidfile / systemd unit liveness** | done (doctor) | Doctor **`pidfile_live`** (`pid_file` set: stat + PID + process alive) and **`systemd_unit`** (Linux + systemd PID1: `systemctl is-active`/`is-enabled` for `mount-wrapper.service`); offline → warn only |
-| **launchd agent liveness** | done (doctor) | Doctor **`launchd_agent`** (Darwin: `launchctl list`/`print` for `com.hilather.mount-wrapper`); not loaded / missing launchctl → warn; never hard-fail |
+| **launchd agent liveness** | done (doctor) | Doctor **`launchd_agent`** (Darwin: `launchctl list`/`print` for `com.hilather.mount-wrapper`); not loaded / missing launchctl / unclassifiable → warn; clear loaded shape → info; never hard-fail |
 | **Prometheus metrics endpoint** | done | `GET /metrics` hand-written text; loopback open / non-loopback token; aggregate size/savings gauges from `metrics_summary` |
 | **Separate `web` CLI** | n/a | Embedded serve (D4) by design |
 
