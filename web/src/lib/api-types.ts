@@ -19,6 +19,7 @@ export type {
   Counts,
   DoctorCheck,
   DoctorReport,
+  DoctorSeverity,
   HealthPayload,
   HookRow,
   HooksListResponse,

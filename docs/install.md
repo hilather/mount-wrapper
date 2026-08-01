@@ -36,6 +36,8 @@ Binary smoke (no FUSE; works on Ubuntu host, Rocky 8 via container, and macOS):
 ```bash
 make smoke
 make smoke-package     # nfpm deb content inventory (soft-skip without nfpm/dpkg-deb)
+# Always-on under make test: TestPackageTarInventory (synthetic tar + PACKAGE_TAR=)
+# PACKAGE_TAR=dist/…_linux_amd64.tar.gz SKIP_DEB=1 ./scripts/smoke-package-contents.sh
 make smoke-rocky        # docker/podman + rockylinux:8
 make smoke-musl         # Alpine musl/static build + smoke (optional D7 path)
 # On macOS (or anywhere with a built binary): ./scripts/smoke-binary.sh
@@ -238,18 +240,18 @@ Example formula: [`packaging/homebrew/mount-wrapper.rb.example`](../packaging/ho
 are filled). Prefer **release tarballs** (GoReleaser):
 
 ```text
-https://github.com/hilather/mount-wrapper/releases/download/v0.1.1/mount-wrapper_0.1.1_darwin_arm64.tar.gz
-https://github.com/hilather/mount-wrapper/releases/download/v0.1.1/mount-wrapper_0.1.1_darwin_amd64.tar.gz
+https://github.com/hilather/mount-wrapper/releases/download/v0.1.2/mount-wrapper_0.1.2_darwin_arm64.tar.gz
+https://github.com/hilather/mount-wrapper/releases/download/v0.1.2/mount-wrapper_0.1.2_darwin_amd64.tar.gz
 ```
 
-(`arm64` = Apple Silicon, `amd64` = Intel; version in the sketch tracks **0.1.1**
+(`arm64` = Apple Silicon, `amd64` = Intel; version in the sketch tracks **0.1.2**
 until the next release bump.)
 
 Fill both platform `sha256` values from `SHA256SUMS` with the helper script:
 
 ```bash
 # After make release-snapshot (or download SHA256SUMS from a GitHub Release):
-VERSION=0.1.1 SHA256SUMS=dist/SHA256SUMS \
+VERSION=0.1.2 SHA256SUMS=dist/SHA256SUMS \
   OUT=packaging/homebrew/mount-wrapper.rb \
   ./scripts/update-homebrew-formula.sh
 
@@ -340,13 +342,19 @@ make build
 VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p deb
 ```
 
-**Content inventory smoke** (no root install; asserts paths inside the `.deb`):
+**Content inventory smoke** (no root install; asserts package members):
 
 ```bash
-# Needs nfpm + dpkg-deb. Soft-skips (exit 0) if either is missing.
+# Deb path — needs nfpm + dpkg-deb. Soft-skips (exit 0) if either is missing.
 make smoke-package
 # CI / hard fail when tools should be present:
 REQUIRE_TOOLS=1 ./scripts/smoke-package-contents.sh --build
+
+# Tar path — no nfpm required. Inventories GoReleaser-relative members:
+PACKAGE_TAR=dist/mount-wrapper_*_linux_amd64.tar.gz SKIP_DEB=1 \
+  ./scripts/smoke-package-contents.sh
+# Or after snapshot: CHECK_TAR=1 ./scripts/smoke-package-contents.sh
+# Always-on under make test: TestPackageTarInventory (synthetic tar.gz + PACKAGE_TAR=)
 ```
 
 Required deb members checked by
@@ -361,10 +369,23 @@ Required deb members checked by
 | `/usr/share/mount-wrapper/create-user.sh` | service user/dirs |
 | `/usr/share/man/man1/mount-wrapper.1` | man page |
 
-Optional tar check: `CHECK_TAR=1` or `PACKAGE_TAR=dist/…_linux_amd64.tar.gz`
-(relative members under `packaging/…`). CI job **package-contents-smoke** in
+Required **tar** members (`REQUIRED_TAR_MEMBERS`, GoReleaser
+`archives.files` relative layout — not FHS):
+
+| Member | Role |
+|--------|------|
+| `mount-wrapper` | binary |
+| `packaging/systemd/mount-wrapper.service` | unit |
+| `packaging/examples/config.yaml.example` | config example |
+| `packaging/scripts/seed-config.sh` | first-install seed |
+| `packaging/scripts/create-user.sh` | service user/dirs |
+| `packaging/man/mount-wrapper.1` | man page |
+
+`PACKAGE_TAR=` alone runs tar checks without nfpm (`SKIP_DEB=1` / `--tar-only`
+skips deb even when tools are present). CI job **package-contents-smoke** in
 [`smoke.yml`](../.github/workflows/smoke.yml) installs nfpm and runs the script
-with `REQUIRE_TOOLS=1`.
+with `REQUIRE_TOOLS=1` for the deb path; unit tests always cover tar members via
+`TestPackageTarInventory`.
 
 [`packaging/nfpm.yaml`](../packaging/nfpm.yaml) ships the binary, unit, man page,
 examples (including `config.debug.yaml.example`), `LICENSE`, `create-user.sh`, and
@@ -391,7 +412,7 @@ sha256sum -c SHA256SUMS
 - Automated Homebrew **tap** publish (formula sketch + `scripts/update-homebrew-formula.sh` are usable locally; deb/rpm + musl tarballs already publish on `v*` via `release.yml`)  
 - macOS CI with **macFUSE** (default CI is unit + binary smoke only; see [dev.md](./dev.md))  
 - Notarized macOS app / automatic macFUSE install  
-- Default package-contents smoke is **deb-only** (`packaging/nfpm.yaml`); tar member checks need `CHECK_TAR=1` / `PACKAGE_TAR=` after a fresh `release-snapshot` (stale `dist/` archives may predate new files such as `seed-config.sh`)
+- Operator-facing package-contents Makefile target is still **deb-first** (`make smoke-package`); release tar under `dist/` still needs a fresh `release-snapshot` for `CHECK_TAR=1` (stale archives may predate new files). Synthetic tar inventory is always covered by `TestPackageTarInventory`
 
 ---
 

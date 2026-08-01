@@ -37,6 +37,7 @@ help:
 	@echo "  make smoke-musl  Alpine musl/static build + binary smoke (docker/podman)"
 	@echo "  make smoke-package  Deb content inventory (nfpm + dpkg-deb; soft-skip if missing)"
 	@echo "  make package-contents-smoke  Alias of smoke-package"
+	@echo "  # tar-only (no nfpm): PACKAGE_TAR=… SKIP_DEB=1 ./scripts/smoke-package-contents.sh"
 	@echo "  make clean       Remove bin/, dist/, and web/dist"
 
 build:
@@ -120,7 +121,8 @@ smoke-musl: build-musl
 
 # Deb content inventory via packaging/nfpm.yaml + dpkg-deb -c.
 # Soft-skips (exit 0) when nfpm or dpkg-deb is missing; CI sets REQUIRE_TOOLS=1.
-# Optional tar: CHECK_TAR=1 or PACKAGE_TAR=path/to.tar.gz.
+# Tar-only (no nfpm): PACKAGE_TAR=path/to.tar.gz SKIP_DEB=1 ./scripts/smoke-package-contents.sh
+# Always-on under make test: TestPackageTarInventory (synthetic tar + PACKAGE_TAR=).
 smoke-package package-contents-smoke:
 	./scripts/smoke-package-contents.sh --build
 

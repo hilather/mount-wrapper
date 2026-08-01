@@ -7,105 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-01
+
+Patch after v0.1.1: convert outer-cache production path, packaging inventory,
+doctor contracts, SPA e2e, and operator install polish. Mount backend remains
+**ratarmount-rs only**.
+
 ### Added
 
-- **Package content inventory smoke:** `scripts/smoke-package-contents.sh` builds a
-  `.deb` via `packaging/nfpm.yaml` and asserts required paths with `dpkg-deb -c`
-  (binary, systemd unit, config example, `seed-config.sh`, `create-user.sh`, man
-  page). Soft-skips when `nfpm`/`dpkg-deb` missing; `REQUIRE_TOOLS=1` for CI.
-  Makefile targets `smoke-package` / `package-contents-smoke`; Go test
-  `TestPackageContentsInventory` skips without tools; `smoke.yml` job
-  **package-contents-smoke** installs nfpm. Standalone `nfpm.yaml` aligned with
-  goreleaser for `config.debug.yaml.example` + `LICENSE`.
-- **OpenAPI response schemas (hand-written, D11):** `docs/openapi.yaml` bumped to
-  **0.1.2** with `components.schemas` for Health, Status, Archive, Metrics,
-  Config, Doctor, Hooks, WSLInfo, ErrorBody, and shared 401/429 (`RATE_LIMITED`)
-  responses; path 200s use `$ref` / content schemas (not description-only).
-  Guard: `TestOpenAPIDocument` (`internal/api`). SPA client **codegen** still
-  residual — operators/agents use the YAML + hand-written TS types.
-- **Doctor check-name / severity inventory freeze:** `internal/doctor/inventory.go`
-  exports `CoreCheckNames` and gated `CheckName*` constants (keep in sync with
-  `Run`). `TestDoctorCheckInventory` asserts always-on order, config/platform
-  gating (`web_bind_security`, `convert_cache_dir`,
-  `path.archiveconverter_output_dir`, Darwin `control_socket_path_length`), and
-  that new probes **warn** without hard-failing the report. SPA e2e
-  `MOCK_DOCTOR_REPORT` uses real check IDs (`ratarmount_bin`, `disk.index_dir`).
-  Docs: `docs/architecture.md` inventory table.
-- **Doctor security / convert / Darwin path checks:**
-  - `web_bind_security` — when `web_enabled` and `web_host` is non-loopback with
-    empty `web_token`, **warn** (not hard-fail); loopback may omit the token.
-  - `convert_cache_dir` — when `convert_7z_nonsolid` or `convert_zip_to_7z` is
-    on, probe resolved `convert_7z_cache_dir` / default nonsolid cache exists or
-    parent writable; skip when both convert flags are off. When
-    `archiveconverter_enabled`, also probe `path.archiveconverter_output_dir`.
-  - `control_socket_path_length` (Darwin only) — **warn** if `control_socket`
-    path length exceeds 100 bytes (sun_path ~104). See `docs/security.md`,
-    `docs/macos.md`, `docs/architecture.md`.
-- **Homebrew formula ship-ready sketch:** `packaging/homebrew/mount-wrapper.rb.example`
-  tracks version **0.1.1**, GoReleaser darwin amd64+arm64 tarball URLs,
-  ratarmount-rs-only caveats (no Python ratarmount), macFUSE, Application
-  Support config path, and short control socket under Caches. Helper
-  `scripts/update-homebrew-formula.sh` rewrites `version` + `sha256` from
-  `SHA256SUMS` (or args). Tap publish remains residual; local
-  `brew install --formula` after digest fill-in is supported (not run in CI).
-- **SPA Playwright e2e:** archives table (mounted + `mount_failed`), Retry/Unmount/
-  Purge/Rescan/Unmount-all POST body asserts + confirm/toasts, Doctor panel
-  check names (`web/e2e/archives.spec.ts`, `doctor.spec.ts`; extended
-  `mockShellApi`). Still gated by `RUN_E2E=1`.
-- **Outer nonsolid cache hygiene (cleaner):** each cleaner `Run` pass under
-  `convert_7z_cache_dir` / `DefaultNonsolidCacheDir` always strips leftover
-  `*.nonsolid.partial` and `*.nonsolid.partial.work`, removes stale `*.lock`
-  when the sibling `*.7z` is missing (skip if flock held), and age-prunes
-  orphaned `*.7z` (+ `*.tarmount-convert.json` / `.lock`) older than
-  **`cleanup_after`** (reused; no new config key). Deletes only under the
-  cache root; optional `LivePaths` skip for age prune.
-- **Outer cache convert stats on mount claim:** when `beginMountProcess`
-  successfully uses `EnsureNonsolidCachedCopy` and the mount path differs from
-  the store source, the claim `Transition` writes `convert_source_size_bytes` /
-  `convert_duration_seconds` if those columns are still nil — prefer the
-  sidecar next to the cache dest; fall back to source `Stat` for size only
-  (no invented duration on cache hit without sidecar). Complements convert-job
-  store fields and live `ConvertSidecarMeta` reads for durable SPA/status.
-- **Outer nonsolid cache flock:** `EnsureNonsolidCachedCopy` takes a blocking
-  exclusive flock on `{cacheKey}.lock` around re-check hit + free-space gate +
-  populate (Python `ensure_nonsolid_cached_copy` parity), so concurrent mounts
-  of the same solid outer 7z do not race populate.
-- **Convert metrics sidecar wiring:** serve-time `metrics.Collector` uses
-  `service.ConvertSidecarMeta` so SPA/status savings and convert duration come
-  from `.tarmount-convert.json` next to `archive_path` (or outer nonsolid cache
-  dest) when store convert columns are incomplete (store fields still preferred
-  when both are set).
-- **Package first-install config seed:** `packaging/scripts/seed-config.sh`
-  (invoked from `nfpm-postinstall.sh`) copies
-  `/usr/share/mount-wrapper/config.yaml.example` →
-  `/etc/mount-wrapper/config.yaml` only when the dest is missing — never
-  overwrites operator config. Shipped under `/usr/share/mount-wrapper/`;
-  supports `MW_ROOT=` for unit tests without root.
+#### Convert / metrics
+- Outer nonsolid cache **flock** on `{cacheKey}.lock` (concurrent populate safe).
+- Convert **metrics sidecar** wiring (`ConvertSidecarMeta`) + store convert
+  columns on mount claim when cache path differs from source.
+- Outer-cache **edge hardening** (fail-closed `7z l`, size floor, partial
+  cleanup, encrypted extract messaging).
+- Cleaner **nonsolid cache hygiene** (partials, stale locks, age prune via
+  `cleanup_after`).
+
+#### Packaging / install
+- First-install **config seed** (`seed-config.sh`, never overwrites).
+- Deb package content smoke (`scripts/smoke-package-contents.sh`, CI job) +
+  always-on **tar member inventory** fixture under `make test`.
+- Homebrew formula sketch **0.1.2** + `scripts/update-homebrew-formula.sh`
+  (tap publish still residual).
+
+#### Doctor / API / SPA
+- Doctor probes: `web_bind_security`, `convert_cache_dir`, Darwin
+  `control_socket_path_length`; check-name inventory freeze; JSON structural
+  golden; SPA `DoctorReport` types tightened.
+- Hand-written OpenAPI **0.1.3** with response schemas (codegen residual).
+- Playwright e2e: archives actions + doctor panel (`RUN_E2E=1`).
 
 ### Fixed
 
-- **Outer nonsolid cache edge hardening:** `EnsureNonsolidCachedCopy` fails
-  closed on `7z l` error/empty (no silent non-solid passthrough), rejects
-  under-floor populate output via `FlattenMinOKSize` (removes bad dest),
-  cleans leftover `*.nonsolid.partial` / `*.work` before populate, and
-  surfaces `Encrypted7zMessage` when extract/create stderr indicates
-  encryption. Stream-flatten / full solid-folder parse still deferred.
-- **macOS CI:** control/service unit tests bind Unix sockets under a short
-  `/tmp` path on Darwin so `sun_path` (~104 bytes) is not exceeded by long
-  GitHub Actions `t.TempDir()` paths (`internal/testutil.ShortUnixSocketPath`).
-  CI also sets `TMPDIR=/tmp` and posts package-level failures as commit comments.
-- **macOS CI root cause:** `tools/parity/cli_surface.sh` failed `bash -n` under
-  macOS bash 3.2 (heredoc-in-`$()` + nested quotes). Parse via
-  `tools/parity/parse_upstream_cli.py`; drop `declare -A` for linear membership.
-- **Doctor (macOS):** `systemd_pid1` no longer suggests `serve --foreground`
-  (flag does not exist); points at login-user serve + launchd example.
+- macOS CI: bash 3.2 parity script parse; short Unix socket test paths;
+  doctor no longer suggests `serve --foreground`.
 
 ### Changed
 
-- **Packaging docs/TODO:** mark deb/rpm + postinstall + config seed as done on
-  `v*` releases; residual is Homebrew tap automation.
-- **Drift guard:** `TestSettingsSchemaMatchesPublicKeys` keeps SPA
-  `settings-schema.ts` aligned with `config.PublicKeys()`.
+- Packaging docs mark deb/rpm + postinstall + config seed done on `v*` tags.
+- SPA settings schema drift guard vs `config.PublicKeys()`.
 
 ## [0.1.1] - 2026-08-01
 
@@ -167,6 +108,7 @@ feature-complete orchestrator with multi-arch packaging.
 - Engines not bundled: install **ratarmount-rs**, fuse3/macFUSE, optional
   archiveconverter and 7z separately.
 
-[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.2
 [0.1.1]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.1
 [0.1.0]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.0

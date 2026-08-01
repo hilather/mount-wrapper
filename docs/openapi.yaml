@@ -5,7 +5,7 @@
 openapi: 3.0.3
 info:
   title: mount-wrapper HTTP API
-  version: 0.1.2
+  version: 0.1.3
   description: |
     Embedded operator API served by `mount-wrapper serve` when `web_enabled: true`.
     Default bind `127.0.0.1:8787`. Optional Bearer token (`web_token`) or `?token=` on GET.
@@ -872,36 +872,50 @@ components:
             additionalProperties: true
       additionalProperties: true
 
+    # DoctorCheck / DoctorReport match internal/doctor Report.ToMap + FormatJSON
+    # (CLI --json and GET /api/doctor). Root always has ok, checks, config_path
+    # (null when empty), notes, fixes_applied (arrays, never null). Each check
+    # always has name, ok, severity, message, details (details never null).
     DoctorCheck:
       type: object
-      required: [name, ok, message]
+      required: [name, ok, severity, message, details]
       properties:
         name: { type: string }
         ok: { type: boolean }
         severity:
           type: string
-          description: info | warn | error
+          enum: [info, warn, error]
+          description: info | warn | error (HardFail only when ok=false and error)
         message: { type: string }
         details:
           type: object
           additionalProperties: true
+          description: Extra probe data; empty object when none (never null)
       additionalProperties: true
 
     DoctorReport:
       type: object
+      required: [ok, checks, config_path, notes, fixes_applied]
       properties:
-        ok: { type: boolean }
+        ok:
+          type: boolean
+          description: false only when any check has severity=error and ok=false
         checks:
           type: array
           items:
             $ref: "#/components/schemas/DoctorCheck"
-        config_path: { type: string, nullable: true }
+        config_path:
+          type: string
+          nullable: true
+          description: Loaded config path; JSON null when no config
         notes:
           type: array
           items: { type: string }
+          description: Operator notes (always an array, may be empty)
         fixes_applied:
           type: array
           items: { type: string }
+          description: Actions taken (e.g. --fix-systemd); always an array
       additionalProperties: true
 
     WSLInfo:

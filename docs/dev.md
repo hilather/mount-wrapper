@@ -25,9 +25,10 @@ Security notes for operators: [security.md](./security.md). Field-test: [field-t
 
 ```bash
 # Go
-make test
+make test          # includes TestPackageTarInventory (synthetic tar + PACKAGE_TAR=; no nfpm)
 make smoke         # version + doctor + serve --once
 # make smoke-package  # nfpm deb path inventory (soft-skip without nfpm/dpkg-deb)
+# PACKAGE_TAR=dist/…_linux_amd64.tar.gz SKIP_DEB=1 ./scripts/smoke-package-contents.sh
 # make smoke-rocky # docker/podman + rockylinux:8
 # make build-musl / smoke-musl  # optional D7 Alpine static path (docker/podman)
 # Optional real-FUSE integration (skipped without /dev/fuse or engine on PATH):
@@ -193,7 +194,7 @@ Hand-written OpenAPI 3 document (D11 — **not** generated from Go or used for S
 
 | Item | Detail |
 |------|--------|
-| Spec | [openapi.yaml](./openapi.yaml) (`info.version` tracks API sketch; currently **0.1.2**) |
+| Spec | [openapi.yaml](./openapi.yaml) (`info.version` tracks API sketch; currently **0.1.3**) |
 | Schemas | `components.schemas` for Health, Status, Archive, Metrics, Config, Doctor, Hooks, WSLInfo, ErrorBody, RATE_LIMITED, etc. |
 | Sources of truth | `web/src/lib/types.ts`, `internal/api` handlers/SSE, `internal/status`, `internal/doctor`, `internal/metrics` |
 | Guard test | `TestOpenAPIDocument` in `internal/api` (loads YAML, asserts paths + schema keys + non–description-only 200s) |

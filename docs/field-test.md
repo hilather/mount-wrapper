@@ -60,7 +60,7 @@ With `web_enabled: true`:
 
 Prometheus: `curl -sS http://127.0.0.1:8787/metrics | head`
 
-## File bugs for v0.1.1
+## File bugs for v0.1.2
 
 Capture at least:
 

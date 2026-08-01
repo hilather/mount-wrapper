@@ -133,18 +133,33 @@ export interface WSLInfo {
   hint?: string
 }
 
+/** Doctor check severity — matches internal/doctor Severity* and OpenAPI enum. */
+export type DoctorSeverity = 'info' | 'warn' | 'error'
+
+/**
+ * One diagnostic row from `GET /api/doctor` / `doctor.FormatJSON`.
+ * Aligned with docs/openapi.yaml `DoctorCheck` and Go `CheckResult` / ToMap
+ * (always includes name, ok, severity, message, details — details never null).
+ */
 export interface DoctorCheck {
-  ok: boolean
-  severity?: string
   name: string
+  ok: boolean
+  severity: DoctorSeverity
   message: string
-  [key: string]: unknown
+  details: Record<string, unknown>
 }
 
+/**
+ * Aggregate doctor payload. Root keys match `Report.ToMap`: ok, checks,
+ * config_path (string|null), notes, fixes_applied (arrays, never null).
+ * Aligned with docs/openapi.yaml `DoctorReport`.
+ */
 export interface DoctorReport {
-  ok?: boolean
-  checks?: DoctorCheck[]
-  [key: string]: unknown
+  ok: boolean
+  checks: DoctorCheck[]
+  config_path?: string | null
+  notes: string[]
+  fixes_applied: string[]
 }
 
 export interface ConfigGetResponse {

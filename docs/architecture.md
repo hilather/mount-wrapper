@@ -217,6 +217,8 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 
 **Doctor API:** `Run(Options) *Report` with injectable probes. Formatters: `FormatText`, `FormatJSON`, `Report.ToMap`. Systemd: `BuildSystemdDropin` / `ApplyFixSystemd`. Inventory contract: `CoreCheckNames` + `CheckName*` in `internal/doctor/inventory.go` (frozen by `TestDoctorCheckInventory`).
 
+**JSON shape (`ToMap` / `FormatJSON` / `GET /api/doctor`):** root keys always `ok`, `checks`, `config_path` (JSON `null` when empty), `notes`, `fixes_applied` (arrays, never null). Each check always has `name`, `ok`, `severity` (`info`|`warn`|`error`), `message`, `details` (object, never null). Structural golden: `TestDoctorFormatJSONStructural` (key sets + severity policy + gated names; not full message goldens). OpenAPI `DoctorReport` / `DoctorCheck` and SPA `web/src/lib/types.ts` mirror this.
+
 **Hard fail:** only `severity=error` + `ok=false`. Missing optional tools / FUSE / open non-loopback web bind / convert cache path issues / long Darwin control socket are **warn** (report still `ok: true`).
 
 **Doctor check inventory (Run order):**

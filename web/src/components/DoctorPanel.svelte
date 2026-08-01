@@ -34,6 +34,8 @@
 
   const checks = $derived(report?.checks ?? [])
   const bad = $derived(checks.filter((c) => !c.ok))
+  const notes = $derived(report?.notes ?? [])
+  const fixes = $derived(report?.fixes_applied ?? [])
 </script>
 
 {#if open}
@@ -61,9 +63,15 @@
       </div>
       <pre class="mono open doctor-list"
         >{checks
-          .map((c) => `${c.ok ? 'ok' : '!!'} [${c.severity ?? ''}] ${c.name}: ${c.message}`)
+          .map((c) => `${c.ok ? 'ok' : '!!'} [${c.severity}] ${c.name}: ${c.message}`)
           .join('\n')}</pre
       >
+      {#if notes.length > 0}
+        <p class="muted">Notes: {notes.join('; ')}</p>
+      {/if}
+      {#if fixes.length > 0}
+        <p class="muted">Fixes applied: {fixes.join('; ')}</p>
+      {/if}
       <button type="button" class="linkish" onclick={() => (showJson = !showJson)}>
         {showJson ? 'Hide raw JSON' : 'Show raw JSON'}
       </button>

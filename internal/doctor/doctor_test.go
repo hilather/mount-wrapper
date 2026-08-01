@@ -990,6 +990,588 @@ func TestFormatTextAndJSON(t *testing.T) {
 	}
 }
 
+// doctorReportTopKeys is the frozen ToMap / FormatJSON root object key set
+// (order independent). Keep in sync with Report.ToMap and docs/openapi.yaml
+// DoctorReport.
+var doctorReportTopKeys = []string{
+	"ok", "checks", "config_path", "notes", "fixes_applied",
+}
+
+// doctorCheckKeys is the frozen per-check object key set.
+var doctorCheckKeys = []string{
+	"name", "ok", "severity", "message", "details",
+}
+
+var doctorAllowedSeverities = map[string]struct{}{
+	doctor.SeverityInfo:  {},
+	doctor.SeverityWarn:  {},
+	doctor.SeverityError: {},
+}
+
+// assertDoctorMapShape freezes the JSON/map contract without full message goldens:
+// root key set, array types, per-check keys, severity enum, and one-way
+// HardFail policy (ok=true is invalid when any check is ok=false severity=error).
+// Bidirectional OK vs HardFail is asserted separately for Run-produced reports.
+func assertDoctorMapShape(t *testing.T, m map[string]any) {
+	t.Helper()
+	if m == nil {
+		t.Fatal("nil map")
+	}
+	wantKeys := make(map[string]struct{}, len(doctorReportTopKeys))
+	for _, k := range doctorReportTopKeys {
+		wantKeys[k] = struct{}{}
+	}
+	if len(m) != len(wantKeys) {
+		t.Errorf("root key count=%d want %d; keys=%v", len(m), len(wantKeys), mapKeys(m))
+	}
+	for k := range m {
+		if _, ok := wantKeys[k]; !ok {
+			t.Errorf("unexpected root key %q", k)
+		}
+	}
+	for _, k := range doctorReportTopKeys {
+		if _, ok := m[k]; !ok {
+			t.Errorf("missing root key %q", k)
+		}
+	}
+
+	okVal, ok := m["ok"].(bool)
+	if !ok {
+		t.Fatalf("ok: want bool, got %T (%v)", m["ok"], m["ok"])
+	}
+
+	checks, ok := m["checks"].([]any)
+	if !ok {
+		t.Fatalf("checks: want array, got %T", m["checks"])
+	}
+	// ToMap may store []string; FormatJSON re-parse yields []any — accept both.
+	notes, ok := asStringAnySlice(m["notes"])
+	if !ok {
+		t.Fatalf("notes: want string array, got %T (must not be null)", m["notes"])
+	}
+	fixes, ok := asStringAnySlice(m["fixes_applied"])
+	if !ok {
+		t.Fatalf("fixes_applied: want string array, got %T (must not be null)", m["fixes_applied"])
+	}
+	for i, n := range notes {
+		if _, ok := n.(string); !ok {
+			t.Errorf("notes[%d]: want string, got %T", i, n)
+		}
+	}
+	for i, f := range fixes {
+		if _, ok := f.(string); !ok {
+			t.Errorf("fixes_applied[%d]: want string, got %T", i, f)
+		}
+	}
+	// config_path: string or JSON null only.
+	switch cp := m["config_path"].(type) {
+	case nil:
+		// empty / omitted path
+	case string:
+		if cp == "" {
+			t.Error("config_path empty string should be null in ToMap/FormatJSON")
+		}
+	default:
+		t.Errorf("config_path: want string|null, got %T", m["config_path"])
+	}
+
+	checkKeysWant := make(map[string]struct{}, len(doctorCheckKeys))
+	for _, k := range doctorCheckKeys {
+		checkKeysWant[k] = struct{}{}
+	}
+	hardFail := false
+	for i, raw := range checks {
+		c, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("checks[%d]: want object, got %T", i, raw)
+		}
+		if len(c) != len(checkKeysWant) {
+			t.Errorf("checks[%d] key count=%d want %d; keys=%v", i, len(c), len(checkKeysWant), mapKeys(c))
+		}
+		for k := range c {
+			if _, ok := checkKeysWant[k]; !ok {
+				t.Errorf("checks[%d]: unexpected key %q", i, k)
+			}
+		}
+		for _, k := range doctorCheckKeys {
+			if _, ok := c[k]; !ok {
+				t.Errorf("checks[%d]: missing key %q", i, k)
+			}
+		}
+		name, _ := c["name"].(string)
+		if name == "" {
+			t.Errorf("checks[%d]: name empty", i)
+		}
+		cok, ok := c["ok"].(bool)
+		if !ok {
+			t.Errorf("checks[%d].ok: want bool, got %T", i, c["ok"])
+		}
+		sev, _ := c["severity"].(string)
+		if _, ok := doctorAllowedSeverities[sev]; !ok {
+			t.Errorf("checks[%d] %q: severity %q not in {info,warn,error}", i, name, sev)
+		}
+		if _, ok := c["message"].(string); !ok {
+			t.Errorf("checks[%d] %q: message want string, got %T", i, name, c["message"])
+		}
+		// details never null — empty object when no extras.
+		if c["details"] == nil {
+			t.Errorf("checks[%d] %q: details is null; want object", i, name)
+		} else if _, ok := c["details"].(map[string]any); !ok {
+			t.Errorf("checks[%d] %q: details want object, got %T", i, name, c["details"])
+		}
+		if !cok && sev == doctor.SeverityError {
+			hardFail = true
+		}
+	}
+	// Severity policy: report ok must not be true when any HardFail check exists.
+	// (ok=false with only warns is allowed for constructed reports.)
+	if hardFail && okVal {
+		t.Error("severity: HardFail checks present (ok=false severity=error) but report ok=true")
+	}
+}
+
+func mapKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// asStringAnySlice accepts ToMap's []string or JSON-decoded []any of strings.
+func asStringAnySlice(v any) ([]any, bool) {
+	switch s := v.(type) {
+	case []any:
+		return s, true
+	case []string:
+		out := make([]any, len(s))
+		for i, x := range s {
+			out[i] = x
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func checkNamesFromMap(m map[string]any) map[string]struct{} {
+	out := make(map[string]struct{})
+	checks, _ := m["checks"].([]any)
+	for _, raw := range checks {
+		c, _ := raw.(map[string]any)
+		if name, _ := c["name"].(string); name != "" {
+			out[name] = struct{}{}
+		}
+	}
+	return out
+}
+
+// TestDoctorFormatJSONStructural is a structural golden for FormatJSON / ToMap:
+// fixed env, frozen key sets, severity policy, notes/fixes_applied arrays, and
+// gated check names when config enables them — not full message string goldens.
+func TestDoctorFormatJSONStructural(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		// report builds the Report under test (may call Run with injectables).
+		report func(t *testing.T) *doctor.Report
+		// nilReport: exercise FormatJSON(nil) / ToMap(nil) separately.
+		nilReport bool
+
+		wantOK           *bool
+		wantConfigPath   any // string or nil; omit check when wantConfigPathUnset
+		wantConfigPathSet bool
+		wantNotesLen     *int
+		wantFixesLen     *int
+		wantMinChecks    int
+		requiredChecks   []string
+		forbiddenChecks  []string
+		// assertHardFailConsistency: when true, report ok must equal !HardFail(checks).
+		assertHardFailConsistency bool
+		extra                     func(t *testing.T, m map[string]any, r *doctor.Report)
+	}{
+		{
+			name:      "nil_report",
+			nilReport: true,
+			wantOK:    boolPtr(false),
+			wantConfigPathSet: true,
+			wantConfigPath:    nil,
+			wantNotesLen:      intPtr(0),
+			wantFixesLen:      intPtr(0),
+			wantMinChecks:     0,
+		},
+		{
+			name: "empty_report_defaults",
+			report: func(t *testing.T) *doctor.Report {
+				t.Helper()
+				return &doctor.Report{OK: true}
+			},
+			wantOK:            boolPtr(true),
+			wantConfigPathSet: true,
+			wantConfigPath:    nil,
+			wantNotesLen:      intPtr(0),
+			wantFixesLen:      intPtr(0),
+			wantMinChecks:     0,
+			extra: func(t *testing.T, m map[string]any, r *doctor.Report) {
+				t.Helper()
+				// Nil Details on a check must serialize as {}.
+				r2 := &doctor.Report{
+					OK: true,
+					Checks: []doctor.CheckResult{
+						{Name: "x", OK: true, Severity: doctor.SeverityInfo, Message: "m", Details: nil},
+					},
+				}
+				m2 := r2.ToMap()
+				assertDoctorMapShape(t, m2)
+				checks := m2["checks"].([]any)
+				c0 := checks[0].(map[string]any)
+				d, ok := c0["details"].(map[string]any)
+				if !ok || len(d) != 0 {
+					t.Fatalf("nil Details → empty object; got %v", c0["details"])
+				}
+			},
+		},
+		{
+			name: "constructed_mixed_severity_notes_fixes",
+			report: func(t *testing.T) *doctor.Report {
+				t.Helper()
+				return &doctor.Report{
+					OK:         false,
+					ConfigPath: "/etc/mount-wrapper/config.yaml",
+					Notes:      []string{"note-a"},
+					FixesApplied: []string{
+						"wrote drop-in",
+					},
+					Checks: []doctor.CheckResult{
+						{
+							Name: "go_version", OK: true, Severity: doctor.SeverityInfo,
+							Message: "ok", Details: map[string]any{"version": "go1.25.0"},
+						},
+						{
+							Name: "fuse_device", OK: false, Severity: doctor.SeverityWarn,
+							Message: "missing fuse", Details: map[string]any{},
+						},
+						{
+							Name: "ratarmount_bin", OK: false, Severity: doctor.SeverityError,
+							Message: "not found", Details: map[string]any{"path": ""},
+						},
+					},
+				}
+			},
+			wantOK:                    boolPtr(false),
+			wantConfigPathSet:         true,
+			wantConfigPath:            "/etc/mount-wrapper/config.yaml",
+			wantNotesLen:              intPtr(1),
+			wantFixesLen:              intPtr(1),
+			wantMinChecks:             3,
+			requiredChecks:            []string{"go_version", "fuse_device", "ratarmount_bin"},
+			assertHardFailConsistency: true,
+			extra: func(t *testing.T, m map[string]any, r *doctor.Report) {
+				t.Helper()
+				checks := m["checks"].([]any)
+				// severity policy per constructed check (not message golden).
+				byName := map[string]map[string]any{}
+				for _, raw := range checks {
+					c := raw.(map[string]any)
+					byName[c["name"].(string)] = c
+				}
+				if byName["fuse_device"]["severity"] != doctor.SeverityWarn || byName["fuse_device"]["ok"] != false {
+					t.Fatalf("fuse_device: %+v", byName["fuse_device"])
+				}
+				if byName["ratarmount_bin"]["severity"] != doctor.SeverityError || byName["ratarmount_bin"]["ok"] != false {
+					t.Fatalf("ratarmount_bin: %+v", byName["ratarmount_bin"])
+				}
+				if m["notes"].([]any)[0] != "note-a" {
+					t.Fatalf("notes: %v", m["notes"])
+				}
+				if m["fixes_applied"].([]any)[0] != "wrote drop-in" {
+					t.Fatalf("fixes_applied: %v", m["fixes_applied"])
+				}
+			},
+		},
+		{
+			name: "run_core_no_config",
+			report: func(t *testing.T) *doctor.Report {
+				t.Helper()
+				return doctor.Run(inventoryBaseEnv().opts(nil))
+			},
+			wantOK:                    boolPtr(true),
+			wantConfigPathSet:         true,
+			wantConfigPath:            nil,
+			wantNotesLen:              intPtr(0),
+			wantFixesLen:              intPtr(0),
+			wantMinChecks:             len(doctor.CoreCheckNames),
+			requiredChecks:            append([]string(nil), doctor.CoreCheckNames...),
+			forbiddenChecks: []string{
+				doctor.CheckNameWebBindSecurity,
+				doctor.CheckNameConvertCacheDir,
+				doctor.CheckNameConfig,
+				doctor.CheckNameIndexLayout,
+				doctor.CheckNameFixSystemd,
+			},
+			assertHardFailConsistency: true,
+			extra: func(t *testing.T, m map[string]any, r *doctor.Report) {
+				t.Helper()
+				if len(r.Checks) != len(doctor.CoreCheckNames) {
+					t.Fatalf("core check count=%d want %d", len(r.Checks), len(doctor.CoreCheckNames))
+				}
+				// Core order frozen in JSON checks array.
+				checks := m["checks"].([]any)
+				for i, want := range doctor.CoreCheckNames {
+					c := checks[i].(map[string]any)
+					if c["name"] != want {
+						t.Fatalf("checks[%d].name=%v want %q", i, c["name"], want)
+					}
+				}
+			},
+		},
+		{
+			name: "run_config_gated_convert_web",
+			report: func(t *testing.T) *doctor.Report {
+				t.Helper()
+				e := inventoryBaseEnv()
+				cache := "/var/lib/mount-wrapper/nonsolid-cache"
+				e.dirs[cache] = true
+				e.exists[cache] = true
+				e.writable[cache] = true
+				e.setExec("/usr/bin/7z", "7z 23.0", "")
+				e.which["7z"] = "/usr/bin/7z"
+				cfg := mustCfg(t, map[string]any{
+					"source_dirs":          []any{"/tmp"},
+					"convert_7z_nonsolid":  true,
+					"convert_7z_cache_dir": cache,
+					"convert_zip_to_7z":    false,
+					"web_enabled":          true,
+					"web_host":             "0.0.0.0",
+					"web_token":            "",
+					"control_socket":       "/run/mount-wrapper/control.sock",
+				}, "/tmp/doctor-struct-config.yaml")
+				return doctor.Run(e.opts(cfg))
+			},
+			wantConfigPathSet: true,
+			wantConfigPath:    "/tmp/doctor-struct-config.yaml",
+			wantNotesLen:      intPtr(0),
+			wantFixesLen:      intPtr(0),
+			wantMinChecks:     len(doctor.CoreCheckNames) + 1,
+			requiredChecks: []string{
+				doctor.CheckNameWebBindSecurity,
+				doctor.CheckNameConvertCacheDir,
+				doctor.CheckNameIndexLayout,
+				doctor.CheckNameConfig,
+				"path.mount_root",
+				"source_dirs[0]",
+			},
+			forbiddenChecks: []string{
+				doctor.CheckNameControlSocketPathLength, // linux
+				doctor.CheckNameFixSystemd,
+			},
+			assertHardFailConsistency: true,
+			// web_bind_security is warn-only → report remains OK.
+			wantOK: boolPtr(true),
+			extra: func(t *testing.T, m map[string]any, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameWebBindSecurity)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("web_bind_security: ok=%v sev=%q", c.OK, c.Severity)
+				}
+				// Presence of disk.* gated by free-space probes (prefix only).
+				foundDisk := false
+				for name := range checkNamesFromMap(m) {
+					if strings.HasPrefix(name, doctor.DiskCheckPrefix) {
+						foundDisk = true
+						break
+					}
+				}
+				if !foundDisk {
+					t.Fatalf("expected disk.* check when config present; names=%v", orderedNames(r))
+				}
+			},
+		},
+		{
+			name: "run_fix_systemd_notes_without_config",
+			report: func(t *testing.T) *doctor.Report {
+				t.Helper()
+				opts := inventoryBaseEnv().opts(nil)
+				opts.FixSystemd = true
+				return doctor.Run(opts)
+			},
+			wantOK:                    boolPtr(true), // fix_systemd is warn when no config
+			wantConfigPathSet:         true,
+			wantConfigPath:            nil,
+			wantNotesLen:              intPtr(1),
+			wantFixesLen:              intPtr(0),
+			requiredChecks:            []string{doctor.CheckNameFixSystemd},
+			assertHardFailConsistency: true,
+			extra: func(t *testing.T, m map[string]any, r *doctor.Report) {
+				t.Helper()
+				notes := m["notes"].([]any)
+				if len(notes) != 1 {
+					t.Fatalf("notes=%v", notes)
+				}
+				// Structural: non-empty note string; avoid full-message golden.
+				s, _ := notes[0].(string)
+				if s == "" {
+					t.Fatal("notes[0] empty")
+				}
+				c := checkByName(r, doctor.CheckNameFixSystemd)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("fix_systemd: %+v", c)
+				}
+			},
+		},
+		{
+			name: "run_fix_systemd_fixes_applied",
+			report: func(t *testing.T) *doctor.Report {
+				t.Helper()
+				e := inventoryBaseEnv()
+				tmp := t.TempDir()
+				dropin := filepath.Join(tmp, "systemd", "sources.conf")
+				cfg := mustCfg(t, map[string]any{
+					"source_dirs": []any{"/tmp"},
+					"mount_root":  filepath.Join(tmp, "m"),
+				}, filepath.Join(tmp, "c.yaml"))
+				// mount_root parent may not exist in fakes — mark tmp tree writable.
+				e.dirs[tmp] = true
+				e.exists[tmp] = true
+				e.writable[tmp] = true
+				e.dirs[filepath.Join(tmp, "m")] = true
+				e.exists[filepath.Join(tmp, "m")] = true
+				e.writable[filepath.Join(tmp, "m")] = true
+				opts := e.opts(cfg)
+				opts.FixSystemd = true
+				opts.DropinPath = dropin
+				return doctor.Run(opts)
+			},
+			wantMinChecks:             1,
+			requiredChecks:            []string{doctor.CheckNameFixSystemd},
+			wantFixesLen:              intPtr(1),
+			wantNotesLen:              intPtr(0),
+			assertHardFailConsistency: true,
+			extra: func(t *testing.T, m map[string]any, r *doctor.Report) {
+				t.Helper()
+				// config_path is the loaded yaml path (non-null string).
+				if cp, ok := m["config_path"].(string); !ok || cp == "" {
+					t.Fatalf("config_path want non-empty string, got %v", m["config_path"])
+				}
+				fixes := m["fixes_applied"].([]any)
+				if len(fixes) != 1 {
+					t.Fatalf("fixes_applied=%v", fixes)
+				}
+				if s, _ := fixes[0].(string); s == "" {
+					t.Fatal("fixes_applied[0] empty")
+				}
+				c := checkByName(r, doctor.CheckNameFixSystemd)
+				if !c.OK {
+					t.Fatalf("fix_systemd: %+v", c)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var r *doctor.Report
+			if !tc.nilReport {
+				r = tc.report(t)
+			}
+
+			// ToMap structural golden
+			var tm map[string]any
+			if tc.nilReport {
+				tm = (*doctor.Report)(nil).ToMap()
+			} else {
+				tm = r.ToMap()
+			}
+			assertDoctorMapShape(t, tm)
+
+			// FormatJSON must match ToMap structurally (CLI --json / API parity).
+			js, err := doctor.FormatJSON(r) // nil ok: FormatJSON nil-coalesces
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasSuffix(js, "\n") {
+				t.Fatal("FormatJSON should end with newline")
+			}
+			var jm map[string]any
+			if err := json.Unmarshal([]byte(js), &jm); err != nil {
+				t.Fatalf("FormatJSON parse: %v\n%s", err, js)
+			}
+			assertDoctorMapShape(t, jm)
+
+			// FormatJSON encodes the same ToMap payload (after nil coalesce).
+			var compare *doctor.Report
+			if r == nil {
+				compare = &doctor.Report{OK: false}
+			} else {
+				compare = r
+			}
+			wantJS, err := json.MarshalIndent(compare.ToMap(), "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if js != string(wantJS)+"\n" {
+				t.Fatalf("FormatJSON != MarshalIndent(ToMap)\n got: %s\nwant: %s\n", js, string(wantJS)+"\n")
+			}
+
+			if tc.wantOK != nil {
+				if ok, _ := jm["ok"].(bool); ok != *tc.wantOK {
+					t.Fatalf("ok=%v want %v", ok, *tc.wantOK)
+				}
+			}
+			if tc.wantConfigPathSet {
+				if jm["config_path"] != tc.wantConfigPath {
+					t.Fatalf("config_path=%v want %v", jm["config_path"], tc.wantConfigPath)
+				}
+			}
+			if tc.wantNotesLen != nil {
+				notes := jm["notes"].([]any)
+				if len(notes) != *tc.wantNotesLen {
+					t.Fatalf("notes len=%d want %d: %v", len(notes), *tc.wantNotesLen, notes)
+				}
+			}
+			if tc.wantFixesLen != nil {
+				fixes := jm["fixes_applied"].([]any)
+				if len(fixes) != *tc.wantFixesLen {
+					t.Fatalf("fixes_applied len=%d want %d: %v", len(fixes), *tc.wantFixesLen, fixes)
+				}
+			}
+			checks := jm["checks"].([]any)
+			if len(checks) < tc.wantMinChecks {
+				t.Fatalf("checks len=%d want >= %d", len(checks), tc.wantMinChecks)
+			}
+			names := checkNamesFromMap(jm)
+			for _, want := range tc.requiredChecks {
+				if _, ok := names[want]; !ok {
+					t.Errorf("missing required check %q; have %v", want, orderedNames(r))
+				}
+			}
+			for _, ban := range tc.forbiddenChecks {
+				if _, ok := names[ban]; ok {
+					t.Errorf("forbidden check %q present", ban)
+				}
+			}
+			if tc.assertHardFailConsistency && r != nil {
+				wantOK := !doctor.HardFail(r.Checks)
+				if r.OK != wantOK {
+					t.Fatalf("report.OK=%v want %v (HardFail consistency)", r.OK, wantOK)
+				}
+				if jm["ok"] != wantOK {
+					t.Fatalf("json ok=%v want %v", jm["ok"], wantOK)
+				}
+			}
+			if tc.extra != nil {
+				tc.extra(t, jm, r)
+			}
+		})
+	}
+}
+
+func intPtr(v int) *int { return &v }
+
 func TestHardFail(t *testing.T) {
 	t.Parallel()
 	if doctor.HardFail([]doctor.CheckResult{
