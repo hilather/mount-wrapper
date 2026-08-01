@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Outer nonsolid cache flock:** `EnsureNonsolidCachedCopy` takes a blocking
+  exclusive flock on `{cacheKey}.lock` around re-check hit + free-space gate +
+  populate (Python `ensure_nonsolid_cached_copy` parity), so concurrent mounts
+  of the same solid outer 7z do not race populate.
+- **Convert metrics sidecar wiring:** serve-time `metrics.Collector` uses
+  `service.ConvertSidecarMeta` so SPA/status savings and convert duration come
+  from `.tarmount-convert.json` next to `archive_path` (or outer nonsolid cache
+  dest) when store convert columns are incomplete (store fields still preferred
+  when both are set).
+- **Package first-install config seed:** `packaging/scripts/seed-config.sh`
+  (invoked from `nfpm-postinstall.sh`) copies
+  `/usr/share/mount-wrapper/config.yaml.example` →
+  `/etc/mount-wrapper/config.yaml` only when the dest is missing — never
+  overwrites operator config. Shipped under `/usr/share/mount-wrapper/`;
+  supports `MW_ROOT=` for unit tests without root.
+
 ### Fixed
 
 - **macOS CI:** control/service unit tests bind Unix sockets under a short
@@ -21,9 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Packaging docs/TODO:** mark deb/rpm + postinstall as done on `v*` releases;
-  wire standalone `packaging/nfpm.yaml` `scripts.postinstall` to match
-  GoReleaser; honest residual is config.yaml seed + Homebrew tap.
+- **Packaging docs/TODO:** mark deb/rpm + postinstall + config seed as done on
+  `v*` releases; residual is Homebrew tap automation.
 - **Drift guard:** `TestSettingsSchemaMatchesPublicKeys` keeps SPA
   `settings-schema.ts` aligned with `config.PublicKeys()`.
 

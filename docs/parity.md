@@ -74,7 +74,7 @@ rot. Prefer fixing code over changing this list without evidence.
 | **macOS unit + binary smoke** | done in CI | `ci.yml` → `macos-unit-smoke` on `macos-latest`: `go test ./...`, CGO=0 build, `scripts/smoke-binary.sh`; **no macFUSE** (real mount remains local/manual) |
 | **Musl/static path (D7)** | done | `make build-musl` / `package-musl`; CI `musl-static-smoke`; `release.yml` attaches `*_linux_*_musl.tar.gz` after GoReleaser (primary matrix stays `CGO_ENABLED=0`) |
 | **Full deb/rpm CI publish** | done on tags | `release.yml` publishes deb/rpm/tarballs on `v*` (+ optional musl tarballs); postinstall creates user/dirs |
-| **Config.yaml package seed** | residual | Packages ship example only; no auto-seed of `/etc/mount-wrapper/config.yaml` |
+| **Config.yaml package seed** | done | `seed-config.sh` via postinstall: copies example → `/etc/mount-wrapper/config.yaml` only if missing (never overwrites) |
 | **Homebrew tap** | residual | Formula sketch under `packaging/homebrew/`; no automated tap publish |
 | **Playwright SPA smoke** | optional / local | Landed: `web/e2e` mocked `/api/*` Archives shell + Settings validate/apply; `RUN_E2E=1` / optional CI job |
 | **OpenAPI / generated SPA client** | optional residual | Hand-written TS (`api-types.ts` + `types.ts`, D11); OpenAPI later (keep open) |

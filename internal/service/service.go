@@ -185,7 +185,11 @@ func New(cfg *config.Config, opts *Options) (*Service, error) {
 
 	mc := opts.Metrics
 	if mc == nil {
-		mc = metrics.NewCollector(&storeMetricsSource{store: store}, metrics.DefaultCollectorConfig())
+		c := metrics.NewCollector(&storeMetricsSource{store: store}, metrics.DefaultCollectorConfig())
+		// Prefer store convert fields (via ArchiveInput); fill gaps from sidecar
+		// (archive_path first, then outer nonsolid cache dest when configured).
+		c.Meta = ConvertSidecarMeta{Config: cfg}
+		mc = c
 	}
 
 	return &Service{

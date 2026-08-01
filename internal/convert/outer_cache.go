@@ -85,6 +85,45 @@ func NonsolidCacheDestPath(cacheDir, source string) string {
 	return filepath.Join(cacheDir, key+".7z")
 }
 
+// NonsolidCacheLockPath returns the exclusive flock path for a cache dest
+// (parity with ratarmountcore: `{cacheKey}.lock` next to `{cacheKey}.7z`).
+func NonsolidCacheLockPath(dest string) string {
+	if strings.HasSuffix(dest, ".7z") {
+		return strings.TrimSuffix(dest, ".7z") + ".lock"
+	}
+	return dest + ".lock"
+}
+
+// nonsolidCacheHit reports whether dest is a usable non-solid, non-encrypted
+// cached copy (size > 0 and 7z l -slt lists non-solid / non-encrypted).
+func nonsolidCacheHit(dest, bin string, list List7zFunc) bool {
+	dstSt, err := os.Stat(dest)
+	if err != nil || !dstSt.Mode().IsRegular() || dstSt.Size() <= 0 {
+		return false
+	}
+	dout, _ := list(bin, []string{"l", "-slt", dest}, "")
+	return strings.TrimSpace(dout) != "" && !Parse7zListEncrypted(dout) && !Parse7zListIsSolid(dout)
+}
+
+// withNonsolidCacheLock opens dest's sibling .lock and holds a blocking
+// exclusive flock for the duration of fn (Python fcntl.flock LOCK_EX).
+func withNonsolidCacheLock(dest string, fn func() error) error {
+	lockPath := NonsolidCacheLockPath(dest)
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return convertErrorf("outer_cache", "create lock dir: %v", err)
+	}
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return convertErrorf("outer_cache", "open lock %s: %v", lockPath, err)
+	}
+	defer func() { _ = f.Close() }()
+	if err := flockExclusive(f); err != nil {
+		return convertErrorf("outer_cache", "lock %s: %v", lockPath, err)
+	}
+	defer func() { _ = flockUnlock(f) }()
+	return fn()
+}
+
 // EnsureNonsolidCachedCopy builds or reuses a non-solid cached copy for
 // outer/all nonsolid scope (minimal Go parity with ensure_nonsolid_cached_copy).
 //
@@ -94,10 +133,12 @@ func NonsolidCacheDestPath(cacheDir, source string) string {
 //   - not solid (CLI Solid != +) → return source (no cache copy needed)
 //   - solid → extract + `7z a -t7z -ms=off` into cache; return cache path
 //   - cache hit when dest exists and lists as non-solid / non-encrypted
+//   - concurrent populates of the same dest serialize on `{cacheKey}.lock`
+//     (re-check hit inside exclusive flock before free-space + populate)
 //
 // Residual vs ratarmountcore: CLI extract+repack only (no stream repack / py7zr
-// folder walk); no flock; nested members stay as embedded .7z files (outer
-// solid block only). Stream-flatten remains deferred.
+// folder walk); nested members stay as embedded .7z files (outer solid block
+// only). Stream-flatten remains deferred.
 func EnsureNonsolidCachedCopy(cfg *config.Config, source string, p NonsolidCacheParams) (string, error) {
 	source = filepath.Clean(strings.TrimSpace(source))
 	if cfg == nil || !cfg.Convert7zNonsolid || !IsSevenzPath(source) {
@@ -137,41 +178,53 @@ func EnsureNonsolidCachedCopy(cfg *config.Config, source string, p NonsolidCache
 	}
 	dest := NonsolidCacheDestPath(cacheDir, source)
 
-	// Cache hit: existing non-solid, non-encrypted dest.
-	if dstSt, err := os.Stat(dest); err == nil && dstSt.Mode().IsRegular() && dstSt.Size() > 0 {
-		dout, _ := list(bin, []string{"l", "-slt", dest}, "")
-		if strings.TrimSpace(dout) != "" && !Parse7zListEncrypted(dout) && !Parse7zListIsSolid(dout) {
-			return dest, nil
+	// Fast path: cache hit without taking the flock.
+	if nonsolidCacheHit(dest, bin, list) {
+		return dest, nil
+	}
+
+	// Critical section: exclusive flock on {cacheKey}.lock, re-check hit, then
+	// free-space gate + populate (parity with ensure_nonsolid_cached_copy).
+	var outPath string
+	err = withNonsolidCacheLock(dest, func() error {
+		if nonsolidCacheHit(dest, bin, list) {
+			outPath = dest
+			return nil
 		}
-	}
 
-	// Free-space gate: source + extracted (~source) + output (~source).
-	peak := EstimateFlattenPeakDiskBytes(st.Size())
-	if err := CheckFlattenSpace(cacheDir, peak, int64(p.OverheadBytes), int64(p.MinFreeBytes)); err != nil {
+		// Free-space gate: source + extracted (~source) + output (~source).
+		peak := EstimateFlattenPeakDiskBytes(st.Size())
+		if err := CheckFlattenSpace(cacheDir, peak, int64(p.OverheadBytes), int64(p.MinFreeBytes)); err != nil {
+			return err
+		}
+
+		started := time.Now()
+		if err := populateOuterNonsolidCache(source, dest, bin, run); err != nil {
+			return err
+		}
+		dstSt, err := os.Stat(dest)
+		if err != nil || !dstSt.Mode().IsRegular() || dstSt.Size() <= 0 {
+			_ = os.Remove(dest)
+			return convertErrorf("outer_cache", "cache populate produced no output: %s", dest)
+		}
+		// Best-effort metadata sidecar next to the cached copy.
+		dur := time.Since(started).Seconds()
+		if dur < 0 {
+			dur = 0
+		}
+		d := float64(int(dur*1000)) / 1000
+		meta := BuildConvertMetadata(st.Size(), dstSt.Size(), MethodOuterNonsolidCLI, &d)
+		if _, err := WriteConvertMetadata(dest, meta); err != nil {
+			// Non-fatal: mount path is still valid.
+			_ = err
+		}
+		outPath = dest
+		return nil
+	})
+	if err != nil {
 		return "", err
 	}
-
-	started := time.Now()
-	if err := populateOuterNonsolidCache(source, dest, bin, run); err != nil {
-		return "", err
-	}
-	dstSt, err := os.Stat(dest)
-	if err != nil || !dstSt.Mode().IsRegular() || dstSt.Size() <= 0 {
-		_ = os.Remove(dest)
-		return "", convertErrorf("outer_cache", "cache populate produced no output: %s", dest)
-	}
-	// Best-effort metadata sidecar next to the cached copy.
-	dur := time.Since(started).Seconds()
-	if dur < 0 {
-		dur = 0
-	}
-	d := float64(int(dur*1000)) / 1000
-	meta := BuildConvertMetadata(st.Size(), dstSt.Size(), MethodOuterNonsolidCLI, &d)
-	if _, err := WriteConvertMetadata(dest, meta); err != nil {
-		// Non-fatal: mount path is still valid.
-		_ = err
-	}
-	return dest, nil
+	return outPath, nil
 }
 
 // populateOuterNonsolidCache extracts source and rebuilds a non-solid 7z at dest.

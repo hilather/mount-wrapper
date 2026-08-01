@@ -316,7 +316,8 @@ Cross-compile arm64 without QEMU: `ARCHS=arm64 ./scripts/build-musl.sh`
 
 Tag releases build `.deb` / `.rpm` via **GoReleaser** nfpms (`.goreleaser.yaml`)
 with `scripts.postinstall` → `packaging/scripts/nfpm-postinstall.sh` (runs
-`create-user.sh` + `systemctl daemon-reload` when present).
+`create-user.sh`, first-install `seed-config.sh`, then `systemctl daemon-reload`
+when present).
 
 Standalone local packages use the same postinstall:
 
@@ -326,8 +327,12 @@ VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p d
 ```
 
 [`packaging/nfpm.yaml`](../packaging/nfpm.yaml) ships the binary, unit, man page,
-examples, and `create-user.sh`. **Residual:** packages do not auto-seed
-`/etc/mount-wrapper/config.yaml` (copy from the shipped example after install).
+examples, `create-user.sh`, and `seed-config.sh`. On **first install**, postinstall
+seeds `/etc/mount-wrapper/config.yaml` from
+`/usr/share/mount-wrapper/config.yaml.example` when the dest is missing
+(`packaging/scripts/seed-config.sh`, mode `0640`, best-effort `root:mount-wrapper`).
+**Never overwrites** an existing operator config on upgrade or reinstall.
+Edit `source_dirs` (and other keys) after install before enabling the unit.
 
 ### SHA256SUMS
 
@@ -343,7 +348,6 @@ sha256sum -c SHA256SUMS
 ## Residual (not done in this polish)
 
 - Automated CI publish of Homebrew formula (deb/rpm + musl tarballs already publish on `v*` via `release.yml`)  
-- Auto-seed of `/etc/mount-wrapper/config.yaml` conffile on first install  
 - macOS CI with **macFUSE** (default CI is unit + binary smoke only; see [dev.md](./dev.md))  
 - Notarized macOS app / automatic macFUSE install  
 
@@ -361,6 +365,8 @@ packaging/
   examples/config.debug.yaml.example
   examples/hooks.d/*.sample
   scripts/create-user.sh
+  scripts/seed-config.sh      # first-install config seed (MW_ROOT= for tests)
+  scripts/nfpm-postinstall.sh
   env.example
   wsl.conf.snippet
   windows-task-scheduler.xml.example

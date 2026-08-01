@@ -122,6 +122,10 @@ nfpms:
         dst: /usr/share/mount-wrapper/create-user.sh
         file_info:
           mode: 0755
+      - src: packaging/scripts/seed-config.sh
+        dst: /usr/share/mount-wrapper/seed-config.sh
+        file_info:
+          mode: 0755
       - src: packaging/env.example
         dst: /usr/share/mount-wrapper/env.example
         file_info:

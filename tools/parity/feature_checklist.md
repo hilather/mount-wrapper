@@ -24,7 +24,7 @@ _Last reviewed: 2026-08-01 (post v0.1.1 packaging truth-up)._
 | **Metrics** | Archive/index/extracted sizes, space saved | `internal/metrics` + status/API | **done** | Convert duration/size fields included |
 | **Config** | YAML validate; hot vs restart; live apply | `internal/config` + CLI/API | **done** | Path defaults under `/…/mount-wrapper` |
 | **Web UI** | Localhost dashboard (vanilla) | Embedded Svelte 5 SPA + SSE | **done** | No sidecar web unit (D4) |
-| **Packaging** | `.deb`, private ratarmount venv, systemd, doctor | deb/rpm + systemd/launchd; doctor | **done** | No vendored Python venv; publish on `v*` (`release.yml`); residual: no Homebrew tap / no config.yaml auto-seed |
+| **Packaging** | `.deb`, private ratarmount venv, systemd, doctor | deb/rpm + systemd/launchd; doctor | **done** | No vendored Python venv; publish on `v*` (`release.yml`); first-install `config.yaml` seed via `seed-config.sh`; residual: no Homebrew tap |
 
 ## Extended product surfaces (not always in README table)
 

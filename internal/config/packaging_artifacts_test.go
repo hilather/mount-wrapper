@@ -44,6 +44,17 @@ func TestPackagingArtifacts(t *testing.T) {
 			},
 		},
 		{
+			rel: "packaging/scripts/seed-config.sh",
+			contains: []string{
+				"MW_ROOT",
+				"/etc/mount-wrapper/config.yaml",
+				"/usr/share/mount-wrapper/config.yaml.example",
+				"install -m 0640",
+				// Never overwrite existing operator config.
+				`-e "$DEST"`,
+			},
+		},
+		{
 			rel: "packaging/windows-task-scheduler.xml.example",
 			contains: []string{
 				"wsl.exe",
@@ -74,6 +85,8 @@ func TestPackagingArtifacts(t *testing.T) {
 				"linux",
 				"darwin",
 				"postinstall: packaging/scripts/nfpm-postinstall.sh",
+				"seed-config.sh",
+				"/usr/share/mount-wrapper/config.yaml.example",
 			},
 		},
 		{
@@ -82,12 +95,15 @@ func TestPackagingArtifacts(t *testing.T) {
 				"mount-wrapper",
 				"packaging/systemd/mount-wrapper.service",
 				"postinstall: ./packaging/scripts/nfpm-postinstall.sh",
+				"seed-config.sh",
+				"/usr/share/mount-wrapper/config.yaml.example",
 			},
 		},
 		{
 			rel: "packaging/scripts/nfpm-postinstall.sh",
 			contains: []string{
 				"create-user.sh",
+				"seed-config.sh",
 				"daemon-reload",
 			},
 		},
@@ -105,6 +121,7 @@ func TestPackagingArtifacts(t *testing.T) {
 				"ratarmount-rs",
 				"SHA256SUMS",
 				"create-user.sh",
+				"seed-config.sh",
 				"build-musl",
 				"package-musl",
 				"linux_amd64_musl.tar.gz",

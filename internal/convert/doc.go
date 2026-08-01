@@ -22,8 +22,9 @@
 //     (-ms=off); encrypted archives refused with Encrypted7zMessage; no
 //     stream-flatten path or post-rebuild nested-header validation.
 //   - Outer nonsolid cache: EnsureNonsolidCachedCopy (CLI extract + a -ms=off)
-//     for solid outer/all; path prediction via ResolveMountArchivePath /
-//     NonsolidCacheDestPath. No stream-repack, no flock, nested members not
-//     expanded in outer cache (child env still handles nested when scope allows).
+//     for solid outer/all; exclusive flock on `{cacheKey}.lock` around re-check
+//     + populate; path prediction via ResolveMountArchivePath /
+//     NonsolidCacheDestPath. No stream-repack; nested members not expanded in
+//     outer cache (child env still handles nested when scope allows).
 //   - Doctor availability reporting is separate (internal/doctor).
 package convert

@@ -214,7 +214,8 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] Nested mini 7z fixture + `*.l-slt.txt` listings under `testdata/nested7z/`; multi/solid generated in TempDir when `7z` on PATH (skip otherwise)
 - [x] Encrypted detect (best-effort): `Parse7zListEncrypted` / `RefuseIfEncrypted7z` from `7z l -slt` + stderr phrases; probe returns false; runners surface `encrypted 7z not supported`
 - [x] Outer nonsolid cache populate: `EnsureNonsolidCachedCopy` (CLI extract + `-ms=off`) + content-keyed dest; engine mount path wires for scope outer/all; `ResolveMountArchivePath` remains path prediction
-- [ ] **Residual:** no full ratarmountcore solid/folder parser; no stream-flatten / py7zr folder walk; outer cache is CLI-only (no flock / stream-repack); real FUSE CI deferred; full engine convert still needs `7z` on PATH
+- [x] Outer nonsolid cache exclusive flock: `{cacheKey}.lock` + re-check hit inside lock before free-space + populate (Python `ensure_nonsolid_cached_copy` parity)
+- [ ] **Residual:** no full ratarmountcore solid/folder parser; no stream-flatten / py7zr folder walk; outer cache is CLI-only (no stream-repack); real FUSE CI deferred; full engine convert still needs `7z` on PATH
 
 ### 5.3 ZIP → non-solid 7z repack
 
@@ -277,7 +278,7 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 ### 6.4 Metrics
 
 - [x] Per-archive: archive size, index size, extracted logical size (index `files` table; mount walk fallback) — `internal/metrics` pure + FS/SQLite providers
-- [x] Convert: `convert_source_size_bytes`, convert size delta, `convert_duration_seconds` (helpers + meta provider interface; real convert sidecar reader deferred to convert package)
+- [x] Convert: `convert_source_size_bytes`, convert size delta, `convert_duration_seconds` (helpers + meta provider; production `ConvertSidecarMeta` via `convert.ReadConvertMetadata`, store fields preferred)
 - [x] Formulas:
   - [x] `space_saved_bytes = max(0, extracted − index)`
   - [x] `space_saved_vs_archive_bytes = max(0, extracted − archive − index)`
@@ -484,7 +485,8 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 - [x] systemd unit: `User=mount-wrapper` `Group=mount-wrapper` (D9 decided), RuntimeDirectory, DeviceAllow fuse, hardening baseline (`TimeoutStopSec=300`, `ProtectSystem=strict`, `EnvironmentFile=-/etc/mount-wrapper/env`)
 - [x] Optional web: embedded only (D4); **no** sidecar web unit
 - [x] `.deb` packaging via goreleaser nfpms + standalone `packaging/nfpm.yaml`; **published on `v*`** (`release.yml`)
-- [x] postinst: user/group, dirs, `user_allow_other` when possible — `create-user.sh` + `nfpm-postinstall.sh` (goreleaser + standalone nfpm); residual: no auto-seed of `/etc/mount-wrapper/config.yaml` conffile
+- [x] postinst: user/group, dirs, `user_allow_other` when possible — `create-user.sh` + `nfpm-postinstall.sh` (goreleaser + standalone nfpm)
+- [x] postinst first-install config seed — `seed-config.sh` copies `/usr/share/mount-wrapper/config.yaml.example` → `/etc/mount-wrapper/config.yaml` only if dest missing (never overwrites); `MW_ROOT=` for tests
 - [x] ship example config, hooks sample, wsl.conf snippet (`packaging/examples/*`, `packaging/wsl.conf.snippet`); man page in package
 - [x] ship `windows-task-scheduler.xml.example` (WSL boot without relying only on docs)
 - [x] Document engine install (ratarmount-rs / archiveconverter / fuse3); optional Recommends in nfpm

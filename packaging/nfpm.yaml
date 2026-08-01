@@ -5,8 +5,9 @@
 #   VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p deb
 #   VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p rpm
 #
-# postinstall runs create-user.sh (user/dirs/user_allow_other) as root on real
-# package install — never invoke from unit tests.
+# postinstall runs create-user.sh (user/dirs/user_allow_other) then seed-config.sh
+# (first-install only config copy) as root on real package install — never invoke
+# create-user from unit tests. seed-config.sh supports MW_ROOT= for tests.
 
 name: mount-wrapper
 arch: amd64
@@ -53,6 +54,10 @@ contents:
       mode: 0644
   - src: ./packaging/scripts/create-user.sh
     dst: /usr/share/mount-wrapper/create-user.sh
+    file_info:
+      mode: 0755
+  - src: ./packaging/scripts/seed-config.sh
+    dst: /usr/share/mount-wrapper/seed-config.sh
     file_info:
       mode: 0755
   - src: ./docs/install.md

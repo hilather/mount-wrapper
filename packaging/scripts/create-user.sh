@@ -91,4 +91,4 @@ elif [[ "$ENABLE_FUSE_CONF" -eq 1 ]]; then
 fi
 
 echo "ok: user/group $USER_NAME:$GROUP_NAME and directories ready"
-echo "next: install config to /etc/mount-wrapper/config.yaml and enable mount-wrapper.service"
+echo "next: ensure /etc/mount-wrapper/config.yaml (package postinstall seeds from the example if missing), then enable mount-wrapper.service"

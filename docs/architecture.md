@@ -99,7 +99,7 @@ macOS: keep `windows_visible: false` (single-user agent; allow_other not the WSL
 | 7z nonsolid | `convert_7z_scope`: nested/outer/all apply child env; flatten is pre-mount in-place via `RunFlattenConvert` when `FlattenNeededFunc` says true |
 | zip repack | When `convert_zip_to_7z` + nonsolid and zip has embedded archive members → `RunZipRepack` → stored non-solid `.7z` beside source (+ metadata sidecar) |
 | Flatten probe | Default when nonsolid + scope `flatten`: `convert.DefaultFlattenNeeded` → `7z l -slt` heuristics (`Solid=+` or nested member `*.7z`); **false** on uncertainty / missing 7z / encryption markers (`Encrypted=+`, Wrong password, …) |
-| Outer nonsolid cache | Scope `outer`/`all`: mount path calls `EnsureNonsolidCachedCopy` — solid → CLI extract + `a -ms=off` under content-keyed cache dest; non-solid keeps source; encrypted fails with clear error |
+| Outer nonsolid cache | Scope `outer`/`all`: mount path calls `EnsureNonsolidCachedCopy` — solid → CLI extract + `a -ms=off` under content-keyed cache dest; exclusive `{cacheKey}.lock` flock serializes concurrent populate; non-solid keeps source; encrypted fails with clear error |
 
 **Engine convert order** (parity with Python `_run_convert`): archiveconverter (if available / `.7z` / not zip-repack) → zip repack → flatten. Success updates `archive_path` + fingerprint, leaves `converting` → `discovered`, then continues to mount/index. Failure → `index_failed` / `mount_failed` with `last_error`. Outer/all cache populate runs at **mount** start (not the convert job), like Python `resolve_mount_archive_path`.
 
@@ -109,7 +109,7 @@ macOS: keep `windows_visible: false` (single-user agent; allow_other not the WSL
 |-----|--------|
 | Solid/nested probe | Best-effort `7z l -slt` only — not ratarmountcore solid-folder parse; encrypted detect is CLI phrase/`Encrypted=+` only; inject `NeedsFlatten` to override |
 | Flatten depth | Best-effort CLI: extract, walk nested `*.7z`, repack `-ms=off`; encrypted refused clearly; **no stream-flatten** / post-rebuild nested-header check |
-| Outer cache | CLI extract+repack only (no stream-repack / flock); nested `.7z` members not expanded in outer cache (child env still used for nested when scope allows) |
+| Outer cache | CLI extract+repack only (no stream-repack); exclusive flock on `{cacheKey}.lock` with re-check hit inside lock; nested `.7z` members not expanded in outer cache (child env still used for nested when scope allows) |
 | Real engines in CI | Unit tests use fake 7z scripts / injectable `Run7z` / list output; nested mini + encrypted `*.l-slt.txt` under `testdata/nested7z/` for offline parse; real `7z l` / multi generation skips when 7z missing; no FUSE required for default `make test` |
 
 ### Phase 6.1 — reconcile (library)
@@ -165,7 +165,7 @@ reconciler.Boot()
 
 **Implemented:** pure formulas + FS/SQLite index sum + mount walk fallback; unit tests with map fakes and minimal synthetic indexes.
 
-**Wired:** control `metrics` op via `MetricsCollector` + store `ArchiveSource` adapter in service. CLI/API/SPA surfaces still pending; convert-metadata sidecar reader wiring (`ConvertMetaProvider` ready — use `convert.ReadConvertMetadata` adapter).
+**Wired:** control `metrics` op via `MetricsCollector` + store `ArchiveSource` adapter in service. Production `New` sets `Collector.Meta` to `ConvertSidecarMeta{Config}` (`convert.ReadConvertMetadata` on `archive_path`, then outer nonsolid cache dest when configured); store convert columns still win when both are set (`ComputeArchiveMetrics` / `ResolveConvertFields`). CLI metrics surface still optional; status `include_sizes`, control `metrics`, HTTP/SPA consume the collector.
 
 ### Phase 6.5 — status payload (SPA fuel)
 

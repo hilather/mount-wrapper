@@ -13,5 +13,9 @@
 // When convert_7z_nonsolid + flatten scope are set, New wires a best-effort
 // 7z list solid/nested FlattenNeededFunc on the Engine if none was injected.
 //
+// Production metrics collectors get ConvertSidecarMeta{Config} so convert
+// savings read the sidecar next to archive_path (or outer nonsolid cache dest)
+// when store convert fields are sparse.
+//
 // Parity sources: tarmount-wsl service.py + control.py.
 package service
