@@ -164,6 +164,196 @@ func TestMarkMounted_PersistsNestedSkipSummaryInLastError(t *testing.T) {
 	}
 }
 
+// Remount / re-MarkMounted: live SkippedNested empty but SQLite already holds a
+// pure nested-skip advisory — must not wipe last_error to nil.
+func TestMarkMounted_KeepsPureNestedSkipAdvisoryWhenLiveSkipsEmpty(t *testing.T) {
+	cfg, store, tmp := testEngineConfig(t)
+	archive := filepath.Join(tmp, "a.tar.gz")
+	if err := os.WriteFile(archive, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := insertArchive(t, store, archive)
+
+	eng := mounter.NewEngine(cfg, store)
+	advisory := "skipped 2 nested mounts: /inner/a.7z, /inner/b.7z"
+	rec, err := store.Transition(rec.ArchiveID, state.StatusMounting, state.StatusDiscovered, map[string]any{
+		"mount_path": filepath.Join(cfg.MountRoot, "m"),
+		"index_path": filepath.Join(cfg.IndexDir, "i.sqlite"),
+		"last_error": advisory,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.LastError == nil || *rec.LastError != advisory {
+		t.Fatalf("precondition last_error=%v", rec.LastError)
+	}
+
+	// Live mount with no nested skips (remount FUSE child did not re-emit).
+	managed := &mounter.ManagedMount{
+		ArchiveID: rec.ArchiveID,
+		Phase:     mounter.PhaseMount,
+		PID:       5151,
+		Request: mounter.MountRequest{
+			ArchivePath:  archive,
+			IndexPath:    filepath.Join(cfg.IndexDir, "i.sqlite"),
+			MountPath:    filepath.Join(cfg.MountRoot, "m"),
+			MountBackend: "rust",
+		},
+		StartedAt: time.Now(),
+	}
+	eng.Live.Put(managed)
+
+	updated, err := eng.MarkMounted(rec.ArchiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != state.StatusMounted {
+		t.Fatalf("status=%s", updated.Status)
+	}
+	if updated.LastError == nil {
+		t.Fatal("expected pure nested-skip last_error retained when live skips empty")
+	}
+	if *updated.LastError != advisory {
+		t.Fatalf("last_error=%q want %q", *updated.LastError, advisory)
+	}
+
+	// Enriched (failure) last_error is not skip-only — still cleared on clean mount.
+	rec2, err := store.Transition(rec.ArchiveID, state.StatusMounting, state.StatusMounted, map[string]any{
+		"last_error": "ratarmount exited; " + advisory,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed2 := &mounter.ManagedMount{
+		ArchiveID: rec2.ArchiveID,
+		Phase:     mounter.PhaseMount,
+		PID:       5152,
+		Request:   managed.Request,
+		StartedAt: time.Now(),
+	}
+	eng.Live.Put(managed2)
+	cleared, err := eng.MarkMounted(rec2.ArchiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.LastError != nil {
+		t.Fatalf("enriched last_error should clear on clean mount, got %q", *cleared.LastError)
+	}
+}
+
+// Index-phase nested skips must survive dropLive → FUSE beginMount: persist
+// pure summary on the indexing→mounting transition and carry onto new live.
+func TestCompleteIndexAndStartMount_PersistsAndCarriesNestedSkips(t *testing.T) {
+	cfg, store, tmp := testEngineConfig(t)
+	archive := filepath.Join(tmp, "a.tar.gz")
+	if err := os.WriteFile(archive, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := insertArchive(t, store, archive)
+
+	eng := mounter.NewEngine(cfg, store)
+	indexPath := filepath.Join(cfg.IndexDir, "i.sqlite")
+	mountPath := filepath.Join(cfg.MountRoot, "m")
+	// Index file present so IndexBuildVerified succeeds without a real child exit.
+	if err := os.MkdirAll(cfg.IndexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(indexPath, []byte("idx"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec, err := store.Transition(rec.ArchiveID, state.StatusIndexing, state.StatusDiscovered, map[string]any{
+		"mount_path": mountPath,
+		"index_path": indexPath,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	indexManaged := &mounter.ManagedMount{
+		ArchiveID: rec.ArchiveID,
+		Phase:     mounter.PhaseIndexOnly,
+		PID:       1,
+		Request: mounter.MountRequest{
+			ArchivePath:  archive,
+			IndexPath:    indexPath,
+			MountPath:    mountPath,
+			MountBackend: "rust",
+			IndexOnly:    true,
+		},
+		StartedAt: time.Now(),
+	}
+	indexManaged.NoteNestedSkip("/nested/from-index.7z")
+	indexManaged.NoteNestedSkip("/nested/also-index.7z")
+	eng.Live.Put(indexManaged)
+
+	// Fake FUSE-phase start (no real ratarmount).
+	eng.StartProcess = func(req mounter.MountRequest, opts mounter.CmdOptions, mustExist bool) (*exec.Cmd, error) {
+		if err := mounter.PreparePaths(req); err != nil {
+			return nil, err
+		}
+		cmd := exec.Command("sleep", "30")
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		return cmd, nil
+	}
+	eng.IsMount = func(string) bool { return false }
+
+	newManaged, err := eng.CompleteIndexAndStartMount(rec.ArchiveID)
+	if err != nil {
+		t.Fatalf("CompleteIndexAndStartMount: %v", err)
+	}
+	if newManaged == nil {
+		t.Fatal("expected FUSE-phase ManagedMount")
+	}
+	if newManaged.Phase != mounter.PhaseMount {
+		t.Fatalf("phase=%s want mount", newManaged.Phase)
+	}
+
+	// Carried onto new live entry.
+	gotSkips := newManaged.NestedSkips()
+	if len(gotSkips) != 2 || gotSkips[0] != "/nested/from-index.7z" || gotSkips[1] != "/nested/also-index.7z" {
+		t.Fatalf("carried skips=%v", gotSkips)
+	}
+	// Same entry in registry.
+	live := eng.Live.Get(rec.ArchiveID)
+	if live == nil || len(live.NestedSkips()) != 2 {
+		t.Fatalf("live skips=%v", live)
+	}
+
+	// Persisted pure advisory on indexing→mounting transition.
+	mid, err := store.GetArchive(rec.ArchiveID)
+	if err != nil || mid == nil {
+		t.Fatalf("get mid: %v", err)
+	}
+	if mid.Status != state.StatusMounting {
+		t.Fatalf("status=%s", mid.Status)
+	}
+	if mid.LastError == nil {
+		t.Fatal("expected last_error pure skip summary after CompleteIndexAndStartMount")
+	}
+	wantSum := mounter.FormatNestedSkipSummary(
+		[]string{"/nested/from-index.7z", "/nested/also-index.7z"},
+		mounter.DefaultNestedSkipSamples,
+	)
+	if *mid.LastError != wantSum {
+		t.Fatalf("last_error=%q want %q", *mid.LastError, wantSum)
+	}
+
+	// MarkMounted still writes the summary (from live skips).
+	mounted, err := eng.MarkMounted(rec.ArchiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mounted.LastError == nil || *mounted.LastError != wantSum {
+		t.Fatalf("after MarkMounted last_error=%v", mounted.LastError)
+	}
+
+	// Cleanup long-running sleep child.
+	_, _ = eng.Unmount(rec.ArchiveID, false)
+}
+
 func TestDrainRatarmountStderr_FakeLines(t *testing.T) {
 	t.Parallel()
 	// Synthetic stderr (no FUSE / no real ratarmount).

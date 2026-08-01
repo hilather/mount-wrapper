@@ -6,9 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/hilather/mount-wrapper/internal/config"
+	"github.com/hilather/mount-wrapper/internal/control"
+	"github.com/hilather/mount-wrapper/internal/testutil"
 )
 
 func testInfo() BuildInfo {
@@ -254,6 +258,65 @@ func TestRescanServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestReloadServiceUnavailable(t *testing.T) {
+	cfgPath := writeTempConfig(t, "")
+	code, _, errBuf := runCLI(t, "reload", "--config", cfgPath)
+	if code != ExitServiceUnavailable {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitServiceUnavailable, code, errBuf)
+	}
+	if !strings.Contains(errBuf, "error:") {
+		t.Fatalf("expected error message, got %q", errBuf)
+	}
+}
+
+func TestReloadSuccessHumanMessage(t *testing.T) {
+	sock := testutil.ShortUnixSocketPath(t, "cli-reload.sock")
+	srv := control.NewServer(sock, func(req map[string]any) map[string]any {
+		if req["op"] != "reload" {
+			return control.ErrResponse("unexpected op", "ERROR")
+		}
+		return control.OKResponse(map[string]any{"reload": "scheduled"})
+	}, true)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				srv.ServeReady()
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		wg.Wait()
+	}()
+
+	// Allow listener to accept.
+	time.Sleep(20 * time.Millisecond)
+
+	code, out, errBuf := runCLI(t, "reload", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitOK, code, errBuf)
+	}
+	if !strings.Contains(out, "reload scheduled") {
+		t.Fatalf("expected human success line, got %q", out)
+	}
+	if strings.Contains(out, "{") {
+		t.Fatalf("reload should not dump JSON ack by default: %q", out)
+	}
+}
+
 func TestUnmountUsage(t *testing.T) {
 	code, _, errBuf := runCLI(t, "unmount")
 	if code != ExitUsage {
@@ -286,6 +349,10 @@ func TestHelpParseTable(t *testing.T) {
 		{[]string{"config", "help"}, ExitOK, "show"},
 		{[]string{"hooks", "help"}, ExitOK, "list"},
 		{[]string{"metrics", "-h"}, ExitOK, "no-cache"},
+		{[]string{"reload", "-h"}, ExitOK, "config"},
+		{[]string{"reload", "--help"}, ExitOK, "socket"},
+		{[]string{"reload", "extra-arg"}, ExitUsage, "unexpected"},
+		{[]string{"reload", "--not-a-flag"}, ExitUsage, ""},
 		{[]string{"retry"}, ExitUsage, "ARCHIVE_ID"},
 		{[]string{"mount"}, ExitUsage, "PATH"},
 		{[]string{"unmount", "--all", "x"}, ExitUsage, "--all"},

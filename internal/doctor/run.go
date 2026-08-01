@@ -35,6 +35,9 @@ func Run(opts Options) *Report {
 
 	if o.Config != nil {
 		checks = append(checks, checkServicePaths(o)...)
+		if c := checkWindowsVisibleParentOX(o); c.Name != "" {
+			checks = append(checks, c)
+		}
 		checks = append(checks, checkSourceDirs(o)...)
 		checks = append(checks, checkIndexLayout(o))
 		checks = append(checks, checkFreeSpace(o)...)

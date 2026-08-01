@@ -201,7 +201,9 @@ Extend `ReadOnlyPaths` / `ReadWritePaths` for non-default `source_dirs` via
    `user_allow_other` in `/etc/fuse.conf` (`create-user.sh` enables when possible).
    Parents of `mount_root` must be other-executable (`o+x`); `create-user.sh`
    sets this on `/var/lib/mount-wrapper` and `…/mounts` — custom roots need
-   operator chmod (see [architecture.md](./architecture.md)).
+   operator chmod (see [architecture.md](./architecture.md)). Run
+   `mount-wrapper doctor` and fix **`windows_visible_parent_ox`** if it warns
+   (message includes `chmod o+x …` for paths lacking other-execute).
 5. **Task Scheduler (optional):** import
    `packaging/windows-task-scheduler.xml.example` so login runs
    `wsl.exe -d <Distro> --exec /bin/true` and systemd can start the unit

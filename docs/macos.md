@@ -60,7 +60,9 @@ socket under a short path such as:
 Avoid deep nested Application Support paths for the socket. If bind fails with
 “filename too long” / invalid argument, shorten `control_socket`.
 
-`mount-wrapper doctor` emits check **`control_socket_path_length`** on Darwin:
+`mount-wrapper doctor` emits check **`windows_visible_parent_ox`** as macOS info
+(keep `windows_visible: false`; parent o+x is WSL-oriented) and
+**`control_socket_path_length`** on Darwin:
 **warn** when `len(control_socket) > 100` (soft margin under the ~104 sun_path
 limit). Severity is warn only (report still OK).
 

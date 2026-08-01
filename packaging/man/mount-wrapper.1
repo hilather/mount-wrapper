@@ -227,8 +227,23 @@ Runtime directory (socket + pidfile).
 .B 0
 Success.
 .TP
-.B non-zero
-Usage error, config/load failure, or command/service failure.
+.B 1
+General error (config load/validation failure, command failure, or other
+control/protocol error not mapped below).
+.TP
+.B 2
+Usage error (unknown command, invalid flags, or missing required arguments).
+.TP
+.B 4
+Service unavailable (control socket missing, not a live listener, or
+.B serve
+not running).
+.TP
+.B 5
+Permission denied (control-plane peer credentials rejected; caller is not
+root or a member of the
+.B mount-wrapper
+group, and unauth is not enabled).
 .SH SECURITY
 Control socket authentication uses peer credentials (root or group
 .BR mount-wrapper ).

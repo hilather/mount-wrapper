@@ -62,7 +62,7 @@ SPA source lives in `web/`; production assets are copied into `internal/webui/di
 | `internal/mounter` | Backend normalize/resolve, ratarmount argv + child env, live registry (`index_only`/`mount`), process-group start/kill/wait, unmount sequence (SIGTERM → fusermount → lazy), partial-index cleanup, concurrent-limit + mount-attempt helpers, DrvFs index refuse, nested-automount stderr drain + skip summary |
 | `internal/mounter.Engine` | Claim + spawn, `CheckChild` / index→mount, mark mounted/failed, convert jobs (async: archiveconverter → zip repack → flatten), relocate (sync v1), `ProgressLive`, `Unmount` |
 
-**Nested automount skips:** while a ratarmount-rs child runs, Engine pipes stderr and parses lines matching `Mounting of '…' failed because of: …`. Paths accumulate on `ManagedMount.SkippedNested`. On failure, `MarkFailed` enriches `last_error` with `skipped N nested mounts: path…` (sample paths). On success (`MarkMounted`), when any skips were recorded: summary is logged (`event=index_nested_skipped`), **`last_error` holds the pure skip summary** (operator advisory; no SQLite migration), and status/API archive rows expose `nested_skips_count` + `nested_skips_summary` (from live `ManagedMount` while the FUSE child is registered, else derived from `last_error`). Hooks success preserves a pure nested-skip `last_error` so the SPA warning remains after first-mount hooks. SPA Archives table shows a warn chip + subtitle on mounted rows with skips; failed rows still show full `last_error` (which may include the skip segment).
+**Nested automount skips:** while a ratarmount-rs child runs, Engine pipes stderr and parses lines matching `Mounting of '…' failed because of: …`. Paths accumulate on `ManagedMount.SkippedNested`. On failure, `MarkFailed` enriches `last_error` with `skipped N nested mounts: path…` (sample paths). On success (`MarkMounted`), when any skips were recorded: summary is logged (`event=index_nested_skipped`), **`last_error` holds the pure skip summary** (operator advisory; no SQLite migration), and status/API archive rows expose `nested_skips_count` + `nested_skips_summary` (from live `ManagedMount` while the FUSE child is registered, else derived from `last_error`). **Durability across index→mount and remount:** `CompleteIndexAndStartMount` drains index-phase stderr, persists the pure skip summary into `last_error` on the indexing→mounting transition, and **carries** `SkippedNested` onto the new FUSE-phase `ManagedMount` (index-phase live is dropped). `MarkMounted` keeps an existing pure nested-skip `last_error` (`IsNestedSkipOnlyLastError`) when live skips are empty (remount / FUSE phase that does not re-emit skip lines). Hooks success preserves a pure nested-skip `last_error` so the SPA warning remains after first-mount hooks. SPA Archives table shows a warn chip + subtitle on mounted rows with skips; failed rows still show full `last_error` (which may include the skip segment).
 
 **Still deferred:** stream-flatten / full solid-folder parse. Flatten + outer-cache probes are best-effort CLI (`7z l -slt`), not ratarmountcore. Optional real-FUSE smoke: `go test -tags=fuse ./internal/mounter/` (skips without `/dev/fuse` or engine on PATH; not in default `make test`).
 
@@ -72,11 +72,15 @@ When `windows_visible: true`, FUSE mounts use `-o allow_other` so Windows UNC
 (`\\wsl.localhost\<distro>\…`) and other local users can open the mount. That
 requires:
 
-1. **`user_allow_other`** in `/etc/fuse.conf` (`create-user.sh` enables when possible; doctor warns when missing).
+1. **`user_allow_other`** in `/etc/fuse.conf` (`create-user.sh` enables when possible; doctor check **`user_allow_other`** warns when missing).
 2. **Other-executable parents** on the path to each mountpoint: every directory
    from `/` down through `mount_root` (and typically `…/mounts`) needs `o+x`
    (world traverse). FUSE content is still gated by the mount; only path
-   resolution needs `x` on parents.
+   resolution needs `x` on parents. Doctor check **`windows_visible_parent_ox`**
+   (config present) walks existing ancestors on Linux when `windows_visible` is
+   true and **warns** with a `chmod o+x …` fix hint when any dir lacks other-execute;
+   details include `missing_ox`, `modes`, and `fix_hint`. macOS emits info only
+   (WSL-oriented); `windows_visible: false` is info “not required”.
 3. **Packaging default:** `create-user.sh` runs
    `chmod o+x /var/lib/mount-wrapper /var/lib/mount-wrapper/mounts` best-effort.
 4. **Custom roots:** if `mount_root` is under a home or other non-world-x tree,
@@ -209,7 +213,7 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 | Package | Responsibility |
 |---------|----------------|
 | `internal/service` | Daemon lifecycle: pidfile flock, service dirs, boot remount, control socket, inotify hint, signal stop/reload, single-threaded `Tick`, `HandleRequest` control map, status payload via `internal/status`; on reload: re-apply `log_level` (env override), rematerialize scanner sources, restart/stop inotify when `use_inotify` / `source_dirs` change |
-| `internal/doctor` | Offline environment diagnostics: host/WSL/FUSE/unmount tool, `user_allow_other`, Go + ratarmount(-rs) + archiveconverter + 7z bins, service paths/source dirs, index DrvFs layout, free-space, peercred/control socket notes, **`web_bind_security`** (non-loopback + empty `web_token` → warn), **`convert_cache_dir`** / archiveconverter output writability when convert features are on, Darwin **`control_socket_path_length`** (~100-byte sun_path warn), systemd PID1 + drop-in generation, service-user messaging |
+| `internal/doctor` | Offline environment diagnostics: host/WSL/FUSE/unmount tool, `user_allow_other`, Go + ratarmount(-rs) + archiveconverter + 7z bins, service paths/source dirs, index DrvFs layout, free-space, peercred/control socket notes, **`web_bind_security`** (non-loopback + empty `web_token` → warn), **`windows_visible_parent_ox`** (Linux: mount_root ancestors lack o+x when `windows_visible` → warn + `chmod o+x` hint), **`convert_cache_dir`** / archiveconverter output writability when convert features are on, Darwin **`control_socket_path_length`** (~100-byte sun_path warn), systemd PID1 + drop-in generation, service-user messaging |
 
 **CLI:** `mount-wrapper serve [--config] [--once] [--allow-unauth]` plus socket-backed ops (Phase 7.2), including `reload`.
 
@@ -229,14 +233,14 @@ Control op `reload` schedules work on the next tick (or immediate via `config_se
 
 **JSON shape (`ToMap` / `FormatJSON` / `GET /api/doctor`):** root keys always `ok`, `checks`, `config_path` (JSON `null` when empty), `notes`, `fixes_applied` (arrays, never null). Each check always has `name`, `ok`, `severity` (`info`|`warn`|`error`), `message`, `details` (object, never null). Structural golden: `TestDoctorFormatJSONStructural` (key sets + severity policy + gated names; not full message goldens). OpenAPI `DoctorReport` / `DoctorCheck` and SPA `web/src/lib/types.ts` mirror this.
 
-**Hard fail:** only `severity=error` + `ok=false`. Missing optional tools / FUSE / open non-loopback web bind / convert cache path issues / long Darwin control socket are **warn** (report still `ok: true`).
+**Hard fail:** only `severity=error` + `ok=false`. Missing optional tools / FUSE / open non-loopback web bind / missing parent `o+x` for `windows_visible` / convert cache path issues / long Darwin control socket are **warn** (report still `ok: true`).
 
 **Doctor check inventory (Run order):**
 
 | When | Check names |
 |------|-------------|
 | Always (no config required) | `go_version`, `host_platform`, `peercred`, `fuse_device`, `fusermount`, `user_allow_other`, `ratarmount_bin`, `archiveconverter`, `sevenzip_bin`, `mount_backend`, `systemd_pid1`, `service_user` |
-| Config present | `path.mount_root`, `path.index_dir`, `path.overlay_dir`, `path.control_socket_dir` (if socket set), `source_dirs` / `source_dirs[i]`, `index_layout`, `disk.*` (mount/index/overlay; deduped), **`web_bind_security`**, **`config`** |
+| Config present | `path.mount_root`, `path.index_dir`, `path.overlay_dir`, `path.control_socket_dir` (if socket set), **`windows_visible_parent_ox`**, `source_dirs` / `source_dirs[i]`, `index_layout`, `disk.*` (mount/index/overlay; deduped), **`web_bind_security`**, **`config`** |
 | Convert on (`convert_7z_nonsolid` or `convert_zip_to_7z`) | **`convert_cache_dir`** |
 | `archiveconverter_enabled` + output dir set | **`path.archiveconverter_output_dir`** |
 | Darwin + config | **`control_socket_path_length`** (~100-byte sun_path warn) |

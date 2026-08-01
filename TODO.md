@@ -365,6 +365,7 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
   - [x] Python N/A; instead Go version + ratarmount bin + backends
   - [x] FUSE device / unmount tool
   - [x] `user_allow_other` when windows_visible
+  - [x] `windows_visible_parent_ox` (Linux mount_root ancestor o+x when windows_visible)
   - [x] source dir readability
   - [x] path layout (indexes not on DrvFs)
   - [x] systemd presence / drop-in generation (`--fix-systemd` via library)

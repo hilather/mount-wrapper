@@ -33,6 +33,10 @@ type WritableFunc func(path string) bool
 // ok is false when the probe fails.
 type FreeBytesFunc func(path string) (free int64, ok bool)
 
+// DirModeFunc returns permission bits (e.g. 0o755) for an existing directory.
+// ok is false when path is missing or not a directory.
+type DirModeFunc func(path string) (mode os.FileMode, ok bool)
+
 // LookupUserFunc looks up a system user by name. Returns false if missing.
 type LookupUserFunc func(name string) (exists bool)
 
@@ -105,6 +109,7 @@ type Options struct {
 	IsDir        IsDirFunc
 	Writable     WritableFunc
 	FreeBytes    FreeBytesFunc
+	DirMode      DirModeFunc
 	LookupUser   LookupUserFunc
 	ReadFile     ReadFileFunc
 	RunBin       RunBinFunc
@@ -160,6 +165,13 @@ func (o *Options) freeBytes() FreeBytesFunc {
 		return o.FreeBytes
 	}
 	return diskFreeBytes
+}
+
+func (o *Options) dirMode() DirModeFunc {
+	if o != nil && o.DirMode != nil {
+		return o.DirMode
+	}
+	return defaultDirMode
 }
 
 func (o *Options) lookupUser() LookupUserFunc {
@@ -256,6 +268,14 @@ func defaultIsExecutable(path string) bool {
 func defaultIsDir(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+func defaultDirMode(path string) (os.FileMode, bool) {
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return 0, false
+	}
+	return info.Mode().Perm(), true
 }
 
 func defaultWritable(path string) bool {

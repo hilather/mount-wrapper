@@ -20,6 +20,8 @@ type testEnv struct {
 	writable     map[string]bool
 	free         map[string]int64
 	freeOK       map[string]bool
+	// modes overrides DirMode for existing dirs (default 0o755 when in dirs).
+	modes        map[string]os.FileMode
 	users        map[string]bool
 	files        map[string]string
 	binOut       map[string]string // key: "path|--version" or "path|--help"
@@ -44,6 +46,7 @@ func newEnv() *testEnv {
 		writable:  map[string]bool{},
 		free:      map[string]int64{},
 		freeOK:    map[string]bool{},
+		modes:     map[string]os.FileMode{},
 		users:     map[string]bool{},
 		files:     map[string]string{},
 		binOut:    map[string]string{},
@@ -101,6 +104,15 @@ func (e *testEnv) opts(cfg *config.Config) doctor.Options {
 			}
 			if v, ok := e.free[path]; ok {
 				return v, true
+			}
+			return 0, false
+		},
+		DirMode: func(path string) (os.FileMode, bool) {
+			if m, ok := e.modes[path]; ok {
+				return m, true
+			}
+			if e.dirs[path] {
+				return 0o755, true
 			}
 			return 0, false
 		},
@@ -233,6 +245,7 @@ func TestDoctorCheckInventory(t *testing.T) {
 				doctor.CheckNameConvertCacheDir,
 				doctor.CheckNameArchiveconverterOutputDir,
 				doctor.CheckNameControlSocketPathLength,
+				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameConfig,
 				doctor.CheckNameIndexLayout,
 				doctor.CheckNameFixSystemd,
@@ -270,6 +283,7 @@ func TestDoctorCheckInventory(t *testing.T) {
 			},
 			required: append(append([]string(nil), doctor.CoreCheckNames...),
 				doctor.CheckNameWebBindSecurity,
+				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameIndexLayout,
 				doctor.CheckNameConfig,
 				"path.mount_root",
@@ -287,6 +301,95 @@ func TestDoctorCheckInventory(t *testing.T) {
 				doctor.CheckNameFixSystemd,
 			},
 			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameWindowsVisibleParentOX)
+				// Default windows_visible true; inventory dirs have o+x via DirMode.
+				if !c.OK || c.Severity != doctor.SeverityInfo {
+					t.Fatalf("windows_visible_parent_ox baseline: %+v", c)
+				}
+			},
+		},
+		{
+			name: "windows_visible_parent_ox_missing_bit_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				// mount_root and a parent lack o+x (0700).
+				e.modes["/var/lib/mount-wrapper/mounts"] = 0o700
+				e.modes["/var/lib/mount-wrapper"] = 0o700
+				e.dirs["/var/lib/mount-wrapper"] = true
+				e.exists["/var/lib/mount-wrapper"] = true
+				return mustCfg(t, map[string]any{
+					"windows_visible": true,
+					"mount_root":      "/var/lib/mount-wrapper/mounts",
+					"convert_7z_nonsolid": false,
+					"convert_zip_to_7z":   false,
+				}, "")
+			},
+			required:     []string{doctor.CheckNameWindowsVisibleParentOX},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameWindowsVisibleParentOX)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "chmod o+x") {
+					t.Fatalf("message missing fix hint: %q", c.Message)
+				}
+				hint, _ := c.Details["fix_hint"].(string)
+				if !strings.Contains(hint, "chmod o+x") {
+					t.Fatalf("details.fix_hint=%q", hint)
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatalf("o+x warn must not hard-fail: %s", doctor.FormatText(r))
+				}
+			},
+		},
+		{
+			name: "windows_visible_false_parent_ox_info",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				return mustCfg(t, map[string]any{
+					"windows_visible": false,
+					"mount_root":      "/var/lib/mount-wrapper/mounts",
+				}, "")
+			},
+			required: []string{doctor.CheckNameWindowsVisibleParentOX},
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameWindowsVisibleParentOX)
+				if !c.OK || c.Severity != doctor.SeverityInfo {
+					t.Fatalf("want info when windows_visible=false: %+v", c)
+				}
+				if !strings.Contains(c.Message, "not required") {
+					t.Fatalf("message=%q", c.Message)
+				}
+			},
+		},
+		{
+			name: "darwin_windows_visible_parent_ox_info",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.platform = "darwin"
+				e.exists["/Library/Filesystems/macfuse.fs"] = true
+				e.which["umount"] = "/usr/bin/umount"
+				return mustCfg(t, map[string]any{
+					"windows_visible": true,
+					"mount_root":      "/var/lib/mount-wrapper/mounts",
+				}, "")
+			},
+			required: []string{doctor.CheckNameWindowsVisibleParentOX},
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameWindowsVisibleParentOX)
+				if !c.OK || c.Severity != doctor.SeverityInfo {
+					t.Fatalf("darwin want info: %+v", c)
+				}
+				if !strings.Contains(c.Message, "macOS") {
+					t.Fatalf("message=%q", c.Message)
+				}
+			},
 		},
 		{
 			name: "web_non_loopback_empty_token_warn_report_ok",
@@ -745,6 +848,136 @@ func TestUserAllowOtherWindowsVisible(t *testing.T) {
 	if !c.OK {
 		t.Fatalf("expected ok: %+v", c)
 	}
+}
+
+// chmodOXUnder opens path and every ancestor that is strictly under root
+// (filepath.Rel succeeds without "..") so t.TempDir's nested 0700 parents do
+// not fail windows_visible_parent_ox. Does not touch root itself (/tmp).
+func chmodOXUnder(t *testing.T, path, root string) {
+	t.Helper()
+	root = filepath.Clean(root)
+	for p := filepath.Clean(path); p != root; {
+		rel, err := filepath.Rel(root, p)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			break
+		}
+		if err := os.Chmod(p, 0o755); err != nil {
+			t.Fatalf("chmod 0755 %s: %v", p, err)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			break
+		}
+		p = parent
+	}
+}
+
+// TestWindowsVisibleParentOXRealDirs uses real temp directories with modes
+// 0755 (ok) vs 0700 (missing o+x). DirMode is left nil so default os.Stat runs.
+func TestWindowsVisibleParentOXRealDirs(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	// Open the whole temp chain under /tmp (t.TempDir nests 0700 dirs).
+	chmodOXUnder(t, base, "/tmp")
+
+	mkOpts := func(t *testing.T, mountRoot string) doctor.Options {
+		t.Helper()
+		e := inventoryBaseEnv()
+		cfg := mustCfg(t, map[string]any{
+			"windows_visible":     true,
+			"mount_root":          mountRoot,
+			"convert_7z_nonsolid": false,
+			"convert_zip_to_7z":   false,
+		}, "")
+		opts := e.opts(cfg)
+		// Real filesystem mode probe (ignore injectable DirMode map).
+		opts.DirMode = nil
+		return opts
+	}
+
+	t.Run("all_0755_ok", func(t *testing.T) {
+		parent := filepath.Join(base, "open")
+		mounts := filepath.Join(parent, "mounts")
+		if err := os.MkdirAll(mounts, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range []string{parent, mounts} {
+			if err := os.Chmod(p, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		r := doctor.Run(mkOpts(t, mounts))
+		c := checkByName(r, doctor.CheckNameWindowsVisibleParentOX)
+		if !c.OK || c.Severity != doctor.SeverityInfo {
+			t.Fatalf("want info ok: %+v", c)
+		}
+		if raw, ok := c.Details["missing_ox"]; ok {
+			switch v := raw.(type) {
+			case []string:
+				if len(v) != 0 {
+					t.Fatalf("missing_ox=%v", v)
+				}
+			case []any:
+				if len(v) != 0 {
+					t.Fatalf("missing_ox=%v", v)
+				}
+			}
+		}
+	})
+
+	t.Run("parent_0700_warn", func(t *testing.T) {
+		parent := filepath.Join(base, "closed")
+		mounts := filepath.Join(parent, "mounts")
+		if err := os.MkdirAll(mounts, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(mounts, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(parent, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		r := doctor.Run(mkOpts(t, mounts))
+		c := checkByName(r, doctor.CheckNameWindowsVisibleParentOX)
+		if c.OK || c.Severity != doctor.SeverityWarn {
+			t.Fatalf("want warn: %+v", c)
+		}
+		if !strings.Contains(c.Message, parent) {
+			t.Fatalf("message should name closed parent %q: %q", parent, c.Message)
+		}
+		if !strings.Contains(c.Message, "chmod o+x") {
+			t.Fatalf("message missing fix: %q", c.Message)
+		}
+		hint, _ := c.Details["fix_hint"].(string)
+		if !strings.Contains(hint, parent) || !strings.Contains(hint, "chmod o+x") {
+			t.Fatalf("fix_hint=%q", hint)
+		}
+		if doctor.HardFail(r.Checks) {
+			t.Fatalf("hard fail unexpected: %s", doctor.FormatText(r))
+		}
+	})
+
+	t.Run("mount_root_itself_0700_warn", func(t *testing.T) {
+		parent := filepath.Join(base, "leaf-closed-parent")
+		mounts := filepath.Join(parent, "mounts")
+		if err := os.MkdirAll(mounts, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(parent, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(mounts, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		r := doctor.Run(mkOpts(t, mounts))
+		c := checkByName(r, doctor.CheckNameWindowsVisibleParentOX)
+		if c.OK || c.Severity != doctor.SeverityWarn {
+			t.Fatalf("want warn for mount_root 0700: %+v", c)
+		}
+		if !strings.Contains(c.Message, mounts) {
+			t.Fatalf("message should name mounts %q: %q", mounts, c.Message)
+		}
+	})
 }
 
 func TestFuseMissingIsWarn(t *testing.T) {
@@ -1306,6 +1539,7 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 			forbiddenChecks: []string{
 				doctor.CheckNameWebBindSecurity,
 				doctor.CheckNameConvertCacheDir,
+				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameConfig,
 				doctor.CheckNameIndexLayout,
 				doctor.CheckNameFixSystemd,
@@ -1356,6 +1590,7 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 			wantMinChecks:     len(doctor.CoreCheckNames) + 1,
 			requiredChecks: []string{
 				doctor.CheckNameWebBindSecurity,
+				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameConvertCacheDir,
 				doctor.CheckNameIndexLayout,
 				doctor.CheckNameConfig,

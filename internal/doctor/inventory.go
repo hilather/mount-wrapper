@@ -41,6 +41,10 @@ const (
 	CheckNameFixSystemd = "fix_systemd"
 	// CheckNameIndexLayout is emitted whenever Config is non-nil.
 	CheckNameIndexLayout = "index_layout"
+	// CheckNameWindowsVisibleParentOX is emitted whenever Config is non-nil.
+	// On Linux with windows_visible, walks mount_root ancestors for o+x;
+	// macOS is info-only; windows_visible false is info "not required".
+	CheckNameWindowsVisibleParentOX = "windows_visible_parent_ox"
 )
 
 // Name prefixes for config-dependent path/disk/source checks (exact suffix

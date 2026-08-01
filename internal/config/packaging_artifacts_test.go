@@ -236,6 +236,12 @@ func TestPackagingArtifacts(t *testing.T) {
 				"status",
 				"reload",
 				"MOUNT_WRAPPER_LOG_LEVEL",
+				".SH EXIT STATUS",
+				".B 0",
+				".B 1",
+				".B 2",
+				".B 4",
+				".B 5",
 			},
 		},
 		{

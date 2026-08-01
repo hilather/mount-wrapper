@@ -21,7 +21,8 @@
 // custom mount_root under a home directory) are also traversable. FUSE
 // allow_other still needs user_allow_other in /etc/fuse.conf. mount-wrapper
 // does not chmod arbitrary parents at runtime (security: no automatic
-// world-x on operator paths). See docs/architecture.md.
+// world-x on operator paths). Doctor check windows_visible_parent_ox warns
+// when ancestors lack o+x. See docs/architecture.md.
 //
 // Parity sources: tarmount-wsl mounter.py + backends.py.
 package mounter

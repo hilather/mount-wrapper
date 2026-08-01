@@ -78,7 +78,7 @@ rot. Prefer fixing code over changing this list without evidence.
 | **Homebrew tap** | residual | Formula sketch under `packaging/homebrew/` is **usable** (`brew install --formula` after `scripts/update-homebrew-formula.sh` fills `SHA256SUMS`); **tap** publish / CI brew install still residual |
 | **Playwright SPA smoke** | optional / local | Landed: `web/e2e` mocked `/api/*` — Archives shell, table rows + Retry/Unmount/Purge/Rescan/Unmount-all, Doctor panel checks, Settings validate/apply; `RUN_E2E=1` / optional CI job |
 | **OpenAPI / generated SPA client** | optional residual | Hand-written OpenAPI schemas in `docs/openapi.yaml` (richer; version 0.1.3) + hand-written TS (`api-types.ts` + `types.ts`, D11); **codegen / generated SPA client still residual** (keep open) |
-| **Windows parent `o+x` traverse notes** | docs/ops | Platform quirk; document/operate as needed |
+| **Windows parent `o+x` traverse** | done (doctor) | Docs + packaging `create-user.sh` o+x; doctor **`windows_visible_parent_ox`** warns on Linux when `windows_visible` and ancestors lack o+x (`chmod o+x` hint); macOS info-only |
 | **Prometheus metrics endpoint** | done | `GET /metrics` hand-written text; loopback open / non-loopback token |
 | **Separate `web` CLI** | n/a | Embedded serve (D4) by design |
 
@@ -113,7 +113,7 @@ as you run them.
 - [ ] `doctor --json`: FUSE, ratarmount-rs on PATH for service user, source dirs readable
 - [ ] Config `source_dirs` under `/mnt/<drive>/…` (DrvFs); reject UNC `\\wsl$` as **source**
 - [ ] Indexes under Linux FS (`index_dir` not on DrvFs) unless `allow_indexes_on_drvfs`
-- [ ] Mount with `windows_visible` / `allow_other` when UNC access needed; `user_allow_other` if required
+- [ ] Mount with `windows_visible` / `allow_other` when UNC access needed; `user_allow_other` if required; doctor `windows_visible_parent_ox` clean (or fix with `chmod o+x` on parents)
 - [ ] Dashboard UNC hint / copy works (`GET /api/wsl-info`)
 - [ ] Boot remount: enable systemd unit **or** Task Scheduler example (`packaging/windows-task-scheduler.xml.example`) so WSL distro starts service
 - [ ] After reboot: previously mounted archives re-queue without re-running terminal-success hooks

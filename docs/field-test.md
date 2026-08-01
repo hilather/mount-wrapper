@@ -35,6 +35,16 @@ Expect: `version`, `doctor --json`, `config show --local`, `serve --once` all su
 5. `mount-wrapper rescan --assume-stable` then `status --json`.
 6. Confirm mount path appears; open files through FUSE; `unmount --all`.
 
+### WSL UNC / `windows_visible`
+
+When testing `\\wsl.localhost\…` visibility:
+
+1. `windows_visible: true` and `user_allow_other` in `/etc/fuse.conf`.
+2. `mount-wrapper doctor --json` — checks **`user_allow_other`** and
+   **`windows_visible_parent_ox`** should not warn (or apply the printed
+   `chmod o+x` fix for custom `mount_root` parents).
+3. From Windows Explorer, open the UNC path under the distro to a mounted archive.
+
 Optional FUSE unit test (local):
 
 ```bash
@@ -65,6 +75,7 @@ When a mounted outer archive has nested members ratarmount-rs skipped:
 - Status JSON / SSE archive row: `nested_skips_count`, `nested_skips_summary` (and often `last_error` = pure summary on mounted success)
 - SPA Archives: warn chip (`N nested skip(s)`) + subtitle under status for **mounted** rows; failed rows show full `last_error` (enriched with skip segment when present)
 - Logs: `event=nested_archive_skipped` per path; `event=index_nested_skipped` summary
+- **Remount / index→mount durability:** after unmount + remount (or two-phase index then FUSE), nested-skip advisory should still appear — pure `last_error` summary is persisted at index complete and kept by `MarkMounted` when the FUSE child does not re-emit skip lines. Re-check the same archive row after remount; chip/count must not disappear solely because live `SkippedNested` was empty.
 
 Quick check:
 
@@ -74,7 +85,20 @@ curl -sS http://127.0.0.1:8787/api/status | jq '.archives[] | select(.nested_ski
 
 Prometheus: `curl -sS http://127.0.0.1:8787/metrics | head`
 
-## File bugs for v0.1.2
+## Operator surfaces (v0.1.3)
+
+Exercise the post–v0.1.2 operator polish before filing issues:
+
+| Surface | How to check |
+|---------|----------------|
+| **CLI `reload`** | With serve running: `mount-wrapper reload --config …` → prints `reload scheduled` (exit 0). Or `kill -HUP $(pidof mount-wrapper)`. |
+| **`log_level` hot-reload** | Set `log_level: DEBUG` in config YAML, `reload`, confirm slog verbosity changes without process restart. Env `MOUNT_WRAPPER_LOG_LEVEL` still overrides while set. |
+| **SSE deltas** | Web UI open with SSE connected: change one archive status (rescan / unmount single row) and confirm Archives table patches that row without a full wipe/flash; badge stays connected. |
+| **Nested skip (remount if known)** | Mount an outer archive that triggers nested automount skips. Confirm chip/summary on **mounted** status. If the archive is already known/mounted, **unmount + remount** (or restart serve with boot remount) and confirm skip advisory still appears after remount/hooks success. |
+
+Also re-check convert paths and Web UI smoke above when those features are in scope.
+
+## File bugs for v0.1.3
 
 Capture at least:
 
@@ -82,7 +106,8 @@ Capture at least:
 - Config snippet (redact paths if needed)  
 - Engine binary versions  
 - Log lines around `event=` / `last_error`  
-- Repro archive class (DrvFs path, solid 7z, zip nested, large index)
+- Repro archive class (DrvFs path, solid 7z, zip nested, large index)  
+- Whether issue is on first mount vs remount / boot remount
 
 ## CI coverage map
 

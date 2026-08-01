@@ -287,14 +287,13 @@ func runReload(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "unexpected arguments: %s\n", strings.Join(fs.Args(), " "))
 		return ExitUsage
 	}
-	data, code := requestOK(configFlag, socketFlag, "reload", nil, stderr)
+	_, code := requestOK(configFlag, socketFlag, "reload", nil, stderr)
 	if code != ExitOK {
 		return code
 	}
-	if err := printJSON(stdout, data); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return ExitError
-	}
+	// Fire-and-forget ack from control {"reload":"scheduled"}; human line for
+	// operators (status uses a formatter; other ops dump useful JSON payloads).
+	fmt.Fprintln(stdout, "reload scheduled")
 	return ExitOK
 }
 

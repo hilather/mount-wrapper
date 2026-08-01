@@ -660,7 +660,14 @@ func (e *Engine) CompleteIndexAndStartMount(archiveID string) (*ManagedMount, er
 
 	// Finish stderr drain so nested skip summary is complete before index→mount.
 	managed.WaitStderrDrain(time.Second)
-	LogNestedSkipSummary(archiveID, managed.NestedSkips())
+	skips := managed.NestedSkips()
+	LogNestedSkipSummary(archiveID, skips)
+	// Persist pure skip advisory into last_error before dropLive so remount /
+	// MarkMounted can still surface nested_skips_* when the FUSE-phase child
+	// does not re-emit skip lines. Also carried onto the new ManagedMount below.
+	if sum := FormatNestedSkipSummary(skips, DefaultNestedSkipSamples); sum != "" {
+		extra["last_error"] = sum
+	}
 
 	e.dropLive(archiveID)
 
@@ -669,7 +676,18 @@ func (e *Engine) CompleteIndexAndStartMount(archiveID string) (*ManagedMount, er
 		return nil, err
 	}
 	falseVal := false
-	return e.beginMountProcess(rec, managed.Request.ArchivePath, false, &falseVal)
+	newManaged, err := e.beginMountProcess(rec, managed.Request.ArchivePath, false, &falseVal)
+	if err != nil {
+		return nil, err
+	}
+	// Carry index-phase nested skips onto the FUSE-phase live entry so
+	// MarkMounted / status see them even if mount-phase stderr is quiet.
+	if newManaged != nil {
+		for _, p := range skips {
+			newManaged.NoteNestedSkip(p)
+		}
+	}
+	return newManaged, nil
 }
 
 // MarkMounted transitions to mounted and drops live bookkeeping.
@@ -688,6 +706,9 @@ func (e *Engine) MarkMounted(archiveID string) (*state.ArchiveRecord, error) {
 
 	// last_error cleared on clean mount; when nested automounts were skipped,
 	// persist the skip summary so status/SPA can warn operators (no schema migration).
+	// If live skips are empty but SQLite already holds a pure nested-skip
+	// advisory (index→mount persist, prior mount, remount without re-emit),
+	// keep it instead of wiping to nil.
 	fields := map[string]any{"last_error": nil}
 	if managed != nil {
 		// Drain may still be reading automount skips while FUSE is up.
@@ -696,6 +717,8 @@ func (e *Engine) MarkMounted(archiveID string) (*state.ArchiveRecord, error) {
 		LogNestedSkipSummary(archiveID, skips)
 		if sum := FormatNestedSkipSummary(skips, DefaultNestedSkipSamples); sum != "" {
 			fields["last_error"] = sum
+		} else if rec.LastError != nil && IsNestedSkipOnlyLastError(*rec.LastError) {
+			fields["last_error"] = *rec.LastError
 		}
 
 		pid := int64(managed.PID)
@@ -715,6 +738,11 @@ func (e *Engine) MarkMounted(archiveID string) (*state.ArchiveRecord, error) {
 		}
 	} else if rec.MountPID != nil {
 		fields["mount_pid"] = *rec.MountPID
+		if rec.LastError != nil && IsNestedSkipOnlyLastError(*rec.LastError) {
+			fields["last_error"] = *rec.LastError
+		}
+	} else if rec.LastError != nil && IsNestedSkipOnlyLastError(*rec.LastError) {
+		fields["last_error"] = *rec.LastError
 	}
 
 	// Keep live entry after mounted so unmount can still signal the FUSE process.

@@ -1,6 +1,6 @@
 # Cutting a release
 
-How to ship the next patch after **v0.1.1** (e.g. **v0.1.2**). Operators
+How to ship the next patch after **v0.1.2** (e.g. **v0.1.3**). Operators
 install from GitHub Releases — see [install.md](./install.md). Change log:
 [CHANGELOG.md](../CHANGELOG.md). Field verification: [field-test.md](./field-test.md).
 
@@ -20,14 +20,15 @@ Do **not** tag until tests, docs, and review for the change set are green.
 1. Move items under `## [Unreleased]` into a new section, e.g.:
 
    ```markdown
-   ## [0.1.2] - YYYY-MM-DD
+   ## [0.1.3] - YYYY-MM-DD
    ```
 
 2. Leave an empty `## [Unreleased]` at the top for later work.
 3. Add compare / tag links at the bottom (Keep a Changelog style):
 
    ```markdown
-   [Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.2...HEAD
+   [Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.3...HEAD
+   [0.1.3]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.3
    [0.1.2]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.2
    [0.1.1]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.1
    [0.1.0]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.0
@@ -75,28 +76,28 @@ Annotated tag (preferred; matches v0.1.0 style):
 git status   # clean
 git pull --ff-only origin main
 
-git tag -a v0.1.2 -m "mount-wrapper v0.1.2
+git tag -a v0.1.3 -m "mount-wrapper v0.1.3
 
 Brief summary of the patch (see CHANGELOG)."
 
 # Push branch first if needed, then the tag:
 git push origin main
-git push origin v0.1.2
+git push origin v0.1.3
 ```
 
 Tag pattern must match `v*` so [`.github/workflows/release.yml`](../.github/workflows/release.yml)
 runs GoReleaser publish (`release --clean`).
 
 **Do not** retag or force-push an existing release tag after artifacts are
-published; cut `v0.1.3` instead if a fix is needed.
+published; cut `v0.1.4` instead if a fix is needed.
 
 ## 4. Verify GitHub Actions
 
-1. Open **Actions** → workflow **release** for tag `v0.1.2`.
+1. Open **Actions** → workflow **release** for tag `v0.1.3`.
 2. Expect job **goreleaser** green:
    - checkout (full history), Go 1.25, Node 22, `npm ci` in `web/`
    - GoReleaser builds SPA embed + multi-arch binaries
-3. Open the GitHub **Release** for `v0.1.2` and confirm assets:
+3. Open the GitHub **Release** for `v0.1.3` and confirm assets:
 
    | Asset class | Examples |
    |-------------|---------|
@@ -132,7 +133,7 @@ To exercise packaging without publishing:
 After `dist/SHA256SUMS` exists (snapshot or real release assets):
 
 ```bash
-VERSION=0.1.2 SHA256SUMS=dist/SHA256SUMS \
+VERSION=0.1.3 SHA256SUMS=dist/SHA256SUMS \
   OUT=packaging/homebrew/mount-wrapper.rb \
   ./scripts/update-homebrew-formula.sh
 # Local only — do not commit real digests unless publishing a tap:

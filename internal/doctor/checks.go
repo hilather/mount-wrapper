@@ -3,6 +3,7 @@ package doctor
 import (
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -538,6 +539,95 @@ func checkServicePaths(opts *Options) []CheckResult {
 		out = append(out, checkOnePath(opts, "path.control_socket_dir", "control_socket_dir", parent))
 	}
 	return out
+}
+
+// checkWindowsVisibleParentOX walks mount_root and its ancestors when
+// windows_visible is true on Linux, warning if any existing directory lacks
+// other-execute (o+x). Windows UNC (\\wsl.localhost\…) and allow_other clients
+// need traverse permission on every parent; the daemon does not chmod parents.
+//
+// Always emitted when Config is non-nil: macOS and windows_visible=false are
+// info-only (no hard fail). Severity is warn when o+x is missing.
+func checkWindowsVisibleParentOX(opts *Options) CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return CheckResult{}
+	}
+	name := CheckNameWindowsVisibleParentOX
+	plat := opts.platform()
+	wv := cfg.WindowsVisible
+	mountRoot := strings.TrimSpace(cfg.MountRoot)
+	details := map[string]any{
+		"windows_visible": wv,
+		"mount_root":      mountRoot,
+		"platform":        plat,
+	}
+
+	if platform.IsDarwin(plat) {
+		return infoCheck(name,
+			"macOS: parent o+x traverse is for Windows/WSL UNC with windows_visible; "+
+				"keep windows_visible: false for single-user mounts",
+			details)
+	}
+
+	if !wv {
+		return infoCheck(name,
+			"windows_visible is false; parent o+x (other-execute) not required for UNC traverse",
+			details)
+	}
+
+	if mountRoot == "" {
+		return warnCheck(name, false,
+			"windows_visible is true but mount_root is empty — set mount_root and ensure "+
+				"every ancestor has o+x (chmod o+x) for Windows UNC traverse (docs/architecture.md)",
+			details)
+	}
+
+	dirMode := opts.dirMode()
+	var missingOX []string
+	var checked []string
+	modes := map[string]string{}
+	for p := filepath.Clean(mountRoot); ; {
+		if mode, ok := dirMode(p); ok {
+			checked = append(checked, p)
+			modes[p] = fmt.Sprintf("%04o", mode&os.ModePerm)
+			if mode&0o001 == 0 {
+				missingOX = append(missingOX, p)
+			}
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			break
+		}
+		p = parent
+	}
+	details["checked"] = checked
+	details["modes"] = modes
+	details["missing_ox"] = missingOX
+
+	if len(checked) == 0 {
+		return warnCheck(name, false,
+			fmt.Sprintf("windows_visible is true but no existing ancestors of mount_root %q "+
+				"could be inspected for o+x; create the path and run chmod o+x on each "+
+				"directory from / through mount_root so Windows UNC can traverse "+
+				"(docs/architecture.md, docs/install.md)", mountRoot),
+			details)
+	}
+
+	if len(missingOX) > 0 {
+		hint := "chmod o+x " + strings.Join(missingOX, " ")
+		details["fix_hint"] = hint
+		return warnCheck(name, false,
+			fmt.Sprintf("windows_visible is true but path(s) lack o+x (other-execute) needed "+
+				"for Windows UNC traverse: %s — fix: %s (see docs/architecture.md / docs/install.md; "+
+				"create-user.sh sets o+x on packaged /var/lib/mount-wrapper paths only)",
+				strings.Join(missingOX, ", "), hint),
+			details)
+	}
+
+	return infoCheck(name,
+		fmt.Sprintf("mount_root ancestors have o+x for windows_visible UNC traverse (%d path(s))", len(checked)),
+		details)
 }
 
 func checkOnePath(opts *Options, checkName, label, pathStr string) CheckResult {
