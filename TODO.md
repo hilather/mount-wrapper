@@ -174,7 +174,7 @@ CLI ──────UDS JSON────► same process
 - [x] Unmount sequence: SIGTERM group → wait → fusermount → lazy
 - [x] Windows visibility / parent dir traverse notes (Linux `o+x` parents) — `docs/architecture.md` + `mounter` package doc; packaging `create-user.sh` o+x; no runtime chmod of arbitrary parents
 - [x] Refuse indexes under DrvFs unless `allow_indexes_on_drvfs`
-- [x] Nested mount failure parsing / skip summary (line parse; stderr drain deferred to serve)
+- [x] Nested mount failure parsing / skip summary (line parse + stderr drain on Engine spawn; `last_error` enrichment on MarkFailed; summary log on mount/index complete)
 - [x] `mount` / `unmount` / `unmount --all` / `retry` ops (via `Service.HandleRequest`; CLI socket clients later)
 - [x] Note: `recursive_mount` applies at **index build** only; config change needs re-index
 
@@ -492,7 +492,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 
 ### 11.2 Rocky 8
 
-- [~] Build against glibc 2.28 **or** musl static binary — release default `CGO_ENABLED=0`; optional `make build-musl` + CI `musl-static-smoke` (D7); dual goreleaser musl publish residual
+- [x] Build against glibc 2.28 **or** musl static binary — release default `CGO_ENABLED=0`; optional `make build-musl` / `package-musl` + CI `musl-static-smoke`; release.yml attaches `*_linux_*_musl.tar.gz` after GoReleaser (D7; not a second goreleaser build id)
 - [~] `.rpm` via nfpm/goreleaser — sketch only
 - [x] systemd unit parity (same unit file)
 - [x] Document fuse3 / ratarmount-rs install on Rocky (`docs/install.md`)
@@ -509,8 +509,9 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 
 ### 11.4 Release
 
-- [x] goreleaser sketch: linux amd64/arm64, darwin amd64/arm64 (`.goreleaser.yaml`; not CI-wired)
-- [x] SHA256SUMS + release notes template (goreleaser checksum + release header)
+- [x] goreleaser: linux amd64/arm64, darwin amd64/arm64 (`.goreleaser.yaml` + `release.yml` on `v*`)
+- [x] SHA256SUMS + release notes template (goreleaser checksum + release header; musl section + post-upload sums)
+- [x] Optional musl release artifacts: `scripts/package-musl-release.sh` + `release.yml` `gh release upload` of `mount-wrapper_*_linux_{amd64,arm64}_musl.tar.gz`
 - [x] Version command + build ldflags (Makefile already; documented in install/dev)
 
 ---
@@ -562,7 +563,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 | D11 | OpenAPI / typed SPA client | **Hand-written TS types** for now | decided |
 | D12 | Go module path | **`github.com/hilather/mount-wrapper`** | decided |
 | D13 | Migration stance from tarmount-wsl | **Soft replace** — document migration; no dual install tooling | decided |
-| D14 | Default mount backend | **`rust` (ratarmount-rs)** | decided |
+| D14 | Mount backend | **`rust` / ratarmount-rs only** (Python ratarmount removed) | decided |
 | D15 | Branding in UI | **`mount-wrapper` everywhere** + README credit to tarmount-wsl | decided |
 
 ### Locked implications (apply in Phase 0+)
@@ -595,7 +596,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 
 **Release / CI**
 - goreleaser: linux/darwin amd64+arm64; primary `CGO_ENABLED=0` (pure-Go static)
-- Optional D7 musl/static: `make build-musl` (Alpine) + CI `musl-static-smoke`; dual goreleaser musl id residual
+- Optional D7 musl/static: `make build-musl` / `package-musl` (Alpine); CI `musl-static-smoke`; tag releases attach `*_musl.tar.gz` after GoReleaser (no second goreleaser build id)
 - CI: Ubuntu unit tests + race; Rocky 8 + musl static smoke; macOS unit+smoke (no macFUSE in default CI)
 
 ### D12 note

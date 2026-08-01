@@ -10,7 +10,7 @@ LDFLAGS  := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(D
 
 export PATH := $(HOME)/.local/go/bin:$(HOME)/.local/node-v22.14.0-linux-x64/bin:$(PATH)
 
-.PHONY: all build build-musl test vet lint web-install web-dev web-build web-check web-test web-e2e parity release-snapshot smoke smoke-rocky smoke-musl clean tidy fmt help
+.PHONY: all build build-musl package-musl test vet lint web-install web-dev web-build web-check web-test web-e2e parity release-snapshot smoke smoke-rocky smoke-musl clean tidy fmt help
 
 all: test build
 
@@ -18,6 +18,7 @@ help:
 	@echo "Targets:"
 	@echo "  make build       Build $(BIN) to ./bin/"
 	@echo "  make build-musl  Static linux binary via Alpine container (D7 extra path)"
+	@echo "  make package-musl  build-musl + dist/*_linux_*_musl.tar.gz (+ SHA256SUMS)"
 	@echo "  make test        go test ./..."
 	@echo "  make vet         go vet ./..."
 	@echo "  make tidy        go mod tidy"
@@ -30,7 +31,7 @@ help:
 	@echo "  make web-e2e     optional Playwright smoke (RUN_E2E=1; install chromium first)"
 	@echo "  make lint        golangci-lint if installed"
 	@echo "  make parity      Regenerate tools/parity inventories (offline)"
-	@echo "  make release-snapshot  goreleaser snapshot (linux/darwin amd64+arm64, deb/rpm)"
+	@echo "  make release-snapshot  goreleaser snapshot (CGO=0 linux/darwin; no musl/docker)"
 	@echo "  make smoke       Binary smoke (version/doctor/serve --once)"
 	@echo "  make smoke-rocky Rocky 8 container binary smoke (docker/podman)"
 	@echo "  make smoke-musl  Alpine musl/static build + binary smoke (docker/podman)"
@@ -45,6 +46,13 @@ build:
 # ARCHS=amd64,arm64 for multi-arch. Needs docker or podman.
 build-musl:
 	./scripts/build-musl.sh
+
+# Optional musl release tarballs into dist/ (after or without goreleaser).
+# CI release.yml runs this after GoReleaser and gh-uploads the archives.
+# ARCHS defaults to amd64,arm64 (shell). Needs docker or podman for build-musl.
+package-musl:
+	ARCHS="$${ARCHS:-amd64,arm64}" ./scripts/build-musl.sh
+	ARCHS="$${ARCHS:-amd64,arm64}" REQUIRE_ALL=1 ./scripts/package-musl-release.sh
 
 test:
 	go test ./...
@@ -89,10 +97,12 @@ web-test:
 #   cd web && npm run test:e2e:install
 #   make web-e2e
 # Multi-arch snapshot: linux/{amd64,arm64} + darwin/{amd64,arm64} + deb/rpm.
+# Pure GoReleaser CGO=0 only (no docker). Optional musl: make package-musl after.
 # Requires: goreleaser, node (for web-build hook), git history.
 release-snapshot: web-build
 	@command -v goreleaser >/dev/null 2>&1 || { echo "install: go install github.com/goreleaser/goreleaser/v2@latest"; exit 1; }
 	goreleaser release --snapshot --clean
+	@echo "snapshot OK under dist/. Optional musl tarballs: make package-musl"
 
 # No FUSE: version, doctor, config show --local, serve --once.
 smoke:

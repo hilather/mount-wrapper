@@ -12,7 +12,7 @@
 |----------|------|
 | [`ci.yml`](../.github/workflows/ci.yml) | Ubuntu unit tests + race subset + build; **macOS** unit tests + build + binary smoke (`macos-unit-smoke`); web check/test/build; optional Playwright dispatch |
 | [`smoke.yml`](../.github/workflows/smoke.yml) | Ubuntu binary smoke + Rocky 8 container smoke + **musl-static-smoke** (Alpine build); optional FUSE dispatch |
-| [`release.yml`](../.github/workflows/release.yml) | Multi-arch publish on `v*` tags |
+| [`release.yml`](../.github/workflows/release.yml) | Multi-arch publish on `v*` tags (CGO=0 goreleaser + optional musl tarballs) |
 
 **macOS CI scope:** `macos-latest` runs `go test ./...`, `CGO_ENABLED=0 make build`, and
 `scripts/smoke-binary.sh` (version / help / doctor / config show / serve --once).
@@ -140,7 +140,7 @@ See [parity.md](./parity.md) and [migration.md](./migration.md).
 | `docs/` | architecture, dev, install, macOS |
 | `AGENTS.md` | Mandatory agent policy (docs + tests + review) |
 | `.grok/skills/` | keep-docs-current, keep-tests-current, review-changes |
-| `.goreleaser.yaml` | Release binary matrix sketch (not CI-publish yet) |
+| `.goreleaser.yaml` | Release binary matrix (`CGO_ENABLED=0`); musl via post-step scripts |
 
 ## Version embedding
 

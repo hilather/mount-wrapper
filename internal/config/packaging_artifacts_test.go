@@ -97,6 +97,8 @@ func TestPackagingArtifacts(t *testing.T) {
 				"SHA256SUMS",
 				"create-user.sh",
 				"build-musl",
+				"package-musl",
+				"linux_amd64_musl.tar.gz",
 				"musl-static-smoke",
 			},
 		},
@@ -111,11 +113,24 @@ func TestPackagingArtifacts(t *testing.T) {
 			},
 		},
 		{
+			rel: "scripts/package-musl-release.sh",
+			contains: []string{
+				"_linux_",
+				"_musl.tar.gz",
+				"SHA256SUMS",
+				"mount-wrapper-linux-",
+				"REQUIRE_ALL",
+			},
+		},
+		{
 			rel: "Makefile",
 			contains: []string{
 				"build-musl",
+				"package-musl",
 				"smoke-musl",
 				"scripts/build-musl.sh",
+				"scripts/package-musl-release.sh",
+				"release-snapshot",
 			},
 		},
 		{
@@ -124,6 +139,18 @@ func TestPackagingArtifacts(t *testing.T) {
 				"musl-static-smoke",
 				"build-musl.sh",
 				"alpine:3.21",
+			},
+		},
+		{
+			// Optional musl attach after primary CGO=0 goreleaser (no dual build id).
+			rel: ".github/workflows/release.yml",
+			contains: []string{
+				"goreleaser",
+				"build-musl.sh",
+				"package-musl-release.sh",
+				"gh release upload",
+				"_musl.tar.gz",
+				"SHA256SUMS",
 			},
 		},
 		{

@@ -59,10 +59,12 @@ SPA source lives in `web/`; production assets are copied into `internal/webui/di
 
 | Package | Responsibility |
 |---------|----------------|
-| `internal/mounter` | Backend normalize/resolve, ratarmount argv + child env, live registry (`index_only`/`mount`), process-group start/kill/wait, unmount sequence (SIGTERM → fusermount → lazy), partial-index cleanup, concurrent-limit + mount-attempt helpers, DrvFs index refuse, nested-automount line parse |
+| `internal/mounter` | Backend normalize/resolve, ratarmount argv + child env, live registry (`index_only`/`mount`), process-group start/kill/wait, unmount sequence (SIGTERM → fusermount → lazy), partial-index cleanup, concurrent-limit + mount-attempt helpers, DrvFs index refuse, nested-automount stderr drain + skip summary |
 | `internal/mounter.Engine` | Claim + spawn, `CheckChild` / index→mount, mark mounted/failed, convert jobs (async: archiveconverter → zip repack → flatten), relocate (sync v1), `ProgressLive`, `Unmount` |
 
-**Still deferred:** stderr drain thread parity; stream-flatten / full solid-folder parse. Flatten + outer-cache probes are best-effort CLI (`7z l -slt`), not ratarmountcore. Optional real-FUSE smoke: `go test -tags=fuse ./internal/mounter/` (skips without `/dev/fuse` or engine on PATH; not in default `make test`).
+**Nested automount skips:** while a ratarmount-rs child runs, Engine pipes stderr and parses lines matching `Mounting of '…' failed because of: …`. Paths accumulate on `ManagedMount.SkippedNested`. On failure, `MarkFailed` enriches `last_error` with `skipped N nested mounts: path…` (sample paths). On success / index→mount, a summary is logged (`event=index_nested_skipped`); `last_error` is cleared when mounted.
+
+**Still deferred:** stream-flatten / full solid-folder parse. Flatten + outer-cache probes are best-effort CLI (`7z l -slt`), not ratarmountcore. Optional real-FUSE smoke: `go test -tags=fuse ./internal/mounter/` (skips without `/dev/fuse` or engine on PATH; not in default `make test`).
 
 #### Windows visibility / parent traverse (Linux + WSL)
 
@@ -282,8 +284,8 @@ Defaults (overridable via `api.ServerOptions`): refresh **2s**, heartbeat **15s*
 | systemd | `TimeoutStopSec=300` (unmount pool), `DeviceAllow=/dev/fuse`, `ProtectSystem=strict` + state `ReadWritePaths`, optional `EnvironmentFile=-/etc/mount-wrapper/env` |
 | macOS | launchd **user agent**; socket under Caches (path length); macFUSE external |
 | Engines | Not bundled; PATH resolve ratarmount-rs / fuse3 / archiveconverter / 7z |
-| Rocky | Prefer `CGO_ENABLED=0` pure-Go (release default); optional Alpine musl/static via `make build-musl` + CI `musl-static-smoke` (D7) |
-| Release | `.goreleaser.yaml` + `SHA256SUMS`; Makefile ldflags → `main.version`/`commit`/`date` |
+| Rocky | Prefer `CGO_ENABLED=0` pure-Go (release default); optional Alpine musl/static via `make build-musl` / `package-musl` + CI `musl-static-smoke` + release `*_musl.tar.gz` (D7) |
+| Release | `.goreleaser.yaml` + `release.yml` + `SHA256SUMS`; optional musl attach; Makefile ldflags → `main.version`/`commit`/`date` |
 
 Operator docs: [install.md](./install.md), [macos.md](./macos.md), [migration.md](./migration.md), [parity.md](./parity.md). Artifacts under `packaging/`. Full deb/rpm CI publish is residual.
 

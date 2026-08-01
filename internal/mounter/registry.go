@@ -25,7 +25,12 @@ type ManagedMount struct {
 	StartedAt     time.Time
 	IsFirstIndex  bool
 	Phase         Phase
+	// SkippedNested holds nested automount paths that failed (ratarmount skip).
+	// Prefer NestedSkips / NoteNestedSkip under concurrent stderr drain.
 	SkippedNested []string
+
+	skipMu     sync.Mutex
+	stderrDone chan struct{} // closed when stderr drain finishes; nil if no drain
 }
 
 // Registry is a concurrent live-mount map keyed by archive_id.

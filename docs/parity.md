@@ -72,8 +72,8 @@ rot. Prefer fixing code over changing this list without evidence.
 | **Real FUSE integration tests** | low for CI | Optional `//go:build fuse` test; optional Actions job `smoke.yml` → `run_fuse` (not on every PR) |
 | **Rocky 8 binary smoke** | done in CI | `smoke.yml` builds CGO=0 binary on Ubuntu, runs `scripts/smoke-rocky8.sh` in `rockylinux:8` |
 | **macOS unit + binary smoke** | done in CI | `ci.yml` → `macos-unit-smoke` on `macos-latest`: `go test ./...`, CGO=0 build, `scripts/smoke-binary.sh`; **no macFUSE** (real mount remains local/manual) |
-| **Musl/static path (D7)** | path + CI done; dual goreleaser residual | `make build-musl` / `scripts/build-musl.sh` (Alpine); CI job `musl-static-smoke`; primary releases remain `CGO_ENABLED=0` |
-| **Full deb/rpm CI publish** | done on tags | `release.yml` publishes deb/rpm/tarballs on `v*` |
+| **Musl/static path (D7)** | done | `make build-musl` / `package-musl`; CI `musl-static-smoke`; `release.yml` attaches `*_linux_*_musl.tar.gz` after GoReleaser (primary matrix stays `CGO_ENABLED=0`) |
+| **Full deb/rpm CI publish** | done on tags | `release.yml` publishes deb/rpm/tarballs on `v*` (+ optional musl tarballs) |
 | **Playwright SPA smoke** | optional / local | Landed: `web/e2e` mocked `/api/*` Archives shell + Settings validate/apply; `RUN_E2E=1` / optional CI job |
 | **OpenAPI / generated SPA client** | optional residual | Hand-written TS (`api-types.ts` + `types.ts`, D11); OpenAPI later (keep open) |
 | **Windows parent `o+x` traverse notes** | docs/ops | Platform quirk; document/operate as needed |

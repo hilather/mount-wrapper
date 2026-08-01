@@ -1,6 +1,7 @@
 package mounter
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -431,8 +432,27 @@ func (e *Engine) beginMountProcess(
 
 	env := ChildEnvFromConfig(os.Environ(), e.Config.Ratarmount7zDebug, e.Config.RatarmountRustLog)
 	env = convert.ApplyNonsolidEnvSlice(env, e.Config)
-	cmd, err := e.startProcess(req, CmdOptions{Env: env}, true)
+
+	// Capture stderr for nested automount skip lines (parity with tarmount-wsl drain).
+	var stderrR io.ReadCloser
+	var stderrW io.WriteCloser
+	if pr, pw, perr := os.Pipe(); perr == nil {
+		stderrR, stderrW = pr, pw
+	}
+
+	cmdOpts := CmdOptions{Env: env}
+	if stderrW != nil {
+		cmdOpts.Stderr = stderrW
+	}
+	cmd, err := e.startProcess(req, cmdOpts, true)
+	if stderrW != nil {
+		// Parent closes write end so drain sees EOF when the child exits.
+		_ = stderrW.Close()
+	}
 	if err != nil {
+		if stderrR != nil {
+			_ = stderrR.Close()
+		}
 		_ = e.failStart(rec, useIndexOnly, err.Error())
 		return nil, err
 	}
@@ -453,6 +473,23 @@ func (e *Engine) beginMountProcess(
 		StartedAt:    e.now(),
 		IsFirstIndex: needsIndex,
 		Phase:        phase,
+	}
+	if stderrR != nil {
+		done := make(chan struct{})
+		managed.stderrDone = done
+		logOther := shouldLogRatarmountStderr(
+			e.Config.RatarmountDebug,
+			e.Config.Ratarmount7zDebug,
+			e.Config.RatarmountLogDir,
+			e.Config.RatarmountRustLog,
+		)
+		go func(id string, r io.ReadCloser, m *ManagedMount, logLines bool) {
+			defer close(done)
+			defer func() { _ = r.Close() }()
+			DrainRatarmountStderr(r, id, func(path, reason string) {
+				m.NoteNestedSkip(path)
+			}, logLines)
+		}(rec.ArchiveID, stderrR, managed, logOther)
 	}
 	e.Live.Put(managed)
 	e.mu.Lock()
@@ -575,6 +612,10 @@ func (e *Engine) CompleteIndexAndStartMount(archiveID string) (*ManagedMount, er
 		extra["index_duration_seconds"] = float64(int(elapsed*1000)) / 1000
 	}
 
+	// Finish stderr drain so nested skip summary is complete before index→mount.
+	managed.WaitStderrDrain(time.Second)
+	LogNestedSkipSummary(archiveID, managed.NestedSkips())
+
 	e.dropLive(archiveID)
 
 	rec, err = e.Store.Transition(archiveID, state.StatusMounting, state.StatusIndexing, extra, "")
@@ -601,6 +642,10 @@ func (e *Engine) MarkMounted(archiveID string) (*state.ArchiveRecord, error) {
 
 	fields := map[string]any{"last_error": nil}
 	if managed != nil {
+		// Drain may still be reading automount skips while FUSE is up.
+		managed.WaitStderrDrain(time.Second)
+		LogNestedSkipSummary(archiveID, managed.NestedSkips())
+
 		pid := int64(managed.PID)
 		fields["mount_pid"] = pid
 		if managed.Phase == PhaseMount && rec.Status == state.StatusMounting {
@@ -622,6 +667,7 @@ func (e *Engine) MarkMounted(archiveID string) (*state.ArchiveRecord, error) {
 
 	// Keep live entry after mounted so unmount can still signal the FUSE process.
 	// Python keeps process alive under mounted status with mount_pid set.
+	// Nested skips on a successful mount are logged only (last_error cleared).
 	updated, err := e.Store.Transition(
 		archiveID,
 		state.StatusMounted,
@@ -675,6 +721,14 @@ func (e *Engine) MarkFailed(archiveID, reason string) (*state.ArchiveRecord, err
 			UsesSinglePhaseMount(archivePath, extraArgs, mountBackend, false))
 	if deleteBadIndex {
 		_ = DeleteIndexFile(indexPath)
+	}
+
+	// Include nested automount skips in last_error when present.
+	if managed != nil {
+		managed.WaitStderrDrain(time.Second)
+		skips := managed.NestedSkips()
+		LogNestedSkipSummary(archiveID, skips)
+		reason = EnrichReasonWithNestedSkips(reason, skips)
 	}
 
 	e.dropLive(archiveID)

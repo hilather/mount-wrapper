@@ -6,9 +6,14 @@
 #   linux/amd64   linux/arm64    → tar.gz + .deb + .rpm
 #   darwin/amd64  darwin/arm64   → tar.gz (Homebrew/manual; no deb/rpm)
 #
+# Optional Alpine musl/static tarballs are NOT a second build id here — release.yml
+# runs scripts/build-musl.sh + package-musl-release.sh after GoReleaser and attaches
+# mount-wrapper_*_linux_{amd64,arm64}_musl.tar.gz via gh release upload.
+#
 # Local:
-#   goreleaser release --snapshot --clean
-#   goreleaser release --clean          # requires git tag + GITHUB_TOKEN for publish
+#   goreleaser release --snapshot --clean   # or: make release-snapshot
+#   make package-musl                       # optional musl tarballs into dist/
+#   goreleaser release --clean              # requires git tag + GITHUB_TOKEN for publish
 #
 # CI: .github/workflows/release.yml on tags v*
 
@@ -169,7 +174,7 @@ release:
   header: |
     ## mount-wrapper {{.Version}}
 
-    ### Binaries (CGO_ENABLED=0)
+    ### Binaries (CGO_ENABLED=0 — primary)
 
     | Platform | Archive |
     |----------|---------|
@@ -177,6 +182,17 @@ release:
     | Linux arm64 | `mount-wrapper_{{ .Version }}_linux_arm64.tar.gz` |
     | macOS Intel | `mount-wrapper_{{ .Version }}_darwin_amd64.tar.gz` |
     | macOS Apple Silicon | `mount-wrapper_{{ .Version }}_darwin_arm64.tar.gz` |
+
+    ### Optional musl/static (Alpine path, D7)
+
+    Attached by the release workflow after GoReleaser (`scripts/build-musl.sh` +
+    `scripts/package-musl-release.sh`). Same pure-Go binary; explicit musl-env
+    artifact name for operators who want it. **Not** a second nfpm/deb/rpm matrix.
+
+    | Platform | Archive |
+    |----------|---------|
+    | Linux x86_64 musl/static | `mount-wrapper_{{ .Version }}_linux_amd64_musl.tar.gz` |
+    | Linux arm64 musl/static | `mount-wrapper_{{ .Version }}_linux_arm64_musl.tar.gz` |
 
     ### Packages
 

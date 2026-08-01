@@ -1,10 +1,16 @@
 name: release
 
 # Publish multi-arch binaries + deb/rpm when a version tag is pushed.
-# Matrix: linux/{amd64,arm64} + darwin/{amd64,arm64} (CGO_ENABLED=0).
+# Matrix: linux/{amd64,arm64} + darwin/{amd64,arm64} (CGO_ENABLED=0 primary).
+# Optional D7: Alpine musl/static tarballs attached after GoReleaser (not a
+# second goreleaser build id — keeps default packages pure-Go).
 #
 #   git tag v0.1.0
 #   git push origin v0.1.0
+#
+# Optional musl artifact names (uploaded when present):
+#   mount-wrapper_${VERSION}_linux_amd64_musl.tar.gz
+#   mount-wrapper_${VERSION}_linux_arm64_musl.tar.gz
 
 on:
   push:
@@ -52,6 +58,36 @@ jobs:
             ${{ github.event_name == 'workflow_dispatch' && inputs.snapshot && 'release --snapshot --clean' || 'release --clean' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Optional D7 path: pure-Go static binary built inside Alpine (musl env).
+      # Does not replace or re-run the CGO_ENABLED=0 goreleaser matrix / nfpm.
+      - name: Build musl static binaries (Alpine)
+        run: ARCHS=amd64,arm64 ./scripts/build-musl.sh
+
+      - name: Package musl release tarballs
+        run: |
+          set -euo pipefail
+          REQUIRE_ALL=1 ARCHS=amd64,arm64 ./scripts/package-musl-release.sh
+          ls -la dist/mount-wrapper_*_musl.tar.gz dist/SHA256SUMS
+
+      - name: Attach musl artifacts to GitHub Release
+        if: >-
+          github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && !inputs.snapshot)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(dist/mount-wrapper_*_linux_*_musl.tar.gz dist/SHA256SUMS)
+          if [[ ${#assets[@]} -lt 2 ]]; then
+            echo "expected musl tarballs + SHA256SUMS in dist/" >&2
+            ls -la dist/ || true
+            exit 1
+          fi
+          # GoReleaser already created the release; clobber SHA256SUMS so it
+          # includes musl lines; upload new *_musl.tar.gz archives.
+          gh release upload "${{ github.ref_name }}" "${assets[@]}" --clobber
 
       - name: Upload dist (workflow artifacts)
         uses: actions/upload-artifact@v4

@@ -2,7 +2,9 @@
 //
 // Phase 4 core library: backend selection, binary resolution, CLI construction,
 // live mount registry, process-group helpers, unmount sequence, partial-index
-// cleanup, concurrent-limit and mount-attempt helpers, and DrvFs index guards.
+// cleanup, concurrent-limit and mount-attempt helpers, DrvFs index guards, and
+// nested-automount stderr drain / skip summaries (ParseNestedMountFailure,
+// FormatNestedSkipSummary; Engine pipes child stderr while ratarmount-rs runs).
 //
 // Phase 8 Engine (engine.go): BeginMount / CheckChild / CompleteIndexAndStartMount /
 // MarkMounted / MarkFailed / ProgressLive / PollConvert / PollRelocate / Unmount

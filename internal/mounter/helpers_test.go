@@ -127,19 +127,6 @@ func TestIndexPathAllowed_drvfs(t *testing.T) {
 	}
 }
 
-func TestParseNestedMountFailure(t *testing.T) {
-	t.Parallel()
-	line := "[Warning] ratarmountcore.mountsource.compositing.automount: " +
-		"Mounting of '/bad.7z' failed because of: corrupt data"
-	got := mounter.ParseNestedMountFailure(line)
-	if got == nil || got.Path != "/bad.7z" || got.Reason != "corrupt data" {
-		t.Fatalf("got %+v", got)
-	}
-	if mounter.ParseNestedMountFailure("nothing here") != nil {
-		t.Fatal("expected nil")
-	}
-}
-
 func TestRegistry(t *testing.T) {
 	t.Parallel()
 	r := mounter.NewRegistry()

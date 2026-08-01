@@ -77,4 +77,4 @@ Capture at least:
 | `ci.yml` | Ubuntu unit tests, race subset, build; **macOS** unit tests + build + binary smoke (`macos-unit-smoke`, no macFUSE); web check/test/build |
 | `smoke.yml` | Ubuntu binary smoke + Rocky 8 container smoke |
 | `smoke.yml` dispatch `run_fuse` | Optional FUSE test (Linux) |
-| `release.yml` | Multi-arch publish on `v*` tags |
+| `release.yml` | Multi-arch publish on `v*` tags (CGO=0 + optional `*_musl.tar.gz`) |

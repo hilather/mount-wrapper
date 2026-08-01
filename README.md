@@ -2,7 +2,7 @@
 
 Go rewrite of the [tarmount-wsl](https://github.com/mbrewer/tarmount-wsl) archive auto-mounter orchestrator, with a TypeScript SPA operator dashboard.
 
-**Status:** Feature-complete v1 rewrite. Multi-arch releases (Linux Ubuntu/Rocky + macOS) via GoReleaser on `v*` tags — see [docs/install.md](./docs/install.md). Plan: [TODO.md](./TODO.md), [migration](./docs/migration.md), [parity](./docs/parity.md).
+**Status:** Feature-complete v1 rewrite. Multi-arch releases (Linux Ubuntu/Rocky + macOS) via GoReleaser on `v*` tags — see [docs/install.md](./docs/install.md). Changelog: [CHANGELOG.md](./CHANGELOG.md). Cut a release: [docs/release.md](./docs/release.md). Plan: [TODO.md](./TODO.md), [migration](./docs/migration.md), [parity](./docs/parity.md).
 
 ## Target stack
 
@@ -179,17 +179,19 @@ testdata/              fixtures
 | macOS example + launchd | [`packaging/examples/config.yaml.macos.example`](./packaging/examples/config.yaml.macos.example), [`packaging/launchd/`](./packaging/launchd/) |
 | Homebrew formula sketch | [`packaging/homebrew/mount-wrapper.rb.example`](./packaging/homebrew/mount-wrapper.rb.example) (release tarball; not a tap) |
 | WSL | [`packaging/wsl.conf.snippet`](./packaging/wsl.conf.snippet), [`packaging/windows-task-scheduler.xml.example`](./packaging/windows-task-scheduler.xml.example) |
-| goreleaser / nfpm sketches | [`.goreleaser.yaml`](./.goreleaser.yaml), [`packaging/nfpm.yaml`](./packaging/nfpm.yaml) |
-| Optional musl/static build (D7) | `make build-musl` → `scripts/build-musl.sh` (Alpine); CI `musl-static-smoke` |
+| goreleaser / nfpm | [`.goreleaser.yaml`](./.goreleaser.yaml), [`packaging/nfpm.yaml`](./packaging/nfpm.yaml); publish: [`.github/workflows/release.yml`](./.github/workflows/release.yml) |
+| Optional musl/static (D7) | `make build-musl` / `make package-musl` → `*_linux_*_musl.tar.gz`; CI `musl-static-smoke` + release attach |
 
 **Service user:** `mount-wrapper`. **Web:** embedded (`web_enabled`). **Control:** `control_socket` under `/run/mount-wrapper/`.
 
-Version embedding: `make build` uses `-ldflags` for `main.version` / `main.commit` / `main.date` (`mount-wrapper version`). Release checksums: `SHA256SUMS` via goreleaser (`CGO_ENABLED=0` primary).
+Version embedding: `make build` uses `-ldflags` for `main.version` / `main.commit` / `main.date` (`mount-wrapper version`). Release checksums: `SHA256SUMS` via goreleaser (`CGO_ENABLED=0` primary) plus optional musl lines after package.
 
 Operator guide: **[docs/install.md](./docs/install.md)** (engines, Rocky glibc, macFUSE, WSL Task Scheduler).
 
 ## Docs
 
+- [CHANGELOG.md](./CHANGELOG.md) — Keep a Changelog (v0.1.0 + Unreleased)
+- [docs/release.md](./docs/release.md) — how to cut a release (tag, Actions, verify)
 - [TODO.md](./TODO.md) — phased rewrite checklist, decisions log, module map
 - [docs/dev.md](./docs/dev.md) — local development
 - [docs/install.md](./docs/install.md) — install, packaging, engines, WSL/macOS

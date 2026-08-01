@@ -15,6 +15,10 @@
 #   GO_IMAGE=golang:1.25-alpine ./scripts/build-musl.sh
 #   VERIFY=0 ./scripts/build-musl.sh        # skip file/ldd checks
 #
+# Release packaging (optional tarballs; used by release.yml after GoReleaser):
+#   make package-musl   # or: ./scripts/package-musl-release.sh
+#   → dist/mount-wrapper_${VERSION}_linux_{amd64,arm64}_musl.tar.gz
+#
 # Then smoke (static runs on Alpine and Rocky/glibc):
 #   BIN=./bin/mount-wrapper-linux-amd64-musl ./scripts/smoke-binary.sh
 #   make smoke-rocky   # after copying/symlink to bin/mount-wrapper, or mount by path
