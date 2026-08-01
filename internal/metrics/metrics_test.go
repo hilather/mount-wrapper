@@ -425,12 +425,16 @@ func TestCacheTTLExpiry(t *testing.T) {
 	cache := metrics.NewCache(1.0) // 1s TTL
 	now := time.Unix(1000, 0)
 	cache.SetClock(func() time.Time { return now })
-	cache.Put(metrics.ArchiveMetrics{ArchiveID: "x", Status: "mounted"})
-	if _, ok := cache.Get("x"); !ok {
+	cache.Put(metrics.ArchiveMetrics{ArchiveID: "x", Status: "mounted"}, false)
+	if _, ok := cache.Get("x", false); !ok {
 		t.Fatal("expected hit")
 	}
+	// Other prefer_mount variant is a separate key.
+	if _, ok := cache.Get("x", true); ok {
+		t.Fatal("prefer_mount=true should miss when only false was put")
+	}
 	now = now.Add(2 * time.Second)
-	if _, ok := cache.Get("x"); ok {
+	if _, ok := cache.Get("x", false); ok {
 		t.Fatal("expected miss after TTL")
 	}
 }
@@ -438,18 +442,143 @@ func TestCacheTTLExpiry(t *testing.T) {
 func TestCacheInvalidate(t *testing.T) {
 	t.Parallel()
 	cache := metrics.NewCache(60)
-	cache.Put(metrics.ArchiveMetrics{ArchiveID: "a"})
-	cache.Put(metrics.ArchiveMetrics{ArchiveID: "b"})
+	cache.Put(metrics.ArchiveMetrics{ArchiveID: "a"}, false)
+	cache.Put(metrics.ArchiveMetrics{ArchiveID: "a"}, true)
+	cache.Put(metrics.ArchiveMetrics{ArchiveID: "b"}, false)
 	cache.Invalidate("a")
-	if _, ok := cache.Get("a"); ok {
-		t.Fatal("a should be gone")
+	if _, ok := cache.Get("a", false); ok {
+		t.Fatal("a prefer_mount=false should be gone")
 	}
-	if _, ok := cache.Get("b"); !ok {
+	if _, ok := cache.Get("a", true); ok {
+		t.Fatal("a prefer_mount=true should be gone")
+	}
+	if _, ok := cache.Get("b", false); !ok {
 		t.Fatal("b should remain")
 	}
 	cache.Invalidate("")
-	if _, ok := cache.Get("b"); ok {
+	if _, ok := cache.Get("b", false); ok {
 		t.Fatal("all cleared")
+	}
+}
+
+// TestCollectorPreferMountCacheIsolation ensures index-first and prefer_mount
+// results are dual-keyed so one path cannot serve stale sizes for the other.
+func TestCollectorPreferMountCacheIsolation(t *testing.T) {
+	t.Parallel()
+	src := &metrics.MapArchiveSource{
+		ByID: map[string]metrics.ArchiveInput{
+			"a1": {
+				ArchiveID:       "a1",
+				ArchivePath:     "/a.tar",
+				ArchiveBasename: "a.tar",
+				Status:          "mounted",
+				IndexPath:       "/a.idx",
+				MountPath:       "/mnt/a",
+			},
+		},
+		Order: []string{"a1"},
+	}
+	c := metrics.NewCollector(src, metrics.CollectorConfig{CacheTTLSeconds: 60})
+	c.Sizes = metrics.MapSizeProvider{
+		Files:   map[string]int64{"/a.tar": 100},
+		Indexes: map[string]int64{"/a.idx": 10},
+	}
+	c.Extracted = metrics.MapExtractedProvider{
+		Index: map[string]int64{"/a.idx": 1000},
+		Mount: map[string]int64{"/mnt/a": 50},
+	}
+
+	// Default warm: index-first extracted size 1000.
+	mIndex, err := c.GetOne("a1", metrics.QueryOptions{})
+	if err != nil || mIndex == nil {
+		t.Fatalf("index warm: %v %#v", err, mIndex)
+	}
+	if mIndex.ExtractedSource != metrics.ExtractedSourceIndex {
+		t.Fatalf("source=%q want index", mIndex.ExtractedSource)
+	}
+	if mIndex.ExtractedSizeBytes == nil || *mIndex.ExtractedSizeBytes != 1000 {
+		t.Fatalf("index extracted=%v want 1000", mIndex.ExtractedSizeBytes)
+	}
+
+	// PreferMount must recompute (mount 50), not return cached index-first.
+	mMount, err := c.GetOne("a1", metrics.QueryOptions{PreferMount: true})
+	if err != nil || mMount == nil {
+		t.Fatalf("prefer_mount: %v %#v", err, mMount)
+	}
+	if mMount.ExtractedSource != metrics.ExtractedSourceMount {
+		t.Fatalf("source=%q want mount", mMount.ExtractedSource)
+	}
+	if mMount.ExtractedSizeBytes == nil || *mMount.ExtractedSizeBytes != 50 {
+		t.Fatalf("mount extracted=%v want 50", mMount.ExtractedSizeBytes)
+	}
+
+	// Inverse: mount-first warm, then default still index-first (independent key).
+	c2 := metrics.NewCollector(src, metrics.CollectorConfig{CacheTTLSeconds: 60})
+	c2.Sizes = c.Sizes
+	c2.Extracted = c.Extracted
+
+	mMount2, err := c2.GetOne("a1", metrics.QueryOptions{PreferMount: true})
+	if err != nil || mMount2 == nil || mMount2.ExtractedSizeBytes == nil || *mMount2.ExtractedSizeBytes != 50 {
+		t.Fatalf("inverse mount warm: %v %#v", err, mMount2)
+	}
+	mIndex2, err := c2.GetOne("a1", metrics.QueryOptions{})
+	if err != nil || mIndex2 == nil {
+		t.Fatalf("inverse index: %v %#v", err, mIndex2)
+	}
+	if mIndex2.ExtractedSource != metrics.ExtractedSourceIndex {
+		t.Fatalf("inverse source=%q want index", mIndex2.ExtractedSource)
+	}
+	if mIndex2.ExtractedSizeBytes == nil || *mIndex2.ExtractedSizeBytes != 1000 {
+		t.Fatalf("inverse index extracted=%v want 1000", mIndex2.ExtractedSizeBytes)
+	}
+
+	// Both variants stay warm independently (second hits are cache hits).
+	// Mutate extracted sizes; cached values must stick for each preference.
+	c.Extracted = metrics.MapExtractedProvider{
+		Index: map[string]int64{"/a.idx": 9999},
+		Mount: map[string]int64{"/mnt/a": 1},
+	}
+	mIndexHit, err := c.GetOne("a1", metrics.QueryOptions{})
+	if err != nil || mIndexHit.ExtractedSizeBytes == nil || *mIndexHit.ExtractedSizeBytes != 1000 {
+		t.Fatalf("index cache hit after mutate: %v", mIndexHit)
+	}
+	mMountHit, err := c.GetOne("a1", metrics.QueryOptions{PreferMount: true})
+	if err != nil || mMountHit.ExtractedSizeBytes == nil || *mMountHit.ExtractedSizeBytes != 50 {
+		t.Fatalf("mount cache hit after mutate: %v", mMountHit)
+	}
+
+	// no_cache bypass recomputes for that preference only and refreshes its key.
+	mIndexNC, err := c.GetOne("a1", metrics.QueryOptions{UseCache: metrics.BoolPtr(false)})
+	if err != nil || mIndexNC.ExtractedSizeBytes == nil || *mIndexNC.ExtractedSizeBytes != 9999 {
+		t.Fatalf("no_cache index recompute: %v", mIndexNC)
+	}
+	// prefer_mount key still has old 50 until no_cache on that path.
+	mMountStill, err := c.GetOne("a1", metrics.QueryOptions{PreferMount: true})
+	if err != nil || mMountStill.ExtractedSizeBytes == nil || *mMountStill.ExtractedSizeBytes != 50 {
+		t.Fatalf("prefer_mount key must be untouched by index no_cache: %v", mMountStill)
+	}
+	mMountNC, err := c.GetOne("a1", metrics.QueryOptions{
+		PreferMount: true,
+		UseCache:    metrics.BoolPtr(false),
+	})
+	if err != nil || mMountNC.ExtractedSizeBytes == nil || *mMountNC.ExtractedSizeBytes != 1 {
+		t.Fatalf("no_cache prefer_mount recompute: %v", mMountNC)
+	}
+
+	// GetAll respects prefer_mount keying too.
+	allMount, err := c.GetAll(metrics.QueryOptions{PreferMount: true}, nil)
+	if err != nil || len(allMount) != 1 {
+		t.Fatalf("get_all prefer_mount: %v len=%d", err, len(allMount))
+	}
+	if allMount[0].ExtractedSizeBytes == nil || *allMount[0].ExtractedSizeBytes != 1 {
+		t.Fatalf("get_all prefer_mount size=%v want 1 (refreshed)", allMount[0].ExtractedSizeBytes)
+	}
+	allIndex, err := c.GetAll(metrics.QueryOptions{}, nil)
+	if err != nil || len(allIndex) != 1 {
+		t.Fatalf("get_all index: %v len=%d", err, len(allIndex))
+	}
+	if allIndex[0].ExtractedSizeBytes == nil || *allIndex[0].ExtractedSizeBytes != 9999 {
+		t.Fatalf("get_all index size=%v want 9999", allIndex[0].ExtractedSizeBytes)
 	}
 }
 

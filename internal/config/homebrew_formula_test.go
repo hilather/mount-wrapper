@@ -31,7 +31,7 @@ func TestHomebrewFormulaSketchContent(t *testing.T) {
 
 	needles := []string{
 		"class MountWrapper < Formula",
-		`version "0.1.2"`,
+		`version "0.1.3"`,
 		"mount-wrapper_#{version}_darwin_arm64.tar.gz",
 		"mount-wrapper_#{version}_darwin_amd64.tar.gz",
 		"releases/download/v#{version}/",

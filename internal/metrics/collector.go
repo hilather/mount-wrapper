@@ -61,7 +61,7 @@ func (c *Collector) GetOne(archiveID string, opts QueryOptions) (*ArchiveMetrics
 	opts = NormalizeQueryOptions(opts)
 	useCache := opts.UseCache == nil || *opts.UseCache
 	if useCache && c.Cache != nil {
-		if hit, ok := c.Cache.Get(archiveID); ok {
+		if hit, ok := c.Cache.Get(archiveID, opts.PreferMount); ok {
 			m := hit
 			return &m, nil
 		}
@@ -78,7 +78,10 @@ func (c *Collector) GetOne(archiveID string, opts QueryOptions) (*ArchiveMetrics
 	}
 	m := c.compute(*in, opts)
 	if c.Cache != nil {
-		c.Cache.Put(m)
+		// Always store under the preference used for this compute so both
+		// index-first and prefer_mount paths keep independent TTL entries.
+		// no_cache still refreshes the matching key (parity with warm path).
+		c.Cache.Put(m, opts.PreferMount)
 	}
 	return &m, nil
 }
@@ -98,14 +101,14 @@ func (c *Collector) GetAll(opts QueryOptions, statuses []string) ([]ArchiveMetri
 	for i := range inputs {
 		id := inputs[i].ArchiveID
 		if useCache && c.Cache != nil {
-			if hit, ok := c.Cache.Get(id); ok {
+			if hit, ok := c.Cache.Get(id, opts.PreferMount); ok {
 				out = append(out, hit)
 				continue
 			}
 		}
 		m := c.compute(inputs[i], opts)
 		if c.Cache != nil {
-			c.Cache.Put(m)
+			c.Cache.Put(m, opts.PreferMount)
 		}
 		out = append(out, m)
 	}

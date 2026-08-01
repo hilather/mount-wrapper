@@ -130,7 +130,7 @@ Commands:
   doctor               Offline environment diagnostics
   config show|set      Show or update configuration
   status               Service status (requires serve)
-  metrics [ARCHIVE_ID] Archive size metrics (requires serve)
+  metrics [ARCHIVE_ID] Archive size metrics (requires serve; --no-cache, --prefer-mount)
   rescan               Trigger an immediate source scan (requires serve)
   retry ARCHIVE_ID     Reset mount attempts (requires serve)
   mount PATH           Request mount of an archive path (requires serve)

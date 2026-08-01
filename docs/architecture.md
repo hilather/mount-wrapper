@@ -175,9 +175,9 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 
 | Package | Responsibility |
 |---------|----------------|
-| `internal/metrics` | Space-saved formulas, per-archive size fields, convert delta/duration helpers, summary aggregates, TTL cache, `MetricsCollector` with injectable `SizeProvider` / `ExtractedSizeProvider` / `ArchiveSource` |
+| `internal/metrics` | Space-saved formulas, per-archive size fields, convert delta/duration helpers, summary aggregates, TTL cache dual-keyed by `(archive_id, prefer_mount)`, `MetricsCollector` with injectable `SizeProvider` / `ExtractedSizeProvider` / `ArchiveSource` |
 
-**Implemented:** pure formulas + FS/SQLite index sum + mount walk fallback; unit tests with map fakes and minimal synthetic indexes.
+**Implemented:** pure formulas + FS/SQLite index sum + mount walk fallback; unit tests with map fakes and minimal synthetic indexes. Cache isolates index-first vs `prefer_mount` so neither path returns the other's extracted sizes within TTL; `no_cache` recomputes and refreshes only the matching key; `Invalidate(archive_id)` drops both variants.
 
 **Wired:** control `metrics` op via `MetricsCollector` + store `ArchiveSource` adapter in service. Production `New` sets `Collector.Meta` to `ConvertSidecarMeta{Config}` (`convert.ReadConvertMetadata` on `archive_path`, then outer nonsolid cache dest when configured); store convert columns still win when both are set (`ComputeArchiveMetrics` / `ResolveConvertFields`). Outer/all mount claim also copies convert size/duration into the store when nil (see outer nonsolid cache row above) so SPA/status do not depend solely on sidecar presence. CLI metrics surface still optional; status `include_sizes`, control `metrics`, HTTP/SPA consume the collector.
 

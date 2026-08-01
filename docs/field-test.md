@@ -98,7 +98,7 @@ Exercise the post–v0.1.2 operator polish before filing issues:
 
 Also re-check convert paths and Web UI smoke above when those features are in scope.
 
-## File bugs for v0.1.3
+## File bugs for v0.1.3 (released)
 
 Capture at least:
 

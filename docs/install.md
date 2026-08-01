@@ -186,9 +186,18 @@ Optional env file: copy `packaging/env.example` → `/etc/mount-wrapper/env`
 | `EnvironmentFile=-/etc/mount-wrapper/env` | Optional overrides; `-` = file may be missing |
 | `User=` / `Group=mount-wrapper` | D9 service identity |
 
-Extend `ReadOnlyPaths` / `ReadWritePaths` for non-default `source_dirs` via
-`doctor --fix-systemd` (writes
-`/etc/systemd/system/mount-wrapper.service.d/sources.conf`).
+Extend `ReadOnlyPaths` / `ReadWritePaths` via `doctor --fix-systemd` (writes
+`/etc/systemd/system/mount-wrapper.service.d/sources.conf`):
+
+- **`source_dirs`** → `ReadOnlyPaths` (plus `/mnt/<letter>` for DrvFs drive roots)
+- **`archives_dir`** and custom absolute **data roots** → `ReadWritePaths` when not
+  already covered by the packaged bases (`/var/lib/mount-wrapper`,
+  `/var/log/mount-wrapper`, `/run/mount-wrapper`):
+  `mount_root`, `index_dir`, `overlay_dir`, `convert_7z_cache_dir`,
+  `archiveconverter_output_dir`
+
+Defaults under `/var/lib/mount-wrapper/…` are not re-listed. Paths are deduped.
+After writing the drop-in: `systemctl daemon-reload && systemctl restart mount-wrapper`.
 
 ---
 
@@ -242,18 +251,18 @@ Example formula: [`packaging/homebrew/mount-wrapper.rb.example`](../packaging/ho
 are filled). Prefer **release tarballs** (GoReleaser):
 
 ```text
-https://github.com/hilather/mount-wrapper/releases/download/v0.1.2/mount-wrapper_0.1.2_darwin_arm64.tar.gz
-https://github.com/hilather/mount-wrapper/releases/download/v0.1.2/mount-wrapper_0.1.2_darwin_amd64.tar.gz
+https://github.com/hilather/mount-wrapper/releases/download/v0.1.3/mount-wrapper_0.1.3_darwin_arm64.tar.gz
+https://github.com/hilather/mount-wrapper/releases/download/v0.1.3/mount-wrapper_0.1.3_darwin_amd64.tar.gz
 ```
 
-(`arm64` = Apple Silicon, `amd64` = Intel; version in the sketch tracks **0.1.2**
+(`arm64` = Apple Silicon, `amd64` = Intel; version in the sketch tracks **0.1.3**
 until the next release bump.)
 
 Fill both platform `sha256` values from `SHA256SUMS` with the helper script:
 
 ```bash
 # After make release-snapshot (or download SHA256SUMS from a GitHub Release):
-VERSION=0.1.2 SHA256SUMS=dist/SHA256SUMS \
+VERSION=0.1.3 SHA256SUMS=dist/SHA256SUMS \
   OUT=packaging/homebrew/mount-wrapper.rb \
   ./scripts/update-homebrew-formula.sh
 

@@ -133,11 +133,11 @@ paths:
         - name: no_cache
           in: query
           schema: { type: boolean }
-          description: Bypass metrics cache when true / 1.
+          description: Bypass metrics cache when true / 1; refreshes only the (archive_id, prefer_mount) key used for this request.
         - name: prefer_mount
           in: query
           schema: { type: boolean }
-          description: Prefer mount walk over index for extracted size.
+          description: Prefer mount walk over index for extracted size. Cached separately from index-first results under the same TTL.
       responses:
         "200":
           description: Metrics payload

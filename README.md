@@ -193,7 +193,7 @@ Operator guide: **[docs/install.md](./docs/install.md)** (engines, Rocky glibc, 
 
 ## Docs
 
-- [CHANGELOG.md](./CHANGELOG.md) — Keep a Changelog (v0.1.2 + Unreleased)
+- [CHANGELOG.md](./CHANGELOG.md) — Keep a Changelog (v0.1.3 + Unreleased)
 - [docs/release.md](./docs/release.md) — how to cut a release (tag, Actions, verify)
 - [TODO.md](./TODO.md) — phased rewrite checklist, decisions log, module map
 - [docs/dev.md](./docs/dev.md) — local development

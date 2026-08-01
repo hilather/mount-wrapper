@@ -15,5 +15,9 @@
 // real filesystem and modernc.org/sqlite.
 //
 // CollectorConfig + QueryOptions model cache TTL, no_cache, and prefer_mount for the
-// MetricsCollector interface used by control/API layers (wiring deferred).
+// MetricsCollector interface used by control/API layers.
+//
+// The collector TTL cache is dual-keyed by (archive_id, prefer_mount) so an
+// index-first warm entry cannot be returned for a prefer_mount query (and vice
+// versa); both variants keep independent TTLs until Invalidate.
 package metrics

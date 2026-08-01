@@ -2,13 +2,20 @@ package metrics
 
 import "time"
 
-// Cache is a simple TTL cache for ArchiveMetrics by archive_id
-// (parity with MetricsCache).
+// cacheKey isolates metrics by archive and extract preference so index-first
+// and prefer_mount results do not clobber each other under the same TTL.
+type cacheKey struct {
+	archiveID   string
+	preferMount bool
+}
+
+// Cache is a simple TTL cache for ArchiveMetrics keyed by
+// (archive_id, prefer_mount) (parity with MetricsCache dual-path TTL).
 type Cache struct {
 	TTL time.Duration
 	now func() time.Time
 
-	entries map[string]cacheEntry
+	entries map[cacheKey]cacheEntry
 }
 
 type cacheEntry struct {
@@ -23,7 +30,7 @@ func NewCache(ttlSeconds float64) *Cache {
 	return &Cache{
 		TTL:     time.Duration(ttlSeconds * float64(time.Second)),
 		now:     time.Now,
-		entries: make(map[string]cacheEntry),
+		entries: make(map[cacheKey]cacheEntry),
 	}
 }
 
@@ -46,41 +53,49 @@ func (c *Cache) clock() time.Time {
 	return time.Now()
 }
 
-// Get returns a cached metrics value if present and not expired.
-func (c *Cache) Get(archiveID string) (ArchiveMetrics, bool) {
+// Get returns a cached metrics value if present and not expired for the
+// given archive_id and prefer_mount preference.
+func (c *Cache) Get(archiveID string, preferMount bool) (ArchiveMetrics, bool) {
 	if c == nil || c.entries == nil {
 		return ArchiveMetrics{}, false
 	}
-	e, ok := c.entries[archiveID]
+	k := cacheKey{archiveID: archiveID, preferMount: preferMount}
+	e, ok := c.entries[k]
 	if !ok {
 		return ArchiveMetrics{}, false
 	}
 	if c.TTL <= 0 || c.clock().Sub(e.at) > c.TTL {
-		delete(c.entries, archiveID)
+		delete(c.entries, k)
 		return ArchiveMetrics{}, false
 	}
 	return e.value, true
 }
 
-// Put stores metrics under metrics.ArchiveID.
-func (c *Cache) Put(m ArchiveMetrics) {
+// Put stores metrics under (metrics.ArchiveID, preferMount).
+func (c *Cache) Put(m ArchiveMetrics, preferMount bool) {
 	if c == nil {
 		return
 	}
 	if c.entries == nil {
-		c.entries = make(map[string]cacheEntry)
+		c.entries = make(map[cacheKey]cacheEntry)
 	}
-	c.entries[m.ArchiveID] = cacheEntry{at: c.clock(), value: m}
+	k := cacheKey{archiveID: m.ArchiveID, preferMount: preferMount}
+	c.entries[k] = cacheEntry{at: c.clock(), value: m}
 }
 
-// Invalidate removes one archive or clears the entire cache when archiveID is "".
+// Invalidate removes all prefer_mount variants for one archive, or clears
+// the entire cache when archiveID is "".
 func (c *Cache) Invalidate(archiveID string) {
 	if c == nil || c.entries == nil {
 		return
 	}
 	if archiveID == "" {
-		c.entries = make(map[string]cacheEntry)
+		c.entries = make(map[cacheKey]cacheEntry)
 		return
 	}
-	delete(c.entries, archiveID)
+	for k := range c.entries {
+		if k.archiveID == archiveID {
+			delete(c.entries, k)
+		}
+	}
 }

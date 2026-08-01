@@ -7,46 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-01
+
+Operator polish and correctness after v0.1.2. Mount backend remains
+**ratarmount-rs only**.
+
 ### Added
 
-- **Doctor `windows_visible_parent_ox`:** when config is loaded and
-  `windows_visible` is true on Linux, walks `mount_root` ancestors and **warns**
-  if any existing directory lacks other-execute (`o+x`); message/details include
-  a `chmod o+x …` fix hint. macOS and `windows_visible: false` are info-only.
-  Inventory freeze + temp-dir tests (0700 vs 0755).
-- **Nested automount skips on mounted rows:** when ratarmount-rs skips nested
-  members during a successful mount, status/API expose `nested_skips_count` +
-  `nested_skips_summary` (from live engine state and/or `last_error` summary).
-  SPA Archives shows a warning chip and subtitle; failed rows still enrich
-  `last_error`. No SQLite migration — pure skip summary may be stored in
-  `last_error` on mounted success; hooks success preserves that advisory.
-- **SPA SSE fine-grained events:** client handles `archive` / `scan` / `low_disk` /
-  `metrics` in addition to `snapshot` / `counts` / `heartbeat`. Archive events
-  patch or remove rows by `archive_id` without a full table wipe; merge helpers
-  preserve per-row size metrics when status patches omit them.
-- **Hot-reload / logging apply:** `log_level` is applied to slog at `serve`
-  start and on every config reload; `MOUNT_WRAPPER_LOG_LEVEL` overrides config
-  while set (documented in `packaging/env.example` and the man page).
-- **Inotify re-sync on reload:** `use_inotify` / mapped `source_dirs` changes
-  restart or stop the Linux inotify watcher (poll remains authoritative).
-- **CLI `reload`:** socket-backed equivalent of control `reload` / SIGHUP;
-  prints a human success line (`reload scheduled`) on exit 0.
+- Nested automount skip visibility on **mounted** rows (`nested_skips_count` /
+  `nested_skips_summary` + SPA warning chip).
+- SPA SSE fine-grained events: `archive` / `scan` / `low_disk` / `metrics`
+  (row patch without full table wipe; metrics preserved on partial status).
+- Hot-reload: `log_level` → slog at serve + reload; `MOUNT_WRAPPER_LOG_LEVEL`
+  override; inotify re-sync; CLI **`reload`** (`reload scheduled`).
+- Doctor `windows_visible_parent_ox` (Linux UNC `o+x` parent walk).
+
+### Fixed
+
+- Nested-skip advisory durability across **index→mount** and **remount**.
+- Metrics cache dual-keyed by `(archive_id, prefer_mount)` (no stale index
+  sizes for `--prefer-mount`).
 
 ### Changed
 
-- **Nested-skip advisory durability:** `CompleteIndexAndStartMount` persists a
-  pure skip summary into `last_error` and carries `SkippedNested` onto the
-  FUSE-phase live mount; `MarkMounted` keeps an existing pure nested-skip
-  `last_error` when live skips are empty (index→mount and remount paths).
-- **`web_enabled` / `web_token` are restart-required** (HTTP bind and Bearer
-  token are fixed at serve start). SPA settings schema marks them as restart;
-  API `hot_reload_keys` / `restart_required_keys` updated.
-- **Man page EXIT STATUS:** documents process exit codes **0 / 1 / 2 / 4 / 5**
-  (success, general error, usage, service unavailable, permission denied)
-  matching CLI helpers.
-- **Operator docs for next patch:** `docs/field-test.md` retargeted to v0.1.3
-  (reload, `log_level` hot-reload, SSE deltas, nested skip remount checks);
-  `docs/release.md` examples aim at **v0.1.3**.
+- Doctor `--fix-systemd` drop-in includes custom absolute data roots
+  (`mount_root`, `index_dir`, `overlay_dir`, convert cache / AC output) as
+  `ReadWritePaths` (deduped; sources still RO).
+- `web_enabled` / `web_token` **restart-required** (honest bind/token model).
+- Man EXIT STATUS **0 / 1 / 2 / 4 / 5**.
 
 ## [0.1.2] - 2026-08-01
 
@@ -149,7 +137,8 @@ feature-complete orchestrator with multi-arch packaging.
 - Engines not bundled: install **ratarmount-rs**, fuse3/macFUSE, optional
   archiveconverter and 7z separately.
 
-[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.3
 [0.1.2]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.2
 [0.1.1]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.1
 [0.1.0]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.0

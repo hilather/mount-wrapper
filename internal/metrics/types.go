@@ -107,9 +107,9 @@ func NormalizeQueryOptions(opts QueryOptions) QueryOptions {
 
 // CollectorConfig is pure configuration for a MetricsCollector (cache TTL, etc.).
 type CollectorConfig struct {
-	// CacheTTLSeconds is the per-archive metrics cache TTL. Zero or negative
-	// disables caching (every lookup recomputes). Default is DefaultCacheTTLSeconds
-	// when using DefaultCollectorConfig.
+	// CacheTTLSeconds is the per-(archive_id, prefer_mount) metrics cache TTL.
+	// Zero or negative disables caching (every lookup recomputes). Default is
+	// DefaultCacheTTLSeconds when using DefaultCollectorConfig.
 	CacheTTLSeconds float64
 }
 
