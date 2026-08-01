@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- CLI tests for exit mapping: `handleControlError` maps `PERMISSION_DENIED` →
+  exit **5** and `UNAVAILABLE` → exit **4**; auth-deny control socket
+  integration covers `status` / `reload` → exit **5** (`ExitPermission`).
 - Doctor **`--fix-systemd --dry-run`**: preview generated systemd drop-in unit
   text (report notes + JSON `details.content`) without writing the drop-in.
 - **SPA Settings:** sticky process-restart banner when Apply returns non-empty
@@ -18,8 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Hooks hard-fail / soft-fail-retry preserve nested-automount skip advisories in
+  `last_error` (append `; skipped N nested mounts: …` via
+  `PreserveNestedSkipInReason`) so status/SPA `nested_skips_*` still derive after
+  hook failure; success re-extracts pure skip when prior `last_error` was
+  enriched by a fail/retry finish.
 - `metrics.Cache` concurrent safety: `sync.RWMutex` around the dual-key
   `(archive_id, prefer_mount)` entries map (`Get` / `Put` / `Invalidate`).
+- Service control/HTTP: serialize `HandleRequest` with `Tick` via `opMu` so
+  concurrent HTTP ops cannot race Config/engine/scanner rematerialization;
+  control `ServeReady` uses `handleRequestLocked` (no re-lock deadlock).
+  `config_set` live-applies `doReload` once (no deferred second reload).
 
 ## [0.1.3] - 2026-08-01
 

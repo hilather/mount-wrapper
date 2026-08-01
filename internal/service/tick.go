@@ -15,10 +15,15 @@ import (
 // Tick runs one service cycle (scan / reconcile / clean / progress / work / hooks).
 // After scan/reconcile/cleanup or in-flight work/hooks activity, NotifyChange
 // wakes SSE clients early; the SSE ticker remains the fallback.
+//
+// Tick holds opMu for the whole cycle (including ServeReady → control ops) so
+// Config/engine/scanner mutations cannot race concurrent HTTP HandleRequest.
 func (s *Service) Tick() {
 	if s == nil {
 		return
 	}
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 
 	dirty := false
 
@@ -34,6 +39,7 @@ func (s *Service) Tick() {
 	}
 
 	// Control plane (non-blocking accept of pending connections).
+	// Handler is handleRequestLocked (opMu already held).
 	if s.control != nil {
 		s.control.ServeReady()
 	}
@@ -119,6 +125,8 @@ func (s *Service) engineWorkActive() bool {
 	return false
 }
 
+// doReload loads config (when ConfigPath is set) and rematerializes subsystems.
+// Caller must hold opMu (Tick or HandleRequest / handleRequestLocked).
 func (s *Service) doReload() {
 	path := ""
 	if s.Config != nil {
@@ -128,6 +136,9 @@ func (s *Service) doReload() {
 		slog.Warn("reload: no config_path; applying in-memory config only")
 		// Still rematerialize from current in-memory config (e.g. tests).
 		s.applyReloadedConfig(s.Config)
+		if s.AfterReload != nil {
+			s.AfterReload()
+		}
 		return
 	}
 	newCfg, err := config.Load(path)
@@ -145,6 +156,9 @@ func (s *Service) doReload() {
 	}
 	s.applyReloadedConfig(newCfg)
 	slog.Info("config reloaded", "path", path)
+	if s.AfterReload != nil {
+		s.AfterReload()
+	}
 }
 
 // applyReloadedConfig pushes cfg into subsystems, applies log level, and

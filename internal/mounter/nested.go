@@ -83,6 +83,27 @@ func EnrichReasonWithNestedSkips(reason string, paths []string) string {
 	return reason + "; " + sum
 }
 
+// PreserveNestedSkipInReason appends a nested-skip summary extracted from
+// priorLastError onto reason when present. Used when overwriting last_error
+// (hooks hard-fail / retry) so status/SPA can still derive nested_skips_* via
+// ExtractNestedSkipSummary. Handles pure skip advisories and already-enriched
+// failures ("reason; skipped N …"). Idempotent if reason already contains the
+// summary segment.
+func PreserveNestedSkipInReason(reason, priorLastError string) string {
+	sum, n := ExtractNestedSkipSummary(priorLastError)
+	if n <= 0 || sum == "" {
+		return reason
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return sum
+	}
+	if strings.Contains(reason, sum) {
+		return reason
+	}
+	return reason + "; " + sum
+}
+
 // nestedSkipSummaryRE matches FormatNestedSkipSummary output (optionally as a
 // trailing "; skipped N …" segment of a richer last_error).
 var nestedSkipSummaryRE = regexp.MustCompile(`^skipped (\d+) nested mounts?(?:: .+)?$`)
@@ -115,8 +136,8 @@ func ExtractNestedSkipSummary(lastError string) (summary string, count int) {
 }
 
 // IsNestedSkipOnlyLastError reports whether last_error is solely a nested-skip
-// advisory (no failure reason prefix). Used so hooks success does not wipe the
-// operator-visible skip summary on mounted archives.
+// advisory (no failure reason prefix). Used so hooks success and MarkMounted
+// do not wipe the operator-visible skip summary on mounted archives.
 func IsNestedSkipOnlyLastError(lastError string) bool {
 	text := strings.TrimSpace(lastError)
 	if text == "" {

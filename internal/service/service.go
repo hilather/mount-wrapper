@@ -60,6 +60,11 @@ type Service struct {
 
 	Clock func() float64
 
+	// opMu serializes Tick and external HandleRequest (HTTP / direct callers).
+	// Control-plane ServeReady runs only under Tick while opMu is held, so the
+	// control Handler is handleRequestLocked (no re-lock) to avoid deadlock.
+	opMu sync.Mutex
+
 	mu                sync.Mutex
 	stop              bool
 	reloadRequested   bool
@@ -77,6 +82,9 @@ type Service struct {
 	// changeNotify is a size-1 broadcast channel for api.ChangeNotifier.
 	// NotifyChange non-blocks; slow SSE clients never stall the tick loop.
 	changeNotify chan struct{}
+
+	// AfterReload is invoked at the end of each doReload (optional; tests).
+	AfterReload func()
 
 	pidfile     *PidFile
 	skipPidfile bool
@@ -308,7 +316,9 @@ func (s *Service) Start() error {
 	}
 
 	if !s.skipControl && s.Config.ControlSocket != "" {
-		srv := control.NewServer(s.Config.ControlSocket, s.HandleRequest, s.AllowAllAuth)
+		// handleRequestLocked: ServeReady is only called from Tick while opMu is
+		// held. Using HandleRequest here would deadlock on re-lock.
+		srv := control.NewServer(s.Config.ControlSocket, s.handleRequestLocked, s.AllowAllAuth)
 		srv.GroupName = control.DefaultAuthGroup
 		srv.Owner = control.DefaultServiceUser
 		srv.OwnerGroup = control.DefaultAuthGroup

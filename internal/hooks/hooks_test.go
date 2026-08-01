@@ -8,6 +8,7 @@ import (
 
 	"github.com/hilather/mount-wrapper/internal/config"
 	"github.com/hilather/mount-wrapper/internal/hooks"
+	"github.com/hilather/mount-wrapper/internal/mounter"
 	"github.com/hilather/mount-wrapper/internal/state"
 )
 
@@ -431,6 +432,115 @@ func TestRunnerSuccessPreservesNestedSkipLastError(t *testing.T) {
 	rec2, _ := store.GetArchive(rec.ArchiveID)
 	if rec2.LastError == nil || *rec2.LastError != advisory {
 		t.Fatalf("expected nested-skip last_error preserved, got %v", rec2.LastError)
+	}
+}
+
+func TestRunnerHardFailPreservesNestedSkipLastError(t *testing.T) {
+	// Hard-fail overwrites last_error with the hook reason but must keep the
+	// nested-skip segment so ExtractNestedSkipSummary still works.
+	tmp := t.TempDir()
+	hd := filepath.Join(tmp, "hooks.d")
+	writeHook(t, hd, "10-fail.sh", "#!/bin/sh\nexit 2\n", 0o755)
+	_ = os.Chmod(hd, 0o755)
+	store := openStore(t)
+	rec := mountedArchive(t, store, tmp)
+	advisory := "skipped 2 nested mounts: /a.7z, /b.7z"
+	if _, err := store.Transition(rec.ArchiveID, state.StatusMounted, state.StatusMounted, map[string]any{
+		"last_error": advisory,
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	pol := testPolicy()
+	runner := hooks.NewRunner(cfg(t, tmp, hd, nil), store, &pol)
+	result, err := runner.RunForArchive(rec.ArchiveID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.HooksStatus != state.HooksFailed {
+		t.Fatalf("hooks_status=%s", result.HooksStatus)
+	}
+	rec2, _ := store.GetArchive(rec.ArchiveID)
+	if rec2.LastError == nil {
+		t.Fatal("expected last_error")
+	}
+	le := *rec2.LastError
+	if !strings.Contains(le, "hard-failed") {
+		t.Fatalf("expected hook fail reason in last_error: %q", le)
+	}
+	sum, n := mounter.ExtractNestedSkipSummary(le)
+	if n != 2 || sum != advisory {
+		t.Fatalf("expected nested skip preserved: sum=%q n=%d last_error=%q", sum, n, le)
+	}
+}
+
+func TestRunnerSoftFailRetryPreservesNestedSkipLastError(t *testing.T) {
+	// Soft-fail/retry overwrites last_error with EX_TEMPFAIL reason but must
+	// retain nested-skip advisory for status/SPA.
+	tmp := t.TempDir()
+	hd := filepath.Join(tmp, "hooks.d")
+	writeHook(t, hd, "10-temp.sh", "#!/bin/sh\nexit 75\n", 0o755)
+	_ = os.Chmod(hd, 0o755)
+	store := openStore(t)
+	rec := mountedArchive(t, store, tmp)
+	advisory := "skipped 1 nested mount: /nested.7z"
+	if _, err := store.Transition(rec.ArchiveID, state.StatusMounted, state.StatusMounted, map[string]any{
+		"last_error": advisory,
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	pol := testPolicy()
+	runner := hooks.NewRunner(cfg(t, tmp, hd, map[string]any{"hook_max_retries": 3}), store, &pol)
+	result, err := runner.RunForArchive(rec.ArchiveID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.HooksStatus != state.HooksRetry {
+		t.Fatalf("status=%s", result.HooksStatus)
+	}
+	rec2, _ := store.GetArchive(rec.ArchiveID)
+	if rec2.LastError == nil {
+		t.Fatal("expected last_error")
+	}
+	le := *rec2.LastError
+	if !strings.Contains(le, "EX_TEMPFAIL") && !strings.Contains(le, "timeout") {
+		t.Fatalf("expected retry reason in last_error: %q", le)
+	}
+	sum, n := mounter.ExtractNestedSkipSummary(le)
+	if n != 1 || sum != advisory {
+		t.Fatalf("expected nested skip preserved: sum=%q n=%d last_error=%q", sum, n, le)
+	}
+}
+
+func TestRunnerSuccessRestoresNestedSkipAfterEnrichedLastError(t *testing.T) {
+	// After hard-fail enrichment ("reason; skipped N"), a force re-run that
+	// succeeds should re-store pure skip advisory (not wipe nested_skips).
+	tmp := t.TempDir()
+	hd := filepath.Join(tmp, "hooks.d")
+	if err := os.MkdirAll(hd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := openStore(t)
+	rec := mountedArchive(t, store, tmp)
+	advisory := "skipped 2 nested mounts: /a.7z, /b.7z"
+	enriched := "one or more hooks hard-failed; " + advisory
+	if _, err := store.Transition(rec.ArchiveID, state.StatusMounted, state.StatusMounted, map[string]any{
+		"last_error":   enriched,
+		"hooks_status": state.HooksFailed,
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	pol := testPolicy()
+	runner := hooks.NewRunner(cfg(t, tmp, hd, nil), store, &pol)
+	result, err := runner.RunForArchive(rec.ArchiveID, true) // force past terminal failed
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Ran || result.HooksStatus != state.HooksSuccess {
+		t.Fatalf("result=%+v", result)
+	}
+	rec2, _ := store.GetArchive(rec.ArchiveID)
+	if rec2.LastError == nil || *rec2.LastError != advisory {
+		t.Fatalf("expected pure nested-skip restored, got %v", rec2.LastError)
 	}
 }
 

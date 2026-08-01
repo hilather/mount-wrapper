@@ -474,15 +474,14 @@ func (r *Runner) finishSuccess(rec *state.ArchiveRecord, results []RunResult) (*
 	}
 	// Preserve nested-automount skip advisory on last_error (mounted success path).
 	// Re-read store so we do not wipe a summary written after this cycle started.
-	if r.Store != nil {
-		if cur, err := r.Store.GetArchive(rec.ArchiveID); err == nil && cur != nil &&
-			cur.LastError != nil && mounter.IsNestedSkipOnlyLastError(*cur.LastError) {
-			fields["last_error"] = *cur.LastError
-		} else if rec.LastError != nil && mounter.IsNestedSkipOnlyLastError(*rec.LastError) {
-			fields["last_error"] = *rec.LastError
+	// Prefer pure skip-only text; if a prior hard-fail/retry enriched
+	// "reason; skipped N …", re-store the pure skip segment so SPA still warns.
+	if prior := r.priorLastError(rec); prior != "" {
+		if mounter.IsNestedSkipOnlyLastError(prior) {
+			fields["last_error"] = prior
+		} else if sum, n := mounter.ExtractNestedSkipSummary(prior); n > 0 {
+			fields["last_error"] = sum
 		}
-	} else if rec.LastError != nil && mounter.IsNestedSkipOnlyLastError(*rec.LastError) {
-		fields["last_error"] = *rec.LastError
 	}
 	updated, err := r.Store.Transition(
 		rec.ArchiveID,
@@ -530,6 +529,16 @@ func (r *Runner) finishFailed(rec *state.ArchiveRecord, reason string, results [
 		}
 	}
 
+	// Keep nested-automount skip advisory when overwriting last_error with the
+	// hard-fail reason so SPA/status can still extract nested_skips_*.
+	prior := ""
+	if current.LastError != nil {
+		prior = *current.LastError
+	} else if rec.LastError != nil {
+		prior = *rec.LastError
+	}
+	lastError := mounter.PreserveNestedSkipInReason(reason, prior)
+
 	ts := state.UTCNowISO()
 	updated, err := r.Store.Transition(
 		current.ArchiveID,
@@ -538,7 +547,7 @@ func (r *Runner) finishFailed(rec *state.ArchiveRecord, reason string, results [
 		map[string]any{
 			"hooks_status":       state.HooksFailed,
 			"hooks_completed_at": ts,
-			"last_error":         reason,
+			"last_error":         lastError,
 		},
 		"",
 	)
@@ -553,9 +562,28 @@ func (r *Runner) finishFailed(rec *state.ArchiveRecord, reason string, results [
 	}, nil
 }
 
+// priorLastError returns the best-effort last_error string for nested-skip
+// preservation: store re-read first, then the in-memory rec snapshot.
+func (r *Runner) priorLastError(rec *state.ArchiveRecord) string {
+	if r != nil && r.Store != nil && rec != nil {
+		if cur, err := r.Store.GetArchive(rec.ArchiveID); err == nil && cur != nil && cur.LastError != nil {
+			return *cur.LastError
+		}
+	}
+	if rec != nil && rec.LastError != nil {
+		return *rec.LastError
+	}
+	return ""
+}
+
 func (r *Runner) finishRetry(rec *state.ArchiveRecord, results []RunResult) (*CycleResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	const retryReason = "one or more hooks returned EX_TEMPFAIL/timeout"
+	// Preserve nested-skip advisory (pure or trailing segment) across soft-fail/retry.
+	lastError := mounter.PreserveNestedSkipInReason(retryReason, r.priorLastError(rec))
+
 	updated, err := r.Store.Transition(
 		rec.ArchiveID,
 		state.StatusMounted,
@@ -563,7 +591,7 @@ func (r *Runner) finishRetry(rec *state.ArchiveRecord, results []RunResult) (*Cy
 		map[string]any{
 			"hooks_status":       state.HooksRetry,
 			"hooks_completed_at": nil,
-			"last_error":         "one or more hooks returned EX_TEMPFAIL/timeout",
+			"last_error":         lastError,
 		},
 		"",
 	)

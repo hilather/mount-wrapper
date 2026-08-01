@@ -41,11 +41,25 @@ func ErrResponse(msg, code string) map[string]any {
 }
 
 // HandleRequest dispatches a control-plane op (JSON-friendly map).
+// Acquires opMu so concurrent HTTP/direct callers cannot race Tick mutations
+// of Config/engine/scanner. Control socket ServeReady uses handleRequestLocked
+// instead (already under Tick's opMu).
 //
 // Supported ops: status, metrics, config_get, config_set, rescan, retry,
 // unmount, purge, stop, reload, hooks_list, hooks_status, mount.
 // Unknown ops return BAD_REQUEST.
 func (s *Service) HandleRequest(req map[string]any) map[string]any {
+	if s == nil {
+		return ErrResponse("service not available", "UNAVAILABLE")
+	}
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	return s.handleRequestLocked(req)
+}
+
+// handleRequestLocked is the op dispatcher. Caller must hold opMu (or be the
+// sole owner of Service in a test that never races Tick).
+func (s *Service) handleRequestLocked(req map[string]any) map[string]any {
 	if s == nil {
 		return ErrResponse("service not available", "UNAVAILABLE")
 	}
@@ -225,15 +239,10 @@ func (s *Service) opConfigSet(req map[string]any) map[string]any {
 					result["reload_error"] = err.Error()
 				}
 			}
-			if rec, _ := result["reload_recommended"].(bool); rec {
-				s.RequestReload()
-				result["reload_scheduled"] = true
-			} else if keys, ok := result["changed_keys"].([]string); ok && len(keys) > 0 {
-				s.RequestReload()
-				result["reload_scheduled"] = true
-			}
-			// Best-effort immediate source reload.
+			// Live-apply subsystems once here. Do not also RequestReload —
+			// that would double-run doReload on the next Tick.
 			s.doReload()
+			result["reload_scheduled"] = false
 		}
 	}
 	return OKResponse(result)

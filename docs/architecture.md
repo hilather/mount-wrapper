@@ -62,7 +62,7 @@ SPA source lives in `web/`; production assets are copied into `internal/webui/di
 | `internal/mounter` | Backend normalize/resolve, ratarmount argv + child env, live registry (`index_only`/`mount`), process-group start/kill/wait, unmount sequence (SIGTERM → fusermount → lazy), partial-index cleanup, concurrent-limit + mount-attempt helpers, DrvFs index refuse, nested-automount stderr drain + skip summary |
 | `internal/mounter.Engine` | Claim + spawn, `CheckChild` / index→mount, mark mounted/failed, convert jobs (async: archiveconverter → zip repack → flatten), relocate (sync v1), `ProgressLive`, `Unmount` |
 
-**Nested automount skips:** while a ratarmount-rs child runs, Engine pipes stderr and parses lines matching `Mounting of '…' failed because of: …`. Paths accumulate on `ManagedMount.SkippedNested`. On failure, `MarkFailed` enriches `last_error` with `skipped N nested mounts: path…` (sample paths). On success (`MarkMounted`), when any skips were recorded: summary is logged (`event=index_nested_skipped`), **`last_error` holds the pure skip summary** (operator advisory; no SQLite migration), and status/API archive rows expose `nested_skips_count` + `nested_skips_summary` (from live `ManagedMount` while the FUSE child is registered, else derived from `last_error`). **Durability across index→mount and remount:** `CompleteIndexAndStartMount` drains index-phase stderr, persists the pure skip summary into `last_error` on the indexing→mounting transition, and **carries** `SkippedNested` onto the new FUSE-phase `ManagedMount` (index-phase live is dropped). `MarkMounted` keeps an existing pure nested-skip `last_error` (`IsNestedSkipOnlyLastError`) when live skips are empty (remount / FUSE phase that does not re-emit skip lines). Hooks success preserves a pure nested-skip `last_error` so the SPA warning remains after first-mount hooks. SPA Archives table shows a warn chip + subtitle on mounted rows with skips; failed rows still show full `last_error` (which may include the skip segment).
+**Nested automount skips:** while a ratarmount-rs child runs, Engine pipes stderr and parses lines matching `Mounting of '…' failed because of: …`. Paths accumulate on `ManagedMount.SkippedNested`. On failure, `MarkFailed` enriches `last_error` with `skipped N nested mounts: path…` (sample paths). On success (`MarkMounted`), when any skips were recorded: summary is logged (`event=index_nested_skipped`), **`last_error` holds the pure skip summary** (operator advisory; no SQLite migration), and status/API archive rows expose `nested_skips_count` + `nested_skips_summary` (from live `ManagedMount` while the FUSE child is registered, else derived from `last_error`). **Durability across index→mount and remount:** `CompleteIndexAndStartMount` drains index-phase stderr, persists the pure skip summary into `last_error` on the indexing→mounting transition, and **carries** `SkippedNested` onto the new FUSE-phase `ManagedMount` (index-phase live is dropped). `MarkMounted` keeps an existing pure nested-skip `last_error` (`IsNestedSkipOnlyLastError`) when live skips are empty (remount / FUSE phase that does not re-emit skip lines). **Hooks finish paths:** success keeps / restores a pure nested-skip `last_error` (including re-extracting the skip segment after a prior hard-fail/retry enrichment) so the SPA warning remains after first-mount hooks; hard-fail (`finishFailed`) and soft-fail/retry (`finishRetry`) overwrite `last_error` with the hook reason but **append** any prior nested-skip segment via `PreserveNestedSkipInReason` (pure advisory or trailing `; skipped N …`) so `ExtractNestedSkipSummary` still works. SPA Archives table shows a warn chip + subtitle on mounted rows with skips; failed rows still show full `last_error` (which may include the skip segment).
 
 **Still deferred:** stream-flatten / full solid-folder parse. Flatten + outer-cache probes are best-effort CLI (`7z l -slt`), not ratarmountcore. Optional real-FUSE smoke: `go test -tags=fuse ./internal/mounter/` (skips without `/dev/fuse` or engine on PATH; not in default `make test`).
 
@@ -200,7 +200,7 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 | Package | Responsibility |
 |---------|----------------|
 | `internal/control` | JSON-lines framing (`ParseRequest` / `EncodeResponse`), peercred auth (root or group `mount-wrapper`), `Server` (bind `0660`, stale cleanup, optional chown, `ServeReady`), `Client` (`Request` / `RequestOK`) |
-| `internal/service` | Creates `control.Server` when `control_socket` set; `Tick` → `ServeReady`; `Shutdown` closes socket; `HandleRequest` is the handler |
+| `internal/service` | Creates `control.Server` when `control_socket` set; `Tick` → `ServeReady`; `Shutdown` closes socket; control Handler is `handleRequestLocked` (under Tick's `opMu`) |
 
 **Protocol:** newline-delimited JSON; request must include `"op"`; optional `"v":1` (missing → 1; unknown → `UNSUPPORTED_VERSION`). Responses: `{ok:true, data}` / `{ok:false, error, code}`.
 
@@ -208,11 +208,13 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 
 **Ops (via `HandleRequest`):** `status` (`include_sizes?`), `metrics`, `config_get`, `config_set`, `rescan`, `retry`, `mount`, `unmount`, `purge`, `hooks_*`, `reload`, `stop`.
 
+**Concurrency (`opMu`):** `Tick` and external `HandleRequest` (HTTP / in-process) share a dedicated op mutex so Config / engine / scanner rematerialization cannot race concurrent control ops. `Tick` holds `opMu` for the whole cycle, including `ServeReady`. Control connections therefore call `handleRequestLocked` (already under `opMu`) — registering full `HandleRequest` as the control Handler would deadlock on re-lock. `s.mu` remains a short flag/state lock (`stop`, `reloadRequested`, scan timestamps, `lowDisk`).
+
 ### Phase 8 — service loop + doctor
 
 | Package | Responsibility |
 |---------|----------------|
-| `internal/service` | Daemon lifecycle: pidfile flock, service dirs, boot remount, control socket, inotify hint, signal stop/reload, single-threaded `Tick`, `HandleRequest` control map, status payload via `internal/status`; on reload: re-apply `log_level` (env override), rematerialize scanner sources, restart/stop inotify when `use_inotify` / `source_dirs` change |
+| `internal/service` | Daemon lifecycle: pidfile flock, service dirs, boot remount, control socket, inotify hint, signal stop/reload, `Tick` + `HandleRequest` serialized by `opMu`, status payload via `internal/status`; on reload: re-apply `log_level` (env override), rematerialize scanner sources, restart/stop inotify when `use_inotify` / `source_dirs` change |
 | `internal/doctor` | Offline environment diagnostics: host/WSL/FUSE/unmount tool, `user_allow_other`, Go + ratarmount(-rs) + archiveconverter + 7z bins, service paths/source dirs, index DrvFs layout, free-space, peercred/control socket notes, **`web_bind_security`** (non-loopback + empty `web_token` → warn), **`windows_visible_parent_ox`** (Linux: mount_root ancestors lack o+x when `windows_visible` → warn + `chmod o+x` hint), **`convert_cache_dir`** / archiveconverter output writability when convert features are on, Darwin **`control_socket_path_length`** (~100-byte sun_path warn), systemd PID1 + drop-in generation, service-user messaging |
 
 **CLI:** `mount-wrapper serve [--config] [--once] [--allow-unauth]` plus socket-backed ops (Phase 7.2), including `reload`.
@@ -225,7 +227,7 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 | `source_dirs`, `use_inotify` (inotify watcher restarted/stopped), discovery knobs | Path / DB / socket / hooks_dir / mount_backend / engine bin paths |
 | Concurrency, cleanup, hooks, convert, ratarmount engine args, … (see `HotReloadKeys`) | See `RestartRequiredKeys` in `internal/config/public.go` |
 
-Control op `reload` schedules work on the next tick (or immediate via `config_set`). CLI: `mount-wrapper reload`.
+Control op `reload` / SIGHUP schedules `doReload` on the next tick. `config_set` with `apply` + written file live-runs `doReload` **once** under `opMu` and does **not** also `RequestReload` (avoids double rematerialization on the following tick). CLI: `mount-wrapper reload`.
 
 **Still deferred:** real FUSE CI; stream-flatten; full solid-folder parse (CLI probe only).
 

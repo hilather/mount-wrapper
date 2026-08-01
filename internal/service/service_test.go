@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -492,4 +494,190 @@ func TestTickOnceWithDiscoveredArchive(t *testing.T) {
 			t.Logf("status %s=%s", r.ArchiveID, r.Status)
 		}
 	}
+}
+
+// setupWritableConfig materializes a fully-validated config file at path and
+// copies it into svc.Config (preserving pointer identity for Engine/Scanner).
+// Required for config_set ApplyUpdate, which round-trips ToPublicMap(current).
+func setupWritableConfig(t *testing.T, svc *service.Service, path string) {
+	t.Helper()
+	raw := map[string]any{
+		"source_dirs":                []any{svc.Config.SourceDirs[0]},
+		"mount_root":                 svc.Config.MountRoot,
+		"index_dir":                  svc.Config.IndexDir,
+		"overlay_dir":                svc.Config.OverlayDir,
+		"state_db":                   svc.Config.StateDB,
+		"hooks_dir":                  svc.Config.HooksDir,
+		"pid_file":                   svc.Config.PIDFile,
+		"control_socket":             filepath.Join(filepath.Dir(path), "c.sock"),
+		"log_level":                  "INFO",
+		"use_inotify":                false,
+		"poll_interval_seconds":      3600,
+		"reconcile_interval_seconds": 3600,
+	}
+	cfg, err := config.FromMap(raw, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.WriteFile(path, cfg, true); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*svc.Config = *loaded
+}
+
+// TestConcurrentHandleRequestAndTick exercises opMu serialization under -race.
+// Concurrent HTTP-style HandleRequest must not race Tick Config/engine/scanner
+// mutations (or deadlock with control ServeReady under Tick).
+func TestConcurrentHandleRequestAndTick(t *testing.T) {
+	svc, _ := testService(t)
+	svc.Config.UseInotify = false
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	const N = 80
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			svc.Tick()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			resp := svc.HandleRequest(map[string]any{"op": "status"})
+			if ok, _ := resp["ok"].(bool); !ok {
+				t.Errorf("status: %+v", resp)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			ops := []map[string]any{
+				{"op": "config_get"},
+				{"op": "metrics"},
+				{"op": "reload"},
+			}
+			resp := svc.HandleRequest(ops[i%len(ops)])
+			if ok, _ := resp["ok"].(bool); !ok {
+				t.Errorf("op %v: %+v", ops[i%len(ops)], resp)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+}
+
+// TestConfigSetReloadsOnce ensures config_set live-applies once and does not
+// schedule a second doReload on the next Tick.
+func TestConfigSetReloadsOnce(t *testing.T) {
+	t.Setenv(config.LogLevelEnv, "")
+	svc, tmp := testService(t)
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	setupWritableConfig(t, svc, cfgPath)
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	var n atomic.Int32
+	svc.AfterReload = func() { n.Add(1) }
+
+	resp := svc.HandleRequest(map[string]any{
+		"op": "config_set",
+		"patch": map[string]any{
+			"log_level": "DEBUG",
+		},
+		"apply": true,
+	})
+	if ok, _ := resp["ok"].(bool); !ok {
+		t.Fatalf("config_set: %+v", resp)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if data == nil {
+		t.Fatalf("no data: %+v", resp)
+	}
+	if sched, _ := data["reload_scheduled"].(bool); sched {
+		t.Fatal("config_set must not schedule a deferred reload when it already doReload'd")
+	}
+	if got := n.Load(); got != 1 {
+		t.Fatalf("expected exactly one doReload from config_set, got %d", got)
+	}
+
+	// Tick must not run a second reload (no pending RequestReload).
+	svc.Tick()
+	if got := n.Load(); got != 1 {
+		t.Fatalf("Tick double-reloaded after config_set: count=%d", got)
+	}
+	if svc.Config.LogLevel != "DEBUG" {
+		t.Fatalf("log_level after config_set: %s", svc.Config.LogLevel)
+	}
+	_ = config.ApplyLogLevel("INFO")
+}
+
+// TestConcurrentConfigSetAndTick races config_set (immediate doReload) with Tick
+// (scheduled reload / scan) under -race.
+func TestConcurrentConfigSetAndTick(t *testing.T) {
+	t.Setenv(config.LogLevelEnv, "")
+	svc, tmp := testService(t)
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	setupWritableConfig(t, svc, cfgPath)
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	var reloads atomic.Int32
+	svc.AfterReload = func() { reloads.Add(1) }
+
+	const N = 40
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			svc.Tick()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < N; i++ {
+			level := "INFO"
+			if i%2 == 0 {
+				level = "DEBUG"
+			}
+			resp := svc.HandleRequest(map[string]any{
+				"op": "config_set",
+				"patch": map[string]any{
+					"log_level": level,
+				},
+				"apply": true,
+			})
+			if ok, _ := resp["ok"].(bool); !ok {
+				t.Errorf("config_set: %+v", resp)
+				return
+			}
+			data, _ := resp["data"].(map[string]any)
+			if data != nil {
+				if sched, _ := data["reload_scheduled"].(bool); sched {
+					t.Error("config_set must not set reload_scheduled")
+					return
+				}
+			}
+		}
+	}()
+	wg.Wait()
+
+	// Each successful config_set should contribute one doReload; Tick may add
+	// more only if something else scheduled reload (this test does not).
+	if got := reloads.Load(); got != int32(N) {
+		t.Fatalf("expected %d doReload calls (one per config_set), got %d", N, got)
+	}
+	_ = config.ApplyLogLevel("INFO")
 }

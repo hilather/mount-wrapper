@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/hilather/mount-wrapper/internal/config"
 	"github.com/hilather/mount-wrapper/internal/control"
+	"github.com/hilather/mount-wrapper/internal/platform"
 	"github.com/hilather/mount-wrapper/internal/testutil"
 )
 
@@ -338,6 +341,108 @@ func TestConfigSetDryRunOffline(t *testing.T) {
 	}
 	if cfg.PollIntervalSeconds != 60 {
 		t.Fatalf("dry-run mutated poll_interval: %v", cfg.PollIntervalSeconds)
+	}
+}
+
+func TestHandleControlError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"nil", nil, ExitOK},
+		{"permission_denied", &ControlError{Message: "not authorized", Code: "PERMISSION_DENIED"}, ExitPermission},
+		{"unavailable", &ControlError{Message: "dial: connection refused", Code: "UNAVAILABLE"}, ExitServiceUnavailable},
+		{"other_control", &ControlError{Message: "bad request", Code: "ERROR"}, ExitError},
+		{"plain", errors.New("not a control error"), ExitError},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			got := handleControlError(&stderr, tc.err)
+			if got != tc.want {
+				t.Fatalf("got exit %d want %d stderr=%q", got, tc.want, stderr.String())
+			}
+			if tc.err == nil {
+				if stderr.Len() != 0 {
+					t.Fatalf("nil err should not write stderr: %q", stderr.String())
+				}
+				return
+			}
+			if !strings.Contains(stderr.String(), "error:") {
+				t.Fatalf("expected error: prefix, got %q", stderr.String())
+			}
+		})
+	}
+}
+
+// startAuthDenyControlServer runs a short Unix control server that always
+// rejects peer auth (mirrors control.TestServerAuthDeny).
+func startAuthDenyControlServer(t *testing.T) (sock string, cleanup func()) {
+	t.Helper()
+	sock = testutil.ShortUnixSocketPath(t, "cli-auth-deny.sock")
+	falseVal := false
+	srv := control.NewServer(sock, func(map[string]any) map[string]any {
+		return control.OKResponse(map[string]any{"should": "not-reach"})
+	}, false)
+	srv.PeerCredentials = func(net.Conn) (platform.PeerCreds, bool) {
+		return platform.PeerCreds{UID: 99999, GID: 99999, PID: 1}, true
+	}
+	srv.UserInGroup = func(int, string) bool { return false }
+	srv.AllowUnauthEnv = &falseVal
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				srv.ServeReady()
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	}()
+	// Allow listener to accept.
+	time.Sleep(20 * time.Millisecond)
+
+	cleanup = func() {
+		close(stop)
+		wg.Wait()
+		_ = srv.Close()
+	}
+	return sock, cleanup
+}
+
+func TestStatusPermissionDenied(t *testing.T) {
+	sock, cleanup := startAuthDenyControlServer(t)
+	defer cleanup()
+
+	code, _, errBuf := runCLI(t, "status", "--socket", sock)
+	if code != ExitPermission {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitPermission, code, errBuf)
+	}
+	if !strings.Contains(errBuf, "error:") {
+		t.Fatalf("expected error message, got %q", errBuf)
+	}
+}
+
+func TestReloadPermissionDenied(t *testing.T) {
+	sock, cleanup := startAuthDenyControlServer(t)
+	defer cleanup()
+
+	code, _, errBuf := runCLI(t, "reload", "--socket", sock)
+	if code != ExitPermission {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitPermission, code, errBuf)
+	}
+	if !strings.Contains(errBuf, "error:") {
+		t.Fatalf("expected error message, got %q", errBuf)
 	}
 }
 

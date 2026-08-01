@@ -72,6 +72,31 @@ func TestEnrichReasonWithNestedSkips(t *testing.T) {
 	}
 }
 
+func TestPreserveNestedSkipInReason(t *testing.T) {
+	t.Parallel()
+	pure := "skipped 2 nested mounts: /a.7z, /b.7z"
+	if g := mounter.PreserveNestedSkipInReason("hooks hard-failed", ""); g != "hooks hard-failed" {
+		t.Fatalf("no prior: %q", g)
+	}
+	if g := mounter.PreserveNestedSkipInReason("hooks hard-failed", "engine exit 1"); g != "hooks hard-failed" {
+		t.Fatalf("no skip segment: %q", g)
+	}
+	want := "hooks hard-failed; " + pure
+	if g := mounter.PreserveNestedSkipInReason("hooks hard-failed", pure); g != want {
+		t.Fatalf("pure prior: got %q want %q", g, want)
+	}
+	enrichedPrior := "ratarmount exited; " + pure
+	if g := mounter.PreserveNestedSkipInReason("hooks hard-failed", enrichedPrior); g != want {
+		t.Fatalf("enriched prior: got %q want %q", g, want)
+	}
+	if g := mounter.PreserveNestedSkipInReason(want, pure); g != want {
+		t.Fatalf("idempotent: got %q", g)
+	}
+	if g := mounter.PreserveNestedSkipInReason("", pure); g != pure {
+		t.Fatalf("empty reason: %q", g)
+	}
+}
+
 func TestExtractNestedSkipSummary(t *testing.T) {
 	t.Parallel()
 	sum, n := mounter.ExtractNestedSkipSummary("")
