@@ -7,31 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-08-01
+
+Operator surfaces and boot hygiene after v0.1.4. Mount backend remains
+**ratarmount-rs only**.
+
 ### Added
 
-- CLI **`stop`**: control op `stop` for graceful serve shutdown (SIGTERM
-  equivalent). Default stdout `stop scheduled`; **`--json`** prints the control
-  ack (e.g. `{"stop":"scheduled"}`). Flags: `--config` / `--socket`.
-- CLI **`reload --json`**: machine-readable control ack (e.g. `{"reload":"scheduled"}`);
-  default remains the human line `reload scheduled`.
-- Control op **`hooks_run`** (`archive_id`, optional `force`) + CLI
-  **`hooks rerun ARCHIVE_ID [--force] [--json]`** to re-run first-mount hooks
-  under `opMu` (eligibility matches `RunForArchive` / `ShouldRunHooks`;
-  `--force` bypasses terminal success/failed).
-- HTTP **`POST /api/hooks`** `{archive_id, force?}` → control `hooks_run`; SPA
-  Hooks drawer **Re-run** / **Force re-run** (confirm on force) with toast +
-  refresh. OpenAPI `HooksRunRequest` / `HooksRunResponse`.
+- Cleaner **`DefaultPathInUse`**: orphan ratarmount `/tmp/.tmp*` prune uses Linux
+  `/proc/*/fd` (other platforms: `fuser` best-effort).
+- CLI **`stop`** / **`reload --json`**; control **`hooks_run`** + CLI
+  **`hooks rerun [--force]`**; HTTP **POST `/api/hooks`** + SPA Force re-run.
 
 ### Changed
 
-- SPA connection badge labels: **`live (SSE)`** when SSE is open, **`poll (SSE down)`**
-  when poll-only; clearer tooltips and `aria-live="polite"` on the badge.
+- SPA connection badge: **`live (SSE)`** / **`poll (SSE down)`**.
 
 ### Fixed
 
-- Service `ControlActive` / `InotifyActive` read `s.control` / `s.inotify` under
-  `opMu` (same lock `Shutdown` uses when nilling them); race test concurrent
-  with `Shutdown` under `-race`.
+- Outer nonsolid cache: post-populate solid verify (re-list; reject still-solid).
+- `ControlActive` / `InotifyActive` under `opMu` (race with Shutdown).
 
 ## [0.1.4] - 2026-08-01
 
@@ -182,7 +177,8 @@ feature-complete orchestrator with multi-arch packaging.
 - Engines not bundled: install **ratarmount-rs**, fuse3/macFUSE, optional
   archiveconverter and 7z separately.
 
-[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.5
 [0.1.4]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.4
 [0.1.3]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.3
 [0.1.2]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.2

@@ -166,6 +166,12 @@ func New(cfg *config.Config, opts *Options) (*Service, error) {
 	if cl == nil {
 		cl = cleaner.New(cfg, store)
 	}
+	// Production PathInUse so boot PruneOrphanRatarmountTemps can free unused
+	// /tmp/.tmp* without deleting open materializations. Respect injectors that
+	// already set PathInUse (tests).
+	if cl.PathInUse == nil {
+		cl.PathInUse = cleaner.DefaultPathInUse
+	}
 	cl.Unmounter = cleaner.UnmountFunc(func(archiveID string) error {
 		_, err := eng.Unmount(archiveID, false)
 		return err

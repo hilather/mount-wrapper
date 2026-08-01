@@ -8,6 +8,7 @@ import (
 )
 
 // PathInUseFunc reports whether path is open by a running process.
+// Production uses DefaultPathInUse (see path_in_use_*.go); nil keeps all.
 type PathInUseFunc func(path string) bool
 
 // IsRatarmountTempPath reports whether path is a ratarmount materialization

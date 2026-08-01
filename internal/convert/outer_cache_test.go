@@ -422,6 +422,77 @@ func TestEnsureNonsolidCachedCopy_SizeFloorRejectsUnderfloorDest(t *testing.T) {
 	}
 }
 
+func TestEnsureNonsolidCachedCopy_StillSolidAfterPopulate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "solid.7z")
+	if err := os.WriteFile(src, []byte("solid-payload-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(dir, "cache")
+	cfg, err := config.FromMap(map[string]any{
+		"convert_7z_nonsolid":  true,
+		"convert_7z_scope":     "outer",
+		"convert_7z_cache_dir": cache,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// List always solid (including post-populate dest) — verify must reject.
+	listAlwaysSolid := func(string, []string, string) (string, error) {
+		return sampleSolidList, nil
+	}
+	var creates atomic.Int32
+	wantDest := convert.NonsolidCacheDestPath(cache, src)
+	_, err = convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
+		List7z:        listAlwaysSolid,
+		Run7z:         solidPopulateRun(t, &creates, 0),
+		OverheadBytes: 0,
+		MinFreeBytes:  0,
+	})
+	if err == nil {
+		t.Fatal("expected still-solid post-populate error")
+	}
+	if !strings.Contains(err.Error(), "still solid") {
+		t.Fatalf("err=%v", err)
+	}
+	if creates.Load() != 1 {
+		t.Fatalf("creates=%d want 1", creates.Load())
+	}
+	if _, stErr := os.Stat(wantDest); stErr == nil {
+		t.Fatalf("still-solid dest must be removed: %s", wantDest)
+	}
+
+	// List fails for dest after populate (empty listing) — same reject path.
+	listEmptyDest := func(_ string, args []string, _ string) (string, error) {
+		path := ""
+		if len(args) > 0 {
+			path = args[len(args)-1]
+		}
+		if path == src {
+			return sampleSolidList, nil
+		}
+		return "  \n", nil
+	}
+	creates.Store(0)
+	_, err = convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
+		List7z:        listEmptyDest,
+		Run7z:         solidPopulateRun(t, &creates, 0),
+		OverheadBytes: 0,
+		MinFreeBytes:  0,
+	})
+	if err == nil {
+		t.Fatal("expected unlistable dest error")
+	}
+	if !strings.Contains(err.Error(), "still solid") && !strings.Contains(err.Error(), "unlistable") {
+		t.Fatalf("err=%v", err)
+	}
+	if _, stErr := os.Stat(wantDest); stErr == nil {
+		t.Fatalf("unlistable dest must be removed: %s", wantDest)
+	}
+}
+
 func TestEnsureNonsolidCachedCopy_CleansLeftoverPartialAndWork(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

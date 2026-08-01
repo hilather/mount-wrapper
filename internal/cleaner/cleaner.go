@@ -54,17 +54,21 @@ type Cleaner struct {
 	// Tests may set a temp directory; production leave empty.
 	TmpDir string
 
-	// PathInUse for ratarmount temp prune. Nil keeps all (safe default for /tmp).
-	// Tests inject a lambda; production may use Linux /proc scan (not implemented).
+	// PathInUse for ratarmount temp prune. New sets DefaultPathInUse (Linux
+	// /proc/*/fd scan; other platforms: fuser when available, else treat as
+	// in-use). Nil keeps all when passed to the package prune helper (safe).
+	// Tests may inject a lambda or clear PathInUse.
 	PathInUse PathInUseFunc
 }
 
-// New constructs a Cleaner with time.Now as the clock.
+// New constructs a Cleaner with time.Now as the clock and DefaultPathInUse
+// so boot/serve can free unused /tmp/.tmp* without deleting live materializations.
 func New(cfg *config.Config, store *state.Store) *Cleaner {
 	return &Cleaner{
-		Config: cfg,
-		Store:  store,
-		Clock:  time.Now,
+		Config:    cfg,
+		Store:     store,
+		Clock:     time.Now,
+		PathInUse: DefaultPathInUse,
 	}
 }
 

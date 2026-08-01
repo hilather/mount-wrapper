@@ -728,8 +728,11 @@ func TestCleanerTmpDirDefaultDoesNotTouchLocalTemps(t *testing.T) {
 	if err := os.WriteFile(orphan, make([]byte, 10), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Default TmpDir is /tmp — local orphan stays.
-	removed, freed := cleaner.New(c, openStore(t)).PruneOrphanRatarmountTemps()
+	// Default TmpDir is /tmp — local orphan under tmp stays regardless of /tmp scan.
+	// Force PathInUse always-true so this test never deletes real /tmp/.tmp* files.
+	cl := cleaner.New(c, openStore(t))
+	cl.PathInUse = func(string) bool { return true }
+	removed, freed := cl.PruneOrphanRatarmountTemps()
 	if removed != 0 || freed != 0 {
 		t.Fatalf("removed=%d freed=%d", removed, freed)
 	}
@@ -737,9 +740,63 @@ func TestCleanerTmpDirDefaultDoesNotTouchLocalTemps(t *testing.T) {
 		t.Fatal("local orphan must remain")
 	}
 
-	removed, freed = cleaner.PruneOrphanRatarmountTemps(tmp, func(string) bool { return false })
+	// Injectable PathInUse + TmpDir: prune orphans under a controlled dir.
+	cl.TmpDir = tmp
+	cl.PathInUse = func(string) bool { return false }
+	removed, freed = cl.PruneOrphanRatarmountTemps()
 	if removed != 1 || freed != 10 {
 		t.Fatalf("removed=%d freed=%d", removed, freed)
+	}
+	if fileExists(orphan) {
+		t.Fatal("orphan under TmpDir should be removed when not in use")
+	}
+}
+
+func TestCleanerNewSetsDefaultPathInUse(t *testing.T) {
+	tmp := t.TempDir()
+	cl := cleaner.New(cfg(t, tmp, nil), openStore(t))
+	if cl.PathInUse == nil {
+		t.Fatal("New must set DefaultPathInUse")
+	}
+}
+
+func TestFdLinkMatchesPath(t *testing.T) {
+	cases := []struct {
+		link, path, abs string
+		want            bool
+	}{
+		{"/tmp/.tmpabc", "/tmp/.tmpabc", "/tmp/.tmpabc", true},
+		{"/tmp/.tmpabc (deleted)", "/tmp/.tmpabc", "/tmp/.tmpabc", true},
+		{"/tmp/.tmpabc (deleted)", "/other", "/tmp/.tmpabc", true},
+		{"/tmp/.tmpabc", "/other", "/resolved", false},
+		{"", "/tmp/x", "/tmp/x", false},
+		{"socket:[123]", "/tmp/x", "/tmp/x", false},
+		{"pipe:[1]", "", "", false},
+	}
+	for _, tc := range cases {
+		got := cleaner.FdLinkMatchesPath(tc.link, tc.path, tc.abs)
+		if got != tc.want {
+			t.Errorf("FdLinkMatchesPath(%q,%q,%q)=%v want %v",
+				tc.link, tc.path, tc.abs, got, tc.want)
+		}
+	}
+	if got := cleaner.StripFdDeletedSuffix("/a (deleted)"); got != "/a" {
+		t.Fatalf("StripFdDeletedSuffix: %q", got)
+	}
+	if got := cleaner.StripFdDeletedSuffix("/a"); got != "/a" {
+		t.Fatalf("StripFdDeletedSuffix no-op: %q", got)
+	}
+}
+
+func TestPruneOrphanWithNilPathInUseKeepsAll(t *testing.T) {
+	tmp := t.TempDir()
+	orphan := filepath.Join(tmp, ".tmpkeep")
+	if err := os.WriteFile(orphan, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	removed, _ := cleaner.PruneOrphanRatarmountTemps(tmp, nil)
+	if removed != 0 || !fileExists(orphan) {
+		t.Fatalf("nil PathInUse must keep files removed=%d", removed)
 	}
 }
 

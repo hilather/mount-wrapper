@@ -177,6 +177,9 @@ func withNonsolidCacheLock(dest string, fn func() error) error {
 //   - concurrent populates of the same dest serialize on `{cacheKey}.lock`
 //     (re-check hit inside exclusive flock before free-space + populate)
 //   - post-populate size floor via FlattenMinOKSize; under-floor dest removed
+//   - post-populate re-list of dest must pass nonsolidCacheHit (non-solid /
+//     non-encrypted listing); still-solid, empty/failed list, or encrypted →
+//     remove dest and return a clear error (no stream-flatten fallback)
 //
 // Residual vs ratarmountcore: CLI extract+repack only (no stream repack / py7zr
 // folder walk); nested members stay as embedded .7z files (outer solid block
@@ -265,6 +268,14 @@ func EnsureNonsolidCachedCopy(cfg *config.Config, source string, p NonsolidCache
 			return convertErrorf("outer_cache",
 				"cache populate output too small: %d bytes (source=%d, minimum=%d)",
 				dstSt.Size(), st.Size(), minOK)
+		}
+		// Post-populate solid verify: re-list dest and require non-solid /
+		// non-encrypted (same hit predicate as cache reuse). Still-solid or
+		// list fail must not leave a bad cache entry (no stream-flatten).
+		if !nonsolidCacheHit(dest, bin, list) {
+			_ = os.Remove(dest)
+			return convertErrorf("outer_cache",
+				"cache populate still solid or unlistable as non-solid: %s", dest)
 		}
 		// Best-effort metadata sidecar next to the cached copy.
 		dur := time.Since(started).Seconds()

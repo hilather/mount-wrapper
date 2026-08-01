@@ -71,7 +71,7 @@ internal/archives/     Relocate to archives_dir + free-space gate
 internal/mounter/      Backend resolve, Engine (begin/check/progress/unmount/convert)
 internal/convert/      archiveconverter/7z/zip predicates + cmd + metadata
 internal/reconcile/    PID/ismount liveness, boot remount plan
-internal/cleaner/      Grace purge, overlay quarantine, nonsolid cache hygiene
+internal/cleaner/      Grace purge, overlay quarantine, nonsolid cache hygiene, temp prune
 internal/hooks/        hooks.d discovery, security, MOUNT_WRAPPER_* env, runner
 internal/metrics/      Space-saved formulas, size providers, collector cache
 internal/doctor/       Offline diagnostics report (injectable probes)
@@ -126,7 +126,7 @@ testdata/              fixtures
 ### Reconcile, cleaner, hooks, metrics (Phase 6 libraries)
 
 - `internal/reconcile`: status-aware PID/ismount liveness, boot remount plan, partial-index cleanup; injectable probes
-- `internal/cleaner`: grace purge, overlay quarantine/delete/retain, quarantine prune, outer nonsolid cache hygiene (`cleanup_after`), admin purge, path-safe FS cleanup
+- `internal/cleaner`: grace purge, overlay quarantine/delete/retain, quarantine prune, outer nonsolid cache hygiene (`cleanup_after`), admin purge, path-safe FS cleanup, boot orphan `/tmp/.tmp*` prune via `DefaultPathInUse`
 - `internal/hooks`: discover `hooks.d`, security, `MOUNT_WRAPPER_*` env only, exit 0/75/timeout, sequential/parallel runner
 - `internal/metrics`: space-saved formulas, index/mount size providers, summary aggregates, TTL cache collector
 
@@ -197,7 +197,7 @@ Operator guide: **[docs/install.md](./docs/install.md)** (engines, Rocky glibc, 
 
 ## Docs
 
-- [CHANGELOG.md](./CHANGELOG.md) — Keep a Changelog (v0.1.4 + Unreleased)
+- [CHANGELOG.md](./CHANGELOG.md) — Keep a Changelog (v0.1.5 + Unreleased)
 - [docs/release.md](./docs/release.md) — how to cut a release (tag, Actions, verify)
 - [TODO.md](./TODO.md) — phased rewrite checklist, decisions log, module map
 - [docs/dev.md](./docs/dev.md) — local development

@@ -94,20 +94,20 @@ launchctl load "$HOME/Library/LaunchAgents/com.hilather.mount-wrapper.plist"
 Formula example (not a published tap; **sketch is usable** after filling digests):
 [`packaging/homebrew/mount-wrapper.rb.example`](../packaging/homebrew/mount-wrapper.rb.example).
 
-Installs the **prebuilt** GitHub Release tarball (GoReleaser names, version **0.1.4**
+Installs the **prebuilt** GitHub Release tarball (GoReleaser names, version **0.1.5**
 placeholder in the sketch):
 
 ```text
 mount-wrapper_#{version}_darwin_arm64.tar.gz   # Apple Silicon
 mount-wrapper_#{version}_darwin_amd64.tar.gz   # Intel
-# e.g. mount-wrapper_0.1.4_darwin_arm64.tar.gz
+# e.g. mount-wrapper_0.1.5_darwin_arm64.tar.gz
 ```
 
 Fill `version` + both `sha256` lines from release `SHA256SUMS` (or snapshot):
 
 ```bash
 # From a release/snapshot that produced dist/SHA256SUMS:
-VERSION=0.1.4 SHA256SUMS=dist/SHA256SUMS \
+VERSION=0.1.5 SHA256SUMS=dist/SHA256SUMS \
   OUT=packaging/homebrew/mount-wrapper.rb \
   ./scripts/update-homebrew-formula.sh
 

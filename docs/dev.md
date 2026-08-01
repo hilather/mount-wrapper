@@ -160,7 +160,7 @@ See [parity.md](./parity.md) and [migration.md](./migration.md).
 | `internal/convert` | Convert predicates, cmd construction, metadata, zip/flatten runners — unit-tested |
 | `internal/mounter` | Backend resolve, cmd build, process group, unmount, Engine convert jobs — unit-tested; optional `//go:build fuse` real mount |
 | `internal/reconcile` | Liveness + boot plan — unit-tested |
-| `internal/cleaner` | Grace purge + overlay quarantine + outer nonsolid cache hygiene — unit-tested |
+| `internal/cleaner` | Grace purge + overlay quarantine + outer nonsolid cache hygiene + boot `/tmp/.tmp*` prune (`DefaultPathInUse`) — unit-tested |
 | `internal/hooks` | hooks.d discovery, security, runner — unit-tested |
 | `internal/metrics` | Space-saved formulas + collector — unit-tested |
 | `internal/doctor` | Offline diagnostics report — unit-tested |

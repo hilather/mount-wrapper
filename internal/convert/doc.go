@@ -25,7 +25,9 @@
 //     for solid outer/all; exclusive flock on `{cacheKey}.lock` around re-check
 //     + populate; fail-closed on 7z list error/empty (no silent non-solid
 //     passthrough); post-populate FlattenMinOKSize floor (under-floor dest
-//     removed); extract/create stderr encryption → Encrypted7zMessage;
+//     removed); post-populate re-list must pass nonsolidCacheHit (still-solid /
+//     list fail / encrypted → remove dest + clear error; no stream-flatten);
+//     extract/create stderr encryption → Encrypted7zMessage;
 //     leftover *.nonsolid.partial / *.work cleaned before populate.
 //     Path helpers (NonsolidPartialPath / LockPath / DestFromLockPath) are
 //     shared with cleaner.PruneNonsolidCache hygiene under the cache dir.

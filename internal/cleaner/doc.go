@@ -48,5 +48,15 @@
 // or convert_7z_cache_dir / default nonsolid cache).
 // Paths outside those roots are left on disk; purge may still remove the DB row.
 //
-// This package is a library; the serve loop / control plane wire it in later.
+// # Orphan ratarmount temps
+//
+// PruneOrphanRatarmountTemps removes direct children of TmpDir (default /tmp)
+// whose basenames start with ".tmp" and are regular files. Paths still open by
+// a process (DefaultPathInUse) are skipped so live recursive mounts keep their
+// materializations. Linux: /proc/*/fd open-file scan. Other platforms: optional
+// fuser -s, else treat as in-use (never delete). Nil PathInUse keeps all.
+// Serve boot calls this once; Cleaner.Run does not (parity with Python).
+//
+// This package is a library; the serve loop wires Unmounter, LivePaths, IsMount,
+// and DefaultPathInUse via service.New / Cleaner.New.
 package cleaner
