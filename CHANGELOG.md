@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- CLI **`reload --json`**: machine-readable control ack (e.g. `{"reload":"scheduled"}`);
+  default remains the human line `reload scheduled`.
+- Control op **`hooks_run`** (`archive_id`, optional `force`) + CLI
+  **`hooks rerun ARCHIVE_ID [--force] [--json]`** to re-run first-mount hooks
+  under `opMu` (eligibility matches `RunForArchive` / `ShouldRunHooks`;
+  `--force` bypasses terminal success/failed).
+
+### Changed
+
+- SPA connection badge labels: **`live (SSE)`** when SSE is open, **`poll (SSE down)`**
+  when poll-only; clearer tooltips and `aria-live="polite"` on the badge.
+
 ## [0.1.4] - 2026-08-01
 
 Correctness and operator UX after v0.1.3. Mount backend remains

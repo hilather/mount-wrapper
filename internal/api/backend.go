@@ -7,7 +7,7 @@ import "github.com/hilather/mount-wrapper/internal/config"
 // Implemented by service via a thin adapter so api never imports service.
 // HandleRequest uses the same control-plane map protocol as the Unix socket
 // (ops: status, metrics, config_get, config_set, rescan, unmount, retry, purge,
-// hooks_list, hooks_status, …).
+// hooks_list, hooks_status, hooks_run, …).
 type Backend interface {
 	// HandleRequest dispatches a control-plane op. Returns
 	// {"ok":true,"data":…} or {"ok":false,"error":…,"code":…}.

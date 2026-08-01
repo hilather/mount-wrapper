@@ -42,7 +42,9 @@ make build
 # ./bin/mount-wrapper doctor --config packaging/examples/config.yaml.example --json
 # ./bin/mount-wrapper config show --local --config packaging/examples/config.yaml.example
 # ./bin/mount-wrapper config set --config … --patch --json '{"log_level":"DEBUG"}' --dry-run
-# ./bin/mount-wrapper reload --config …   # or SIGHUP; applies log_level + hot keys
+# ./bin/mount-wrapper reload --config …           # human: reload scheduled
+# ./bin/mount-wrapper reload --config … --json    # machine: {"reload":"scheduled"}
+# or SIGHUP; applies log_level + hot keys
 
 # Serve one tick (loads config, opens state DB, scan/reconcile/work once, exits)
 # Use a writable debug config with source_dirs / state_db under /tmp or a project path.
@@ -71,7 +73,7 @@ make build
 5. Production: `make web-build && make build` embeds `web/dist` into `internal/webui`; same origin as the API (no CORS).
 6. SPA quality gates:
    - `make web-check` — `svelte-check` + `tsc`
-   - `make web-test` — vitest (formatters, table sort/filter, SSE backoff)
+   - `make web-test` — vitest (formatters, connection badge labels, table sort/filter, SSE backoff)
    - `make web-build` — production bundle → `internal/webui/dist`
    - **Optional E2E** (local or Actions `workflow_dispatch`; not default CI):
      ```bash
@@ -82,6 +84,7 @@ make build
      Smoke starts **Vite only** (no mount-wrapper daemon), mocks `/api/*` via
      `page.route` (`web/e2e/helpers.ts`):
      - Archives shell: health/status/archives/events → heading + connection badge
+       (`live (SSE)` / `poll (SSE down)` / reconnecting; `aria-live`)
        (`web/e2e/smoke.spec.ts`)
      - Archives table + actions: non-empty mounted/`mount_failed` rows; Retry /
        Unmount / Purge / Rescan / Unmount-all POSTs + confirm + toasts;
@@ -120,6 +123,7 @@ banner is the operator signal to `systemctl restart mount-wrapper` (or equivalen
 | `lib/api-types.ts` | D11 typed API surface (re-exports from `types.ts`; not OpenAPI codegen) |
 | `lib/types.ts` | Hand-written request/response shapes (aligned with [openapi.yaml](./openapi.yaml) schemas) |
 | `lib/sse.ts` | EventSource client (all SSE named events), exponential backoff reconnect |
+| `lib/connection.ts` | Badge label/title helper: `live (SSE)` vs `poll (SSE down)` |
 | `lib/merge.ts` | Archive row merge / fine-grained SSE patch (preserve metrics) |
 | `lib/format.ts` | Bytes / duration / status labels |
 | `lib/settings-schema.ts` | Public config field groups (Settings form) |

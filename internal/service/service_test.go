@@ -807,3 +807,204 @@ func TestConcurrentConfigReloadAndConfigSnapshot(t *testing.T) {
 	wg.Wait()
 	_ = config.ApplyLogLevel("INFO")
 }
+
+// insertMountedForHooks seeds a mounted archive row for hooks_run tests.
+func insertMountedForHooks(t *testing.T, svc *service.Service, tmp string) *state.ArchiveRecord {
+	t.Helper()
+	src := filepath.Join(tmp, "src")
+	archive := filepath.Join(src, "a.tar.gz")
+	if err := os.WriteFile(archive, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mount := filepath.Join(tmp, "mounts", "a")
+	if err := os.MkdirAll(mount, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := svc.Store.InsertDiscovered(state.InsertDiscoveredParams{
+		SourceDir:       src,
+		ArchivePath:     archive,
+		ArchiveBasename: "a.tar.gz",
+		SizeBytes:       1,
+		MtimeNs:         1,
+		Fingerprint:     "1:1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(tmp, "indexes", rec.ArchiveID+".index.sqlite")
+	if _, err := svc.Store.Transition(rec.ArchiveID, state.StatusIndexing, state.StatusDiscovered, map[string]any{
+		"mount_path": mount,
+		"index_path": index,
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	rec, err = svc.Store.Transition(rec.ArchiveID, state.StatusMounted, state.StatusIndexing, map[string]any{
+		"mount_path": mount,
+		"mount_pid":  int64(os.Getpid()),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}
+
+func TestHandleRequestHooksRunForceMatrix(t *testing.T) {
+	svc, tmp := testService(t)
+	rec := insertMountedForHooks(t, svc, tmp)
+
+	// Empty hooks.d → first eligible run succeeds (hooks_status none → success).
+	resp := svc.HandleRequest(map[string]any{
+		"op":         "hooks_run",
+		"archive_id": rec.ArchiveID,
+		"force":      false,
+	})
+	if ok, _ := resp["ok"].(bool); !ok {
+		t.Fatalf("first hooks_run: %+v", resp)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if ran, _ := data["ran"].(bool); !ran {
+		t.Fatalf("expected first cycle to run: %+v", data)
+	}
+	if data["hooks_status"] != state.HooksSuccess {
+		t.Fatalf("hooks_status=%v", data["hooks_status"])
+	}
+
+	// Drain notify from first run.
+	select {
+	case <-svc.Changes():
+	default:
+	}
+
+	// Terminal success without force → skipped (ShouldRunHooks).
+	resp = svc.HandleRequest(map[string]any{
+		"op":         "hooks_run",
+		"archive_id": rec.ArchiveID,
+		"force":      false,
+	})
+	if ok, _ := resp["ok"].(bool); !ok {
+		t.Fatalf("skip hooks_run: %+v", resp)
+	}
+	data, _ = resp["data"].(map[string]any)
+	if ran, _ := data["ran"].(bool); ran {
+		t.Fatalf("terminal success must not re-run without force: %+v", data)
+	}
+	if data["hooks_status"] != state.HooksSuccess {
+		t.Fatalf("hooks_status=%v", data["hooks_status"])
+	}
+	if _, ok := data["skipped_reason"].(string); !ok {
+		t.Fatalf("expected skipped_reason: %+v", data)
+	}
+	select {
+	case <-svc.Changes():
+	default:
+		t.Fatal("expected NotifyChange even when skipped")
+	}
+
+	// force=true re-runs past terminal success.
+	resp = svc.HandleRequest(map[string]any{
+		"op":         "hooks_run",
+		"archive_id": rec.ArchiveID,
+		"force":      true,
+	})
+	if ok, _ := resp["ok"].(bool); !ok {
+		t.Fatalf("force hooks_run: %+v", resp)
+	}
+	data, _ = resp["data"].(map[string]any)
+	if ran, _ := data["ran"].(bool); !ran {
+		t.Fatalf("force must run: %+v", data)
+	}
+	if force, _ := data["force"].(bool); !force {
+		t.Fatalf("force echo: %+v", data)
+	}
+	if data["hooks_status"] != state.HooksSuccess {
+		t.Fatalf("hooks_status=%v", data["hooks_status"])
+	}
+}
+
+func TestHandleRequestHooksRunNotFoundAndBadStatus(t *testing.T) {
+	svc, tmp := testService(t)
+
+	resp := svc.HandleRequest(map[string]any{
+		"op":         "hooks_run",
+		"archive_id": "no-such-id",
+	})
+	if ok, _ := resp["ok"].(bool); ok {
+		t.Fatalf("expected not found: %+v", resp)
+	}
+	if resp["code"] != "NOT_FOUND" {
+		t.Fatalf("code=%v", resp["code"])
+	}
+
+	resp = svc.HandleRequest(map[string]any{"op": "hooks_run"})
+	if ok, _ := resp["ok"].(bool); ok {
+		t.Fatalf("expected bad request: %+v", resp)
+	}
+	if resp["code"] != "BAD_REQUEST" {
+		t.Fatalf("code=%v", resp["code"])
+	}
+
+	// discovered (not mounted) → BAD_REQUEST
+	src := filepath.Join(tmp, "src")
+	archive := filepath.Join(src, "b.tar")
+	if err := os.WriteFile(archive, []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := svc.Store.InsertDiscovered(state.InsertDiscoveredParams{
+		SourceDir:       src,
+		ArchivePath:     archive,
+		ArchiveBasename: "b.tar",
+		SizeBytes:       1,
+		MtimeNs:         2,
+		Fingerprint:     "2:1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = svc.HandleRequest(map[string]any{
+		"op":         "hooks_run",
+		"archive_id": rec.ArchiveID,
+		"force":      true,
+	})
+	if ok, _ := resp["ok"].(bool); ok {
+		t.Fatalf("discovered should reject: %+v", resp)
+	}
+	if resp["code"] != "BAD_REQUEST" {
+		t.Fatalf("code=%v msg=%v", resp["code"], resp["error"])
+	}
+}
+
+func TestHandleRequestHooksRunFailedWithoutRerunConfig(t *testing.T) {
+	svc, tmp := testService(t)
+	rec := insertMountedForHooks(t, svc, tmp)
+	if _, err := svc.Store.Transition(rec.ArchiveID, state.StatusMounted, state.StatusMounted, map[string]any{
+		"hooks_status": state.HooksFailed,
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Default hook_rerun_on_failure is false → skip without force.
+	resp := svc.HandleRequest(map[string]any{
+		"op":         "hooks_run",
+		"archive_id": rec.ArchiveID,
+		"force":      false,
+	})
+	if ok, _ := resp["ok"].(bool); !ok {
+		t.Fatalf("hooks_run failed-status: %+v", resp)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if ran, _ := data["ran"].(bool); ran {
+		t.Fatalf("failed without force/rerun config must skip: %+v", data)
+	}
+
+	resp = svc.HandleRequest(map[string]any{
+		"op":         "hooks_run",
+		"archive_id": rec.ArchiveID,
+		"force":      true,
+	})
+	if ok, _ := resp["ok"].(bool); !ok {
+		t.Fatalf("force after failed: %+v", resp)
+	}
+	data, _ = resp["data"].(map[string]any)
+	if ran, _ := data["ran"].(bool); !ran {
+		t.Fatalf("force after failed must run: %+v", data)
+	}
+}

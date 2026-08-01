@@ -80,6 +80,7 @@ fi
       reload) params="—"; role="Request config reload" ;;
       hooks_list) params="—"; role="List hooks.d executables" ;;
       hooks_status) params='archive_id'; role="Per-archive hooks rows/status" ;;
+      hooks_run) params='archive_id, force?'; role="Run/re-run first-mount hooks (force bypasses terminal eligibility)" ;;
     esac
     echo "| \`$op\` | $params | $role |"
   done <"$GO_OPS_FILE"

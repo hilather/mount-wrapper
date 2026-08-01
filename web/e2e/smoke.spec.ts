@@ -12,7 +12,12 @@ test.describe('SPA smoke (mocked API)', () => {
 
     const badge = page.locator('span.badge')
     await expect(badge).toBeVisible()
-    // After mocked health + archives, store leaves poll or SSE-connected labels.
-    await expect(badge).toHaveText(/connected|reconnecting|service down|error|…/i)
+    // Mock SSE is a short stream; badge settles on live, poll fallback, or reconnecting.
+    await expect(badge).toHaveText(
+      /live \(SSE\)|poll \(SSE down\)|reconnecting|service down|error|…/i,
+    )
+    await expect(badge).toHaveAttribute('aria-live', 'polite')
+    await expect(badge).toHaveAttribute('role', 'status')
   })
 })
+

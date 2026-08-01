@@ -169,7 +169,17 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 |---------|----------------|
 | `internal/hooks` | Discover executables in `hooks.d` (ignore `*.sample` / `*.disabled` / README*), security (owner + not g+w/o+w + realpath under hooks dir), `MOUNT_WRAPPER_*` env protocol (no `TARMOUNT_*`), argv mount/archive paths, exit 0/75/timeout classification, sequential or `hooks_parallel`, stop-on-hard-fail, retries, aggregate `hooks_status`, skip terminal success on remount |
 
-**Wired:** `service.Tick` → `runPendingHooks` after mount work; first-mount `RunForArchive` when mounted + `ShouldRunHooksRecord`; control `hooks_list` / `hooks_status` (+ CLI socket clients). Exit-code matrix (0 / 75 / other / timeout) covered by `internal/hooks` unit tests.
+**Wired:** `service.Tick` → `runPendingHooks` after mount work; first-mount `RunForArchive` when mounted + `ShouldRunHooksRecord`; control `hooks_list` / `hooks_status` / `hooks_run` (+ CLI `hooks list|status|rerun`). Exit-code matrix (0 / 75 / other / timeout) covered by `internal/hooks` unit tests.
+
+**Force / eligibility matrix (`hooks_run` / `RunForArchive(force)`):**
+
+| `hooks_status` | `force=false` (default; matches serve tick) | `force=true` |
+|----------------|---------------------------------------------|--------------|
+| `none` / `pending` / `retry` / `running` | run | run |
+| `failed` | run only if config `hook_rerun_on_failure` | run |
+| `success` | skip (`ran=false`, `skipped_reason`) | run |
+
+Lifecycle must be `mounted` or `hooks_running` (other statuses → control `BAD_REQUEST`). Force only bypasses **aggregate** eligibility; per-hook rows already `success` / `skipped` are still not re-executed (resume semantics inside sequential/parallel runners).
 
 ### Phase 6.4 — metrics (library)
 
@@ -206,7 +216,7 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 
 **Auth:** `platform.PeerCredentials` (Linux `SO_PEERCRED`, Darwin `LOCAL_PEERCRED` with pid=-1). Allow uid 0 or membership in service group. Escape hatches: `--allow-unauth` / `AllowAllAuth`, or env `MOUNT_WRAPPER_CONTROL_ALLOW_UNAUTH=1` when peercred is unavailable (default deny).
 
-**Ops (via `HandleRequest`):** `status` (`include_sizes?`), `metrics`, `config_get`, `config_set`, `rescan`, `retry`, `mount`, `unmount`, `purge`, `hooks_*`, `reload`, `stop`.
+**Ops (via `HandleRequest`):** `status` (`include_sizes?`), `metrics`, `config_get`, `config_set`, `rescan`, `retry`, `mount`, `unmount`, `purge`, `hooks_list`, `hooks_status`, `hooks_run` (`archive_id`, `force?`), `reload`, `stop`.
 
 **Concurrency (`opMu`):** `Tick`, external `HandleRequest` (HTTP / in-process), `ConfigSnapshot`, and most of `Shutdown` share a dedicated op mutex so Config / engine / scanner rematerialization cannot race concurrent control ops or teardown. `Tick` holds `opMu` for the whole cycle, including `ServeReady`. Control connections therefore call `handleRequestLocked` (already under `opMu`) — registering full `HandleRequest` as the control Handler would deadlock on re-lock. `s.mu` remains a short flag/state lock (`stop`, `reloadRequested`, scan timestamps, `lowDisk`).
 

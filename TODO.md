@@ -275,7 +275,8 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] `hooks_stop_on_hard_fail`, `hook_timeout_seconds`, `hook_max_retries`
 - [x] `hook_rerun_on_failure`, `hooks_cwd` (`mount` | `archive_dir` | `hooks_dir`)
 - [x] Aggregate hooks_status transitions; never re-run terminal success on remount
-- [x] CLI: `hooks list` / `hooks status ARCHIVE_ID` (socket ops + `internal/cli`)
+- [x] CLI: `hooks list` / `hooks status ARCHIVE_ID` / `hooks rerun ARCHIVE_ID [--force]` (socket ops + `internal/cli`)
+- [x] Control `hooks_run` (`archive_id`, `force?`) → `RunForArchive` under `opMu` + `NotifyChange`
 - [x] Serve integration: call `hooks.Runner` after first FUSE up (`service` tick `RunForArchive`)
 
 ### 6.4 Metrics
@@ -319,7 +320,7 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
   - [x] `status` (rich payload via `internal/status`; `include_sizes` when Metrics wired)
   - [x] `metrics` (`archive_id?`, `no_cache?`, `prefer_mount?`)
   - [x] `rescan` (`assume_stable?`), `retry`, `mount`, `unmount` (`target` | `all`), `purge` (`yes`)
-  - [x] `hooks_status`, `hooks_list`, `reload`, `stop`
+  - [x] `hooks_status`, `hooks_list`, `hooks_run`, `reload`, `stop`
   - [x] `config_get`, `config_set` (`config` | `patch`, `apply`)
 - [x] Error envelope: `{ok:false, error, code}` (HandleRequest helpers; full code set later)
 - [x] Only serve owns mounts + DB writes (single-writer; Engine + Service)
@@ -337,7 +338,7 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] `config show [--local]` / `config set --json|--file [--patch] [--dry-run]`
 - [x] Web: **embedded in `serve`** when `web_enabled` (D4); no separate `web` CLI (upstream had sidecar)
 - [x] `mount PATH` / `unmount TARGET|--all` / `purge ARCHIVE_ID --yes`
-- [x] `hooks list` / `hooks status ARCHIVE_ID` / `version` (version exists)
+- [x] `hooks list` / `hooks status ARCHIVE_ID` / `hooks rerun ARCHIVE_ID` / `version` (version exists)
 - [x] Default config path Linux vs macOS (`config.DefaultConfigPathForHost` / `ResolveConfigPath`)
 - [x] Socket-backed cmds require running serve; offline: doctor, config show --local, version
 - [x] Socket client via `control.Client` (`internal/cli` wraps `control.NewClient`)

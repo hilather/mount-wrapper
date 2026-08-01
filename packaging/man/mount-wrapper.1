@@ -128,9 +128,35 @@ Purge state/index/overlay for an archive. Requires
 and a running
 .BR serve .
 .TP
-.B hooks list|status
-Inspect first-mount hooks (requires
+.B hooks list|status|rerun
+Inspect or re-run first-mount hooks (requires
 .BR serve ).
+.B hooks list
+lists discovered
+.I hooks.d
+scripts;
+.B hooks status \fIARCHIVE_ID\fR
+shows per-archive hook rows;
+.B hooks rerun
+.RI [ \-\-force ]
+.RI [ \-\-json ]
+.I ARCHIVE_ID
+invokes control op
+.B hooks_run
+.RB ( \-\-force
+bypasses terminal hooks_status eligibility;
+.B \-\-json
+for machine output). Put flags before
+.IR ARCHIVE_ID .
+Without
+.BR \-\-force ,
+eligibility matches serve:
+none|pending|retry|running, and failed only when
+.B hook_rerun_on_failure
+is set. Archive lifecycle must be
+.B mounted
+or
+.BR hooks_running .
 .TP
 .B reload
 Reload configuration from disk (control
@@ -142,6 +168,11 @@ and
 .BR use_inotify
 (inotify watches are restarted). Requires a running
 .BR serve .
+Default stdout is the human line
+.BR "reload scheduled" ;
+.B \-\-json
+prints the control ack as machine-readable JSON (for example
+.BR {"reload":"scheduled"} ).
 .SH COMMON OPTIONS
 .TP
 .BR \-c ", " \-\-config " " \fIPATH\fR

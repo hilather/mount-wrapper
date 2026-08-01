@@ -485,8 +485,11 @@ func TestReloadServiceUnavailable(t *testing.T) {
 	}
 }
 
-func TestReloadSuccessHumanMessage(t *testing.T) {
-	sock := testutil.ShortUnixSocketPath(t, "cli-reload.sock")
+// startReloadOKServer runs a control server that answers op=reload with the
+// standard scheduled ack. Returns socket path and a cleanup func.
+func startReloadOKServer(t *testing.T) (sock string, cleanup func()) {
+	t.Helper()
+	sock = testutil.ShortUnixSocketPath(t, "cli-reload.sock")
 	srv := control.NewServer(sock, func(req map[string]any) map[string]any {
 		if req["op"] != "reload" {
 			return control.ErrResponse("unexpected op", "ERROR")
@@ -496,7 +499,67 @@ func TestReloadSuccessHumanMessage(t *testing.T) {
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer srv.Close()
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				srv.ServeReady()
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	}()
+	// Allow listener to accept.
+	time.Sleep(20 * time.Millisecond)
+
+	cleanup = func() {
+		close(stop)
+		wg.Wait()
+		_ = srv.Close()
+	}
+	return sock, cleanup
+}
+
+func TestReloadSuccessHumanMessage(t *testing.T) {
+	sock, cleanup := startReloadOKServer(t)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "reload", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitOK, code, errBuf)
+	}
+	if !strings.Contains(out, "reload scheduled") {
+		t.Fatalf("expected human success line, got %q", out)
+	}
+	if strings.Contains(out, "{") {
+		t.Fatalf("reload should not dump JSON ack by default: %q", out)
+	}
+}
+
+func TestHooksRerunCLI(t *testing.T) {
+	sock := testutil.ShortUnixSocketPath(t, "cli-hooks-run.sock")
+	var lastReq map[string]any
+	srv := control.NewServer(sock, func(req map[string]any) map[string]any {
+		lastReq = req
+		if req["op"] != "hooks_run" {
+			return control.ErrResponse("unexpected op", "ERROR")
+		}
+		return control.OKResponse(map[string]any{
+			"archive_id":   req["archive_id"],
+			"ran":          true,
+			"hooks_status": "success",
+			"force":        req["force"],
+		})
+	}, true)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -516,20 +579,73 @@ func TestReloadSuccessHumanMessage(t *testing.T) {
 	defer func() {
 		close(stop)
 		wg.Wait()
+		_ = srv.Close()
 	}()
-
-	// Allow listener to accept.
 	time.Sleep(20 * time.Millisecond)
 
-	code, out, errBuf := runCLI(t, "reload", "--socket", sock)
+	// Flags before positional (Go flag.Parse stops at first non-flag).
+	code, out, errBuf := runCLI(t, "hooks", "rerun", "--force", "--socket", sock, "arch-1")
 	if code != ExitOK {
 		t.Fatalf("want exit %d, got %d stderr=%s", ExitOK, code, errBuf)
 	}
-	if !strings.Contains(out, "reload scheduled") {
-		t.Fatalf("expected human success line, got %q", out)
+	if !strings.Contains(out, "hooks ran") || !strings.Contains(out, "arch-1") {
+		t.Fatalf("human output: %q", out)
 	}
-	if strings.Contains(out, "{") {
-		t.Fatalf("reload should not dump JSON ack by default: %q", out)
+	if lastReq == nil || lastReq["force"] != true || lastReq["archive_id"] != "arch-1" {
+		t.Fatalf("request fields: %+v", lastReq)
+	}
+
+	code, out, errBuf = runCLI(t, "hooks", "rerun", "--json", "--socket", sock, "arch-2")
+	if code != ExitOK {
+		t.Fatalf("json exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, `"archive_id"`) || !strings.Contains(out, "arch-2") {
+		t.Fatalf("json output: %q", out)
+	}
+	if lastReq["force"] != false {
+		t.Fatalf("default force should be false: %+v", lastReq)
+	}
+}
+
+func TestFormatHooksRerunHuman(t *testing.T) {
+	got := formatHooksRerunHuman(map[string]any{
+		"archive_id":     "abc",
+		"ran":            false,
+		"hooks_status":   "success",
+		"force":          false,
+		"skipped_reason": "hooks_status=success is terminal or not eligible",
+	})
+	if !strings.Contains(got, "hooks skipped") || !strings.Contains(got, "abc") {
+		t.Fatalf("got %q", got)
+	}
+	got = formatHooksRerunHuman(map[string]any{
+		"archive_id":   "abc",
+		"ran":          true,
+		"hooks_status": "success",
+		"force":        true,
+	})
+	if !strings.Contains(got, "hooks ran") || !strings.Contains(got, "force=true") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestReloadSuccessJSON(t *testing.T) {
+	sock, cleanup := startReloadOKServer(t)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "reload", "--socket", sock, "--json")
+	if code != ExitOK {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitOK, code, errBuf)
+	}
+	if strings.Contains(out, "reload scheduled\n") && !strings.Contains(out, "{") {
+		t.Fatalf("expected JSON, got human line: %q", out)
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(out), &data); err != nil {
+		t.Fatalf("stdout not parseable JSON: %v out=%q", err, out)
+	}
+	if data["reload"] != "scheduled" {
+		t.Fatalf("want reload=scheduled, got %v", data)
 	}
 }
 
@@ -557,15 +673,18 @@ func TestHelpParseTable(t *testing.T) {
 		wantOut  string // substring in stdout or stderr
 	}{
 		{[]string{"help"}, ExitOK, "doctor"},
-		{[]string{"--help"}, ExitOK, "status"},
+		{[]string{"--help"}, ExitOK, "reload flags"},
 		{[]string{"-h"}, ExitOK, "serve"},
 		{[]string{"version"}, ExitOK, "0.0.0-test"},
 		{[]string{"doctor", "-h"}, ExitOK, "json"},
 		{[]string{"status", "-h"}, ExitOK, "sizes"},
 		{[]string{"config", "help"}, ExitOK, "show"},
 		{[]string{"hooks", "help"}, ExitOK, "list"},
+		{[]string{"hooks", "help"}, ExitOK, "rerun"},
+		{[]string{"hooks", "rerun"}, ExitUsage, "ARCHIVE_ID"},
+		{[]string{"hooks", "rerun", "-h"}, ExitOK, "force"},
 		{[]string{"metrics", "-h"}, ExitOK, "no-cache"},
-		{[]string{"reload", "-h"}, ExitOK, "config"},
+		{[]string{"reload", "-h"}, ExitOK, "json"},
 		{[]string{"reload", "--help"}, ExitOK, "socket"},
 		{[]string{"reload", "extra-arg"}, ExitUsage, "unexpected"},
 		{[]string{"reload", "--not-a-flag"}, ExitUsage, ""},

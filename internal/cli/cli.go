@@ -136,7 +136,7 @@ Commands:
   mount PATH           Request mount of an archive path (requires serve)
   unmount TARGET|--all Unmount managed archive(s) (requires serve)
   purge ARCHIVE_ID     Purge state/index/overlay (requires --yes; serve)
-  hooks list|status    Inspect first-mount hooks (requires serve)
+  hooks list|status|rerun  Inspect or re-run first-mount hooks (serve)
   reload               Reload config from disk (SIGHUP equivalent; serve)
 
 Common flags:
@@ -163,6 +163,9 @@ config set flags:
 status flags:
   --json               Machine-readable JSON
   --sizes              Include size metrics (slower)
+
+reload flags:
+  --json               Machine-readable JSON (control ack, e.g. {"reload":"scheduled"})
 
 Socket-backed commands require a running "mount-wrapper serve".
 Offline without serve: version, help, doctor, config show --local, config set --dry-run.

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { connectionTitle } from '../lib/connection'
   import { app } from '../lib/stores/app.svelte'
 
   const cls = $derived(
@@ -10,8 +11,22 @@
           ? 'bad'
           : 'unknown',
   )
+
+  const title = $derived(
+    connectionTitle({
+      status: app.connectionStatus,
+      sseActive: app.sseActive,
+      errorKind: app.connectionErrorKind ?? undefined,
+    }),
+  )
 </script>
 
-<span class="badge {cls}" title="Live connection status (SSE + poll fallback)">
+<span
+  class="badge {cls}"
+  title={title}
+  role="status"
+  aria-live="polite"
+  aria-label={title}
+>
   {app.connectionLabel}
 </span>

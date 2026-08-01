@@ -9,6 +9,10 @@ import {
   getWSLInfo,
   type ApiError,
 } from '../api'
+import {
+  connectionLabel as formatConnectionLabel,
+  type ConnectionLabelInput,
+} from '../connection'
 import { mergeArchiveRows, patchArchiveRows } from '../merge'
 import { createSSEClient, type SSEClient } from '../sse'
 import type {
@@ -34,7 +38,9 @@ let toastSeq = 0
 class AppStore {
   // --- connection ---
   connectionStatus = $state<ConnectionStatus>('unknown')
-  connectionLabel = $state('…')
+  connectionLabel = $state(formatConnectionLabel({ status: 'unknown', sseActive: false }))
+  /** Distinguishes "service down" vs hard API "error" under service-down status. */
+  connectionErrorKind = $state<'service-down' | 'error' | null>(null)
   sseActive = $state(false)
   autoRefresh = $state(true)
 
@@ -89,6 +95,25 @@ class AppStore {
     return !!this.pendingActions[key]
   }
 
+  /**
+   * Set connection status + badge label from current sseActive (and optional error kind).
+   * Keeps poll vs live (SSE) labels consistent after snapshot apply.
+   */
+  #setConnection(
+    status: ConnectionStatus,
+    opts?: { errorKind?: 'service-down' | 'error' },
+  ) {
+    this.connectionStatus = status
+    this.connectionErrorKind =
+      status === 'service-down' ? (opts?.errorKind ?? 'service-down') : null
+    const input: ConnectionLabelInput = {
+      status,
+      sseActive: this.sseActive,
+      errorKind: this.connectionErrorKind ?? undefined,
+    }
+    this.connectionLabel = formatConnectionLabel(input)
+  }
+
   applyOverview(data: Partial<ArchivesPayload | StatusSnapshot>) {
     const c = (data.counts as Counts | undefined) ?? {}
     this.counts = {
@@ -110,8 +135,7 @@ class AppStore {
 
   applySnapshot(data: StatusSnapshot | ArchivesPayload) {
     if ('ok' in data && data.ok === false) {
-      this.connectionStatus = 'service-down'
-      this.connectionLabel = 'service down'
+      this.#setConnection('service-down', { errorKind: 'service-down' })
       this.serviceDownMessage = 'Service not reachable via control plane.'
       return
     }
@@ -132,8 +156,8 @@ class AppStore {
     this.rawPayload = data
     this.lastRefreshAt = new Date().toLocaleTimeString()
     this.error = ''
-    this.connectionStatus = 'connected'
-    this.connectionLabel = 'connected'
+    // Preserve poll vs live (SSE) based on current sseActive (do not clobber poll label).
+    this.#setConnection('connected')
     this.serviceDownMessage = ''
   }
 
@@ -141,8 +165,7 @@ class AppStore {
     this.applyOverview(data)
     this.lastRefreshAt = new Date().toLocaleTimeString()
     if (this.connectionStatus !== 'connected') {
-      this.connectionStatus = 'connected'
-      this.connectionLabel = 'connected'
+      this.#setConnection('connected')
     }
   }
 
@@ -157,8 +180,7 @@ class AppStore {
     this.archives = patchArchiveRows(this.archives, patches, removed)
     this.lastRefreshAt = new Date().toLocaleTimeString()
     if (this.connectionStatus !== 'connected') {
-      this.connectionStatus = 'connected'
-      this.connectionLabel = 'connected'
+      this.#setConnection('connected')
     }
   }
 
@@ -195,18 +217,15 @@ class AppStore {
       try {
         const health = await getHealth()
         if (!health.service_reachable) {
-          this.connectionStatus = 'service-down'
-          this.connectionLabel = 'service down'
+          this.#setConnection('service-down', { errorKind: 'service-down' })
           this.serviceDownMessage =
             'Service not reachable via control socket. Start: mount-wrapper serve'
         } else if (!this.sseActive) {
-          this.connectionStatus = 'connected'
-          this.connectionLabel = 'connected (poll)'
+          this.#setConnection('connected')
           this.serviceDownMessage = ''
         }
       } catch (e) {
-        this.connectionStatus = 'service-down'
-        this.connectionLabel = 'error'
+        this.#setConnection('service-down', { errorKind: 'error' })
         this.serviceDownMessage = String((e as Error).message || e)
       }
 
@@ -219,8 +238,7 @@ class AppStore {
       this.error = msg
       this.archives = []
       if (!this.sseActive) {
-        this.connectionStatus = 'service-down'
-        this.connectionLabel = 'error'
+        this.#setConnection('service-down', { errorKind: 'error' })
       }
     } finally {
       this.loading = false
@@ -241,8 +259,7 @@ class AppStore {
     this.#sse = createSSEClient({
       onOpen: () => {
         this.sseActive = true
-        this.connectionStatus = 'connected'
-        this.connectionLabel = 'connected'
+        this.#setConnection('connected')
         this.stopPoll()
       },
       onSnapshot: (data) => {
@@ -270,21 +287,18 @@ class AppStore {
       onError: () => {
         this.sseActive = false
         if (this.connectionStatus === 'connected') {
-          this.connectionStatus = 'reconnecting'
-          this.connectionLabel = 'reconnecting'
+          this.#setConnection('reconnecting')
         }
         this.startPoll()
       },
       onStatus: (st) => {
         if (st === 'reconnecting') {
           this.sseActive = false
-          this.connectionStatus = 'reconnecting'
-          this.connectionLabel = 'reconnecting'
+          this.#setConnection('reconnecting')
           this.startPoll()
         } else if (st === 'open') {
           this.sseActive = true
-          this.connectionStatus = 'connected'
-          this.connectionLabel = 'connected'
+          this.#setConnection('connected')
         } else if (st === 'closed') {
           this.sseActive = false
         }

@@ -277,6 +277,7 @@ func runReload(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var configFlag, socketFlag string
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return ExitOK
@@ -287,19 +288,26 @@ func runReload(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "unexpected arguments: %s\n", strings.Join(fs.Args(), " "))
 		return ExitUsage
 	}
-	_, code := requestOK(configFlag, socketFlag, "reload", nil, stderr)
+	data, code := requestOK(configFlag, socketFlag, "reload", nil, stderr)
 	if code != ExitOK {
 		return code
 	}
-	// Fire-and-forget ack from control {"reload":"scheduled"}; human line for
-	// operators (status uses a formatter; other ops dump useful JSON payloads).
+	if *jsonOut {
+		// Control ack is {"reload":"scheduled"}; dump as machine-readable JSON.
+		if err := printJSON(stdout, data); err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return ExitError
+		}
+		return ExitOK
+	}
+	// Default: human line for operators (other ops dump useful JSON payloads).
 	fmt.Fprintln(stdout, "reload scheduled")
 	return ExitOK
 }
 
 func runHooks(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: mount-wrapper hooks <list|status> …")
+		fmt.Fprintln(stderr, "usage: mount-wrapper hooks <list|status|rerun> …")
 		return ExitUsage
 	}
 	switch args[0] {
@@ -307,12 +315,27 @@ func runHooks(args []string, stdout, stderr io.Writer) int {
 		return runHooksList(args[1:], stdout, stderr)
 	case "status":
 		return runHooksStatus(args[1:], stdout, stderr)
+	case "rerun":
+		return runHooksRerun(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
-		fmt.Fprint(stdout, `hooks — inspect first-mount hooks
+		fmt.Fprint(stdout, `hooks — inspect or re-run first-mount hooks
 
 Usage:
   mount-wrapper hooks list [--config PATH] [--socket PATH]
   mount-wrapper hooks status ARCHIVE_ID [--config PATH] [--socket PATH]
+  mount-wrapper hooks rerun [flags] ARCHIVE_ID
+
+Flags:
+  --force              re-run even when hooks_status is terminal success/failed
+  --json               machine-readable JSON
+  --config PATH / -c   config YAML
+  --socket PATH        control socket override
+
+hooks rerun uses control op hooks_run. Without --force, eligibility matches
+serve (none|pending|retry|running; failed only if hook_rerun_on_failure).
+--force re-runs even after terminal success/failed. Archive must be mounted
+or hooks_running. Successful per-hook rows are still skipped on re-run
+(resume semantics) unless you clear hook state separately.
 `)
 		return ExitOK
 	default:
@@ -372,4 +395,64 @@ func runHooksStatus(args []string, stdout, stderr io.Writer) int {
 		return ExitError
 	}
 	return ExitOK
+}
+
+func runHooksRerun(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("hooks rerun", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var configFlag, socketFlag string
+	addConfigSocketFlags(fs, &configFlag, &socketFlag)
+	force := fs.Bool("force", false, "re-run even when hooks_status is terminal success/failed")
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return ExitOK
+		}
+		return ExitUsage
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "usage: mount-wrapper hooks rerun [--force] [--json] [--config PATH] [--socket PATH] ARCHIVE_ID")
+		return ExitUsage
+	}
+	fields := map[string]any{
+		"archive_id": fs.Arg(0),
+		"force":      *force,
+	}
+	data, code := requestOK(configFlag, socketFlag, "hooks_run", fields, stderr)
+	if code != ExitOK {
+		return code
+	}
+	if *jsonOut {
+		if err := printJSON(stdout, data); err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return ExitError
+		}
+		return ExitOK
+	}
+	fmt.Fprint(stdout, formatHooksRerunHuman(data))
+	return ExitOK
+}
+
+// formatHooksRerunHuman prints a one-line operator summary of hooks_run data.
+func formatHooksRerunHuman(data any) string {
+	m, ok := data.(map[string]any)
+	if !ok || m == nil {
+		return "hooks rerun: ok\n"
+	}
+	id, _ := m["archive_id"].(string)
+	status, _ := m["hooks_status"].(string)
+	ran, _ := m["ran"].(bool)
+	force, _ := m["force"].(bool)
+	skip, _ := m["skipped_reason"].(string)
+	forceNote := ""
+	if force {
+		forceNote = " force=true"
+	}
+	if !ran {
+		if skip == "" {
+			skip = "not eligible"
+		}
+		return fmt.Sprintf("hooks skipped archive_id=%s hooks_status=%s%s (%s)\n", id, status, forceNote, skip)
+	}
+	return fmt.Sprintf("hooks ran archive_id=%s hooks_status=%s%s\n", id, status, forceNote)
 }

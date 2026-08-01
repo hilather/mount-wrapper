@@ -46,7 +46,7 @@ func ErrResponse(msg, code string) map[string]any {
 // instead (already under Tick's opMu).
 //
 // Supported ops: status, metrics, config_get, config_set, rescan, retry,
-// unmount, purge, stop, reload, hooks_list, hooks_status, mount.
+// unmount, purge, stop, reload, hooks_list, hooks_status, hooks_run, mount.
 // Unknown ops return BAD_REQUEST.
 func (s *Service) HandleRequest(req map[string]any) map[string]any {
 	if s == nil {
@@ -122,6 +122,12 @@ func (s *Service) handleRequestLocked(req map[string]any) map[string]any {
 		return s.opHooksList()
 	case "hooks_status":
 		return s.opHooksStatus(req)
+	case "hooks_run":
+		resp := s.opHooksRun(req)
+		if respOK(resp) {
+			s.NotifyChange()
+		}
+		return resp
 	case "mount":
 		resp := s.opMount(req)
 		if respOK(resp) {
@@ -373,6 +379,83 @@ func (s *Service) opHooksStatus(req map[string]any) map[string]any {
 		"hooks_status": rec.HooksStatus,
 		"hooks":        rows,
 	})
+}
+
+// opHooksRun runs (or force-re-runs) first-mount hooks for one archive via
+// hooks.Runner.RunForArchive. force bypasses ShouldRunHooks eligibility
+// (terminal success / failed without hook_rerun_on_failure). Without force,
+// eligibility matches the serve tick path (none|pending|retry|running, and
+// failed only when hook_rerun_on_failure). Requires lifecycle status mounted
+// or hooks_running. Response includes ran, hooks_status, optional
+// skipped_reason, and per-hook results when a cycle executed.
+func (s *Service) opHooksRun(req map[string]any) map[string]any {
+	id, _ := req["archive_id"].(string)
+	if id == "" {
+		return ErrResponse("archive_id required", "BAD_REQUEST")
+	}
+	force := boolField(req, "force", false)
+	if s.Hooks == nil {
+		return ErrResponse("hooks not available", "UNAVAILABLE")
+	}
+	rec, err := s.Store.GetArchive(id)
+	if err != nil {
+		return ErrResponse(err.Error(), "ERROR")
+	}
+	if rec == nil {
+		return ErrResponse("archive not found", "NOT_FOUND")
+	}
+	switch rec.Status {
+	case state.StatusMounted, state.StatusHooksRunning:
+		// eligible lifecycle for enterHooksRunning / finish*
+	default:
+		return ErrResponse(
+			fmt.Sprintf("archive status %q cannot run hooks (need mounted or hooks_running)", rec.Status),
+			"BAD_REQUEST",
+		)
+	}
+
+	result, err := s.Hooks.RunForArchive(id, force)
+	if err != nil {
+		return ErrResponse(err.Error(), "ERROR")
+	}
+	if result == nil {
+		return ErrResponse("hooks run returned no result", "ERROR")
+	}
+
+	data := map[string]any{
+		"archive_id":   result.ArchiveID,
+		"ran":          result.Ran,
+		"hooks_status": result.HooksStatus,
+		"force":        force,
+	}
+	if result.SkippedReason != "" {
+		data["skipped_reason"] = result.SkippedReason
+	}
+	if len(result.Results) > 0 {
+		rows := make([]map[string]any, 0, len(result.Results))
+		for _, r := range result.Results {
+			row := map[string]any{
+				"hook_name": r.HookName,
+				"status":    r.Status,
+				"attempts":  r.Attempts,
+			}
+			if r.ExitCode != nil {
+				row["exit_code"] = *r.ExitCode
+			}
+			if r.Error != "" {
+				row["error"] = r.Error
+			}
+			if r.TimedOut {
+				row["timed_out"] = true
+			}
+			if r.Duration > 0 {
+				row["duration_ms"] = r.Duration.Milliseconds()
+			}
+			rows = append(rows, row)
+		}
+		data["results"] = rows
+	}
+	return OKResponse(data)
 }
 
 func (s *Service) opMount(req map[string]any) map[string]any {

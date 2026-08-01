@@ -42,7 +42,9 @@ make build
 # ./bin/mount-wrapper unmount --all
 # ./bin/mount-wrapper purge ARCHIVE_ID --yes
 # ./bin/mount-wrapper hooks list
-# ./bin/mount-wrapper reload
+# ./bin/mount-wrapper hooks rerun ARCHIVE_ID --force
+# ./bin/mount-wrapper reload              # human: reload scheduled
+# ./bin/mount-wrapper reload --json       # machine: {"reload":"scheduled"}
 
 # SPA (HMR; proxies /api → :8787 when daemon is up)
 make web-install
@@ -162,7 +164,7 @@ testdata/              fixtures
 - **Archives:** overview pills, savings bar, parity table (status/progress, convert metrics, space saved), filter/sort, row actions (copy/retry/unmount/purge/hooks), Rescan / Unmount all / Doctor, WSL UNC hint
 - **Hooks drawer:** per-archive hooks status via `GET /api/hooks?archive_id=` (name/status/attempts/exit); focus trap + Escape
 - **Settings:** grouped public config form, Validate (dry-run) / Apply, hot-reload vs restart-required banners
-- **Live:** SSE client (`/api/events`) with exponential backoff + 15s poll fallback; connection badge
+- **Live:** SSE client (`/api/events`) with exponential backoff + 15s poll fallback; connection badge (`live (SSE)` / `poll (SSE down)`)
 - Auth: `window.__MOUNT_WRAPPER_TOKEN__` (injected by Go) → `Authorization: Bearer` (SSE uses `?token=`)
 - Theme: light/dark, persisted as `mw-theme`
 - Checks: `make web-check` (svelte-check), `make web-test` (vitest formatters/table/SSE/hooks helpers)
