@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Changes on `main` since **v0.1.0** (intended for **v0.1.1**).
+## [0.1.1] - 2026-08-01
 
 ### Changed
 
@@ -22,23 +22,22 @@ Changes on `main` since **v0.1.0** (intended for **v0.1.1**).
 - **Ubuntu + Rocky 8 binary smoke CI** (`.github/workflows/smoke.yml`): build
   and run `scripts/smoke-binary.sh`; Rocky via container
   (`scripts/smoke-rocky8.sh`); optional FUSE job on workflow dispatch.
-- **Musl/static smoke path (D7):** `scripts/build-musl.sh`,
-  `make build-musl` / `make smoke-musl`, CI job `musl-static-smoke` (Alpine).
-  Primary published releases remain `CGO_ENABLED=0` pure-Go (not a second
-  goreleaser musl matrix).
+- **Musl/static path (D7):** `scripts/build-musl.sh`, `make build-musl` /
+  `smoke-musl` / `package-musl`; CI musl smoke; **release workflow** attaches
+  optional `*_linux_*_musl.tar.gz` after GoReleaser and refreshes `SHA256SUMS`.
+  Primary published packages remain pure-Go `CGO_ENABLED=0`.
 - **macOS CI:** unit tests + `CGO_ENABLED=0` build + binary smoke
   (`macos-unit-smoke` in `ci.yml`). No macFUSE in default CI.
-- **Convert hardening:** encrypted 7z member detect (`7z l -slt` probe),
-  outer nonsolid cache populate (`EnsureNonsolidCachedCopy`) and engine
-  wire-up for solid→non-solid outer/all scope paths.
-- **Field-test checklist:** `docs/field-test.md` for v0.1.x install
-  verification (smoke, real mount, convert, web).
-- **SPA:** Playwright Settings e2e (`RUN_E2E=1` / `make web-e2e`); shared e2e
-  helpers.
-- **Packaging:** Homebrew formula sketch polish
-  (`packaging/homebrew/mount-wrapper.rb.example`).
-- **Tests:** `ShouldPreconvert` matrix coverage; convert outer-cache and solid
-  probe unit tests; packaging artifact path tests.
+- **Convert hardening:** encrypted 7z detect (`7z l -slt`), outer nonsolid
+  cache populate (`EnsureNonsolidCachedCopy`) and engine wire-up.
+- **Nested automount skip summary:** drain ratarmount-rs stderr; enrich
+  `last_error` with `skipped N nested mounts: …` on mount failure.
+- **Field-test checklist:** `docs/field-test.md`.
+- **SPA:** Playwright Settings e2e (`RUN_E2E=1`); shared e2e helpers.
+- **Packaging:** Homebrew formula sketch polish.
+- **OpenAPI sketch:** `docs/openapi.yaml` (hand-written; SPA still uses TS types).
+- **Tests / docs:** ShouldPreconvert matrix; packaging artifact tests;
+  CHANGELOG + `docs/release.md`.
 
 ### Docs
 
@@ -54,22 +53,20 @@ feature-complete orchestrator with multi-arch packaging.
 
 - **Daemon / CLI (`mount-wrapper`):** config load/validate (YAML schema
   `version: 1`), SQLite lifecycle store, archive discovery/scanner, mounter
-  engine (ratarmount child process management), convert runners (7z/zip/
+  engine (ratarmount-rs child process management), convert runners (7z/zip/
   archiveconverter), hooks, reconcile, cleaner, doctor, metrics.
 - **Control plane:** Unix socket JSON-lines server/client with peercred auth;
   operator CLI (offline + socket-backed ops).
-- **HTTP API + SSE:** REST + Server-Sent Events, optional Bearer token, SPA
-  static embed (`web_enabled`), Prometheus `/metrics`.
-- **SPA:** Svelte 5 operator dashboard (archives, status, doctor, hooks
-  drawer, settings validate/apply, SSE + poll fallback).
-- **Packaging sketches:** systemd unit, launchd example, create-user script,
-  config examples (Linux/macOS/debug), WSL snippets, nfpm, goreleaser
-  (`CGO_ENABLED=0`), man page.
-- **Release matrix (tag `v*`):** linux/darwin × amd64/arm64 tarballs, deb,
-  rpm, `SHA256SUMS` via GoReleaser (`.github/workflows/release.yml`).
-- **CI:** Ubuntu unit tests + race subset + build + web checks
-  (`.github/workflows/ci.yml`).
-- **Docs:** architecture, install, dev, migration, parity, security, macOS.
+- **HTTP / SSE / SPA:** embedded Svelte 5 dashboard, `/api/*`, SSE live updates,
+  optional Bearer `web_token`, Prometheus `GET /metrics`.
+- **Packaging:** GoReleaser multi-arch (linux/darwin amd64+arm64), deb/rpm,
+  systemd/launchd examples, man page sketch.
 
-[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.0...HEAD
+### Notes
+
+- Engines not bundled: install **ratarmount-rs**, fuse3/macFUSE, optional
+  archiveconverter and 7z separately.
+
+[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.1
 [0.1.0]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.0

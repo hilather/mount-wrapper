@@ -1,0 +1,190 @@
+# Hand-written OpenAPI 3 sketch for mount-wrapper HTTP API (D11: not generated).
+# Implementation: internal/api. Source of truth remains code + SPA types (web/src/lib/types.ts).
+openapi: 3.0.3
+info:
+  title: mount-wrapper HTTP API
+  version: 0.1.1
+  description: |
+    Embedded operator API served by `mount-wrapper serve` when `web_enabled: true`.
+    Default bind `127.0.0.1:8787`. Optional Bearer token (`web_token`) or `?token=`.
+servers:
+  - url: http://127.0.0.1:8787
+    description: Default loopback
+paths:
+  /api/health:
+    get:
+      summary: Health / version
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        "200":
+          description: OK
+  /api/status:
+    get:
+      summary: Status payload (counts, archives, progress)
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        "200":
+          description: Status map
+  /api/status/sizes:
+    get:
+      summary: Status with include_sizes metrics merge
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        "200":
+          description: Status + sizes
+  /api/archives:
+    get:
+      summary: Archives list (status merge)
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        "200":
+          description: Archives + counts
+  /api/metrics:
+    get:
+      summary: Metrics (optional archive_id, no_cache, prefer_mount)
+      security: [{ bearerAuth: [] }, {}]
+      parameters:
+        - name: archive_id
+          in: query
+          schema: { type: string }
+        - name: no_cache
+          in: query
+          schema: { type: boolean }
+        - name: prefer_mount
+          in: query
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Metrics payload
+  /api/config:
+    get:
+      summary: Public config snapshot
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        "200":
+          description: Config values + hot/restart keys
+    post:
+      summary: Validate or apply config patch
+      security: [{ bearerAuth: [] }, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                config: { type: object }
+                patch: { type: object }
+                apply: { type: boolean }
+      responses:
+        "200":
+          description: OK / dry-run result
+  /api/rescan:
+    post:
+      summary: Trigger scan
+      security: [{ bearerAuth: [] }, {}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assume_stable: { type: boolean }
+      responses:
+        "200":
+          description: Queued/ran
+        "429":
+          description: Rate limited
+  /api/unmount:
+    post:
+      summary: Unmount one or all
+      security: [{ bearerAuth: [] }, {}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target: { type: string }
+                all: { type: boolean }
+      responses:
+        "200":
+          description: OK
+        "429":
+          description: Rate limited (unmount all)
+  /api/retry:
+    post:
+      summary: Reset mount attempts / requeue
+      security: [{ bearerAuth: [] }, {}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                archive_id: { type: string }
+      responses:
+        "200":
+          description: OK
+  /api/purge:
+    post:
+      summary: Admin purge
+      security: [{ bearerAuth: [] }, {}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [archive_id, yes]
+              properties:
+                archive_id: { type: string }
+                yes: { type: boolean }
+      responses:
+        "200":
+          description: OK
+        "429":
+          description: Rate limited
+  /api/hooks:
+    get:
+      summary: Hooks list or status for archive_id
+      security: [{ bearerAuth: [] }, {}]
+      parameters:
+        - name: archive_id
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Hooks payload
+  /api/doctor:
+    get:
+      summary: Offline-style doctor report (in-process)
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        "200":
+          description: Doctor report
+  /api/wsl-info:
+    get:
+      summary: WSL UNC hint
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        "200":
+          description: WSL info
+  /api/events:
+    get:
+      summary: SSE live updates
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        "200":
+          description: text/event-stream
+  /metrics:
+    get:
+      summary: Prometheus text exposition
+      description: Open on loopback; token required if bind is non-loopback and web_token set.
+      responses:
+        "200":
+          description: Prometheus text
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

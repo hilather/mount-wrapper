@@ -180,3 +180,4 @@ Before considering a change complete:
 3. **Review** — run `/review` or the `review-changes` skill; fix bugs  
 
 See [AGENTS.md](../AGENTS.md).
+- HTTP API sketch: [openapi.yaml](./openapi.yaml)
