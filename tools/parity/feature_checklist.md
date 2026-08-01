@@ -32,7 +32,7 @@ _Last reviewed: 2026-08-01 (post v0.1.1 packaging truth-up)._
 |------|--------|-------|
 | Convert: archiveconverter | **done** | Engine `PollConvert` / async jobs |
 | Convert: built-in 7z nonsolid / flatten | **partial** | Predicates + runners + CLI encrypted detect + outer cache populate (fail-closed list, size floor, flock); no stream-flatten / full solid-folder parse |
-| Convert: zip→7z repack | **partial** | Library + runners; verify under real archives |
+| Convert: zip→7z repack | **partial** | Library + runners; `testdata/nestedzip` + real-`7z` `RunZipRepack` when on PATH; engine/serve residual |
 | Doctor | **done** | Offline CLI + `GET /api/doctor` |
 | WSL UNC hint | **done** | API + SPA |
 | Rocky 8 install path | **done** | Documented + rocky CI smoke; optional musl path (`build-musl` / `package-musl`); release attaches `*_musl.tar.gz` (D7) |

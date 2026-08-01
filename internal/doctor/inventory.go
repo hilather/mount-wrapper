@@ -43,6 +43,10 @@ const (
 	// systemd. Best-effort systemctl is-active / is-enabled for
 	// mount-wrapper.service; inactive / unavailable → warn (never hard-fail).
 	CheckNameSystemdUnit = "systemd_unit"
+	// CheckNameLaunchdAgent is emitted on Darwin only. Best-effort launchctl
+	// list/print for the packaging example label (DefaultLaunchdLabel);
+	// not loaded / launchctl missing → warn (never hard-fail); loaded → info.
+	CheckNameLaunchdAgent = "launchd_agent"
 	// CheckNamePidfileLive is emitted when Config is non-nil and pid_file is
 	// non-empty. Stats the path, parses the PID, and probes process liveness;
 	// missing / stale / unreadable → warn (never hard-fail).
@@ -61,6 +65,11 @@ const (
 
 // DefaultSystemdUnit is the packaged unit name probed by checkSystemdUnit.
 const DefaultSystemdUnit = "mount-wrapper.service"
+
+// DefaultLaunchdLabel is the launchd user-agent Label from
+// packaging/launchd/com.hilather.mount-wrapper.plist.example, probed by
+// checkLaunchdAgent on Darwin.
+const DefaultLaunchdLabel = "com.hilather.mount-wrapper"
 
 
 // Name prefixes for config-dependent path/disk/source checks (exact suffix

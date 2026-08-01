@@ -66,6 +66,11 @@ Avoid deep nested Application Support paths for the socket. If bind fails with
 **warn** when `len(control_socket) > 100` (soft margin under the ~104 sun_path
 limit). Severity is warn only (report still OK).
 
+On Darwin, doctor also emits **`launchd_agent`**: best-effort `launchctl list`
+(and `print` fallback) for Label **`com.hilather.mount-wrapper`** (packaging
+example). **info** when loaded; **warn** when not loaded or `launchctl` is
+missing — never hard-fails the report. Omitted on Linux.
+
 Unit tests that bind real Unix sockets use
 `internal/testutil.ShortUnixSocketPath` (short `/tmp` dir on Darwin) so
 CI under long `/var/folders/...` temp paths stays green.
@@ -80,13 +85,16 @@ Example plist: [`packaging/launchd/com.hilather.mount-wrapper.plist.example`](..
 - Replace `REPLACE_HOME` with an absolute home path.  
 - `serve` has **no** `--foreground` flag; launchd owns the job lifecycle.  
 - Set `PATH` in the plist so Homebrew / cargo bins resolve.  
-- Logs: `~/Library/Logs/mount-wrapper/`.
+- Logs: `~/Library/Logs/mount-wrapper/`.  
+- After load, `mount-wrapper doctor --json` should show **`launchd_agent`** as
+  **info** (Label `com.hilather.mount-wrapper`).
 
 ```bash
 cp packaging/launchd/com.hilather.mount-wrapper.plist.example \
   "$HOME/Library/LaunchAgents/com.hilather.mount-wrapper.plist"
 # edit REPLACE_HOME and binary path
 launchctl load "$HOME/Library/LaunchAgents/com.hilather.mount-wrapper.plist"
+mount-wrapper doctor --json   # expect launchd_agent info when loaded
 ```
 
 ### Homebrew formula sketch

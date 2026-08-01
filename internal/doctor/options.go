@@ -67,6 +67,13 @@ type ControlRequestFunc func(socketPath, op string) (resp map[string]any, err er
 // start failure with empty output).
 type SystemctlFunc func(args ...string) (output string, err error)
 
+// LaunchctlFunc runs launchctl with args and returns combined stdout/stderr
+// (trimmed). Used by checkLaunchdAgent on Darwin (list/print). Non-zero exit
+// with a diagnostic string (e.g. "Could not find service") should return that
+// string so callers can classify not-loaded vs unavailable; err is reserved
+// for "cannot run launchctl" (binary missing / start failure with empty output).
+type LaunchctlFunc func(args ...string) (output string, err error)
+
 // ProcessAliveFunc reports whether pid looks alive (signal 0 style).
 // Permission errors should be treated as alive (process exists).
 type ProcessAliveFunc func(pid int) bool
@@ -142,6 +149,7 @@ type Options struct {
 	RunBin         RunBinFunc
 	ControlRequest ControlRequestFunc
 	Systemctl      SystemctlFunc
+	Launchctl      LaunchctlFunc
 	ProcessAlive   ProcessAliveFunc
 	WriteFile      WriteFileFunc
 	MkdirAll       MkdirAllFunc
@@ -230,6 +238,13 @@ func (o *Options) systemctl() SystemctlFunc {
 		return o.Systemctl
 	}
 	return defaultSystemctl
+}
+
+func (o *Options) launchctl() LaunchctlFunc {
+	if o != nil && o.Launchctl != nil {
+		return o.Launchctl
+	}
+	return defaultLaunchctl
 }
 
 func (o *Options) processAlive() ProcessAliveFunc {
@@ -383,6 +398,22 @@ func defaultSystemctl(args ...string) (string, error) {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = strings.TrimSpace(s[:i])
 	}
+	if s != "" {
+		return s, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
+// defaultLaunchctl runs launchctl and returns trimmed combined output.
+// Non-zero exit with diagnostic text (list of a missing job) is not an error
+// when output is non-empty — checkLaunchdAgent classifies "Could not find".
+func defaultLaunchctl(args ...string) (string, error) {
+	cmd := exec.Command("launchctl", args...)
+	out, err := cmd.CombinedOutput()
+	s := strings.TrimSpace(string(out))
 	if s != "" {
 		return s, nil
 	}

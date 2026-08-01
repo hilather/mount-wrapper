@@ -36,6 +36,10 @@ func Run(opts Options) *Report {
 	if c := checkSystemdUnit(o); c.Name != "" {
 		checks = append(checks, c)
 	}
+	// Platform-gated: Darwin only — launchd user-agent label probe.
+	if c := checkLaunchdAgent(o); c.Name != "" {
+		checks = append(checks, c)
+	}
 
 	var notes []string
 	var fixes []string

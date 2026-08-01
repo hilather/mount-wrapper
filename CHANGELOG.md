@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Fixture **`testdata/nestedzip/`** (`nested-with-archives.zip` + manifest) and
+  convert tests: offline `ShouldRepackZip` on real zip bytes; when `7z` is on
+  `PATH`, `RunZipRepack` success produces stored `.7z` + convert metadata
+  (skips without 7z so default `make test` stays green). No stream-flatten.
 - Prometheus **`GET /metrics`** aggregate size/savings gauges (no per-archive
   series): `mount_wrapper_archive_size_bytes`, `…_index_size_bytes`,
   `…_extracted_size_bytes`, `…_space_saved_bytes`,
@@ -37,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `systemctl is-active` / `is-enabled` for `mount-wrapper.service` (injectable).
   Inactive / failed / not-found / systemctl unavailable → **warn** (never
   hard-fail); active → **info**.
+- Doctor **`launchd_agent`**: on Darwin, best-effort `launchctl list` /
+  `print` for Label `com.hilather.mount-wrapper` (packaging example; injectable).
+  Not loaded / launchctl unavailable → **warn** (never hard-fail); loaded →
+  **info**. Omitted on non-Darwin.
 
 ### Fixed
 

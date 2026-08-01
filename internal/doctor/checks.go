@@ -585,6 +585,88 @@ func checkSystemdUnit(opts *Options) CheckResult {
 	return warnCheck(name, false, msg, details)
 }
 
+// checkLaunchdAgent best-effort probes launchctl list (then print) for the
+// packaging example user-agent label on Darwin. Skipped on non-Darwin.
+// Offline-safe: not loaded, not found, or missing launchctl are severity
+// warn (never hard-fail). Loaded → info.
+func checkLaunchdAgent(opts *Options) CheckResult {
+	plat := opts.platform()
+	if !platform.IsDarwin(plat) {
+		return CheckResult{}
+	}
+
+	name := CheckNameLaunchdAgent
+	label := DefaultLaunchdLabel
+	lc := opts.launchctl()
+	details := map[string]any{
+		"label":    label,
+		"platform": "darwin",
+	}
+
+	// Prefer list LABEL (no domain/UID required). Fall back to print LABEL
+	// when list is empty/unavailable — modern launchd accepts both shapes.
+	out, err := lc("list", label)
+	probe := "list"
+	if strings.TrimSpace(out) == "" && err != nil {
+		// Retry with print (some environments only answer print).
+		out2, err2 := lc("print", label)
+		if strings.TrimSpace(out2) != "" || err2 == nil {
+			out, err = out2, err2
+			probe = "print"
+		}
+	}
+	details["probe"] = probe
+	if trimmed := strings.TrimSpace(out); trimmed != "" {
+		details["output"] = truncate(trimmed, 240)
+	}
+	if err != nil {
+		details["error"] = err.Error()
+	}
+
+	// launchctl binary missing / unusable: empty output + error.
+	if strings.TrimSpace(out) == "" && err != nil {
+		errMsg := err.Error()
+		return warnCheck(name, false,
+			fmt.Sprintf("cannot probe launchd agent %s via launchctl: %s", label, errMsg),
+			details)
+	}
+
+	lower := strings.ToLower(out)
+	notLoaded := strings.Contains(lower, "could not find") ||
+		strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "no such process") ||
+		strings.Contains(lower, "could not find service")
+	if notLoaded || (strings.TrimSpace(out) == "" && err == nil) {
+		return warnCheck(name, false,
+			fmt.Sprintf("%s is not loaded; install packaging/launchd/%s.plist.example → "+
+				"~/Library/LaunchAgents/%s.plist and launchctl load (see docs/macos.md)",
+				label, label, label),
+			details)
+	}
+
+	// Non-empty diagnostic with error that is not a clear not-loaded message.
+	if err != nil {
+		return warnCheck(name, false,
+			fmt.Sprintf("cannot probe launchd agent %s via launchctl: %s", label, err.Error()),
+			details)
+	}
+
+	details["loaded"] = true
+	msg := label + " is loaded"
+	// list LABEL typically: "PID\tStatus\tLabel" (PID may be "-").
+	if fields := strings.Fields(firstLine(out)); len(fields) >= 1 {
+		pidTok := fields[0]
+		if pidTok != "-" && pidTok != "" && pidTok != label {
+			// Numeric PID when the agent is running.
+			if _, convErr := strconv.Atoi(pidTok); convErr == nil {
+				details["pid"] = pidTok
+				msg += " (pid " + pidTok + ")"
+			}
+		}
+	}
+	return infoCheck(name, msg, details)
+}
+
 // checkPidfileLive probes configured pid_file path existence, PID parse, and
 // process liveness. Offline-safe: missing path, unreadable, invalid PID, or
 // dead process are severity warn (never hard-fail). Skipped when Config is

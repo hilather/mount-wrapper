@@ -1,0 +1,30 @@
+{
+  "fixture": "nested-with-archives.zip",
+  "purpose": "zip with nested archive members for ShouldRepackZip / RunZipRepack real-7z tests",
+  "members": [
+    {
+      "name": "readme.txt",
+      "compressed_size": 41,
+      "uncompressed_size": 39,
+      "embedded_archive": false
+    },
+    {
+      "name": "pad.bin",
+      "compressed_size": 33,
+      "uncompressed_size": 4096,
+      "embedded_archive": false
+    },
+    {
+      "name": "payloads/inner.7z",
+      "compressed_size": 131,
+      "uncompressed_size": 142,
+      "embedded_archive": true
+    },
+    {
+      "name": "payloads/bundle.tar.gz",
+      "compressed_size": 153,
+      "uncompressed_size": 157,
+      "embedded_archive": true
+    }
+  ]
+}

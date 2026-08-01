@@ -49,7 +49,8 @@ Allow control-plane ops without peer credentials. Also enabled when env
 .TP
 .B doctor
 Offline environment diagnostics (FUSE, bins, paths, disk, peercred notes,
-control socket and pidfile liveness, systemd unit when applicable).
+control socket and pidfile liveness, systemd unit or launchd agent when
+applicable).
 Does not require a running
 .B serve
 process. Live probes never hard-fail offline:
@@ -73,7 +74,16 @@ best-effort probes
 .B is-enabled
 for
 .B mount-wrapper.service
-(warn when inactive or systemctl unavailable).
+(warn when inactive or systemctl unavailable);
+on Darwin, check
+.B launchd_agent
+best-effort probes
+.B launchctl list
+/
+.B print
+for Label
+.B com.hilather.mount-wrapper
+(warn when not loaded or launchctl unavailable).
 .RS
 .TP
 .B \-\-json

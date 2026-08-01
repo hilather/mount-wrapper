@@ -242,8 +242,9 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] Convert cmd construction (archiveconverter + 7z zip extract/create)
 - [x] Metadata roundtrip + free-space gate with injectable free-bytes
 - [x] Zip repack success/fail with fake 7z scripts + injectable `Run7z`
+- [x] Zip repack real-`7z` on committed `testdata/nestedzip/` (ShouldRepackZip + RunZipRepack → .7z + metadata; skip without 7z)
 - [x] Flatten runner success/skip/fail + Engine convert paths (no FUSE)
-- [x] Fixtures: nested mini 7z + listings in `testdata/nested7z/` (from upstream mini); multi generated in-test when `7z` present; probe/parse tests skip without 7z
+- [x] Fixtures: nested mini 7z + listings in `testdata/nested7z/` (from upstream mini); multi generated in-test when `7z` present; probe/parse tests skip without 7z; nestedzip for zip→7z
 
 ---
 

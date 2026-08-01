@@ -33,6 +33,10 @@ type testEnv struct {
 	// Empty maps use healthy defaults (active + enabled) for inventory baselines.
 	systemctlOut map[string]string
 	systemctlErr map[string]error
+	// launchctlOut keys: "list com.hilather.mount-wrapper", "print …", etc.
+	// Empty maps use a healthy loaded default for Darwin inventory baselines.
+	launchctlOut map[string]string
+	launchctlErr map[string]error
 	// alivePIDs is used by ProcessAlive; missing keys are not alive.
 	alivePIDs    map[int]bool
 	pid1         string
@@ -62,6 +66,8 @@ func newEnv() *testEnv {
 		binErr:       map[string]error{},
 		systemctlOut: map[string]string{},
 		systemctlErr: map[string]error{},
+		launchctlOut: map[string]string{},
+		launchctlErr: map[string]error{},
 		alivePIDs:    map[int]bool{},
 		writes:       map[string]string{},
 		platform:     "linux",
@@ -160,6 +166,25 @@ func (e *testEnv) opts(cfg *config.Config) doctor.Options {
 					return "active", nil
 				case "is-enabled":
 					return "enabled", nil
+				}
+			}
+			return "", os.ErrNotExist
+		},
+		Launchctl: func(args ...string) (string, error) {
+			key := strings.Join(args, " ")
+			if err, ok := e.launchctlErr[key]; ok {
+				return e.launchctlOut[key], err
+			}
+			if out, ok := e.launchctlOut[key]; ok {
+				return out, nil
+			}
+			// Healthy default: agent loaded (Darwin inventory baselines).
+			if len(args) >= 2 && args[1] == doctor.DefaultLaunchdLabel {
+				switch args[0] {
+				case "list":
+					return "4242\t0\t" + doctor.DefaultLaunchdLabel, nil
+				case "print":
+					return "com.hilather.mount-wrapper = {\n\tpath = …\n}", nil
 				}
 			}
 			return "", os.ErrNotExist
@@ -289,6 +314,7 @@ func TestDoctorCheckInventory(t *testing.T) {
 				doctor.CheckNameControlSocketPathLength,
 				doctor.CheckNameControlSocketLive,
 				doctor.CheckNamePidfileLive,
+				doctor.CheckNameLaunchdAgent, // Darwin-only
 				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameConfig,
 				doctor.CheckNameIndexLayout,
@@ -353,6 +379,7 @@ func TestDoctorCheckInventory(t *testing.T) {
 				doctor.CheckNameConvertCacheDir,
 				doctor.CheckNameArchiveconverterOutputDir,
 				doctor.CheckNameControlSocketPathLength, // linux
+				doctor.CheckNameLaunchdAgent,            // Darwin-only
 				doctor.CheckNameFixSystemd,
 			},
 			wantReportOK: boolPtr(true),
@@ -605,6 +632,124 @@ func TestDoctorCheckInventory(t *testing.T) {
 				return nil
 			},
 			forbidden: []string{doctor.CheckNameSystemdUnit},
+			required:  []string{doctor.CheckNameLaunchdAgent},
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				// Core + launchd_agent (healthy default loaded).
+				got := orderedNames(r)
+				wantN := len(doctor.CoreCheckNames) + 1
+				if len(got) != wantN {
+					t.Fatalf("darwin check count=%d want %d: %v", len(got), wantN, got)
+				}
+				if got[len(doctor.CoreCheckNames)] != doctor.CheckNameLaunchdAgent {
+					t.Fatalf("after core want launchd_agent, got %q", got[len(doctor.CoreCheckNames)])
+				}
+				la := checkByName(r, doctor.CheckNameLaunchdAgent)
+				if !la.OK || la.Severity != doctor.SeverityInfo {
+					t.Fatalf("launchd_agent baseline: %+v", la)
+				}
+				if !strings.Contains(la.Message, "loaded") {
+					t.Fatalf("message=%q", la.Message)
+				}
+			},
+		},
+		{
+			name: "launchd_agent_not_loaded_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.platform = "darwin"
+				e.exists["/Library/Filesystems/macfuse.fs"] = true
+				e.which["umount"] = "/usr/bin/umount"
+				key := "list " + doctor.DefaultLaunchdLabel
+				e.launchctlOut[key] = `Could not find service "com.hilather.mount-wrapper" in domain for user`
+				return nil
+			},
+			required:     []string{doctor.CheckNameLaunchdAgent},
+			forbidden:    []string{doctor.CheckNameSystemdUnit},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameLaunchdAgent)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want not-loaded warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "not loaded") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if label, _ := c.Details["label"].(string); label != doctor.DefaultLaunchdLabel {
+					t.Fatalf("details.label=%v", c.Details["label"])
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("not loaded must not hard-fail")
+				}
+			},
+		},
+		{
+			name: "launchd_agent_launchctl_unavailable_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.platform = "darwin"
+				e.exists["/Library/Filesystems/macfuse.fs"] = true
+				e.which["umount"] = "/usr/bin/umount"
+				// Both list and print fail empty → unavailable path.
+				e.launchctlErr["list "+doctor.DefaultLaunchdLabel] = os.ErrNotExist
+				e.launchctlErr["print "+doctor.DefaultLaunchdLabel] = os.ErrNotExist
+				return nil
+			},
+			required:     []string{doctor.CheckNameLaunchdAgent},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameLaunchdAgent)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want launchctl unavailable warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "launchctl") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("launchctl missing must not hard-fail")
+				}
+			},
+		},
+		{
+			name: "launchd_agent_ok_loaded_with_pid",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.platform = "darwin"
+				e.exists["/Library/Filesystems/macfuse.fs"] = true
+				e.which["umount"] = "/usr/bin/umount"
+				e.launchctlOut["list "+doctor.DefaultLaunchdLabel] =
+					"9001\t0\t" + doctor.DefaultLaunchdLabel
+				return nil
+			},
+			required:     []string{doctor.CheckNameLaunchdAgent},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameLaunchdAgent)
+				if !c.OK || c.Severity != doctor.SeverityInfo {
+					t.Fatalf("want info loaded: %+v", c)
+				}
+				if !strings.Contains(c.Message, "loaded") || !strings.Contains(c.Message, "9001") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if pid, _ := c.Details["pid"].(string); pid != "9001" {
+					t.Fatalf("details.pid=%v", c.Details["pid"])
+				}
+				if loaded, _ := c.Details["loaded"].(bool); !loaded {
+					t.Fatalf("details.loaded=%v", c.Details["loaded"])
+				}
+			},
+		},
+		{
+			name: "launchd_agent_skipped_on_linux",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				// Default platform is linux.
+				return nil
+			},
+			forbidden: []string{doctor.CheckNameLaunchdAgent},
 		},
 		{
 			name: "pidfile_live_missing_path_warn",
@@ -2199,6 +2344,7 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameControlSocketLive,
 				doctor.CheckNamePidfileLive,
+				doctor.CheckNameLaunchdAgent, // Darwin-only
 				doctor.CheckNameConfig,
 				doctor.CheckNameIndexLayout,
 				doctor.CheckNameFixSystemd,
@@ -2266,6 +2412,7 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 			},
 			forbiddenChecks: []string{
 				doctor.CheckNameControlSocketPathLength, // linux
+				doctor.CheckNameLaunchdAgent,            // Darwin-only
 				doctor.CheckNameFixSystemd,
 			},
 			assertHardFailConsistency: true,

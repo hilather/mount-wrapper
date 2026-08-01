@@ -8,9 +8,10 @@
 //   - control_socket_live: short status dial when control_socket is set
 //   - pidfile_live: stat + PID parse + process liveness when pid_file is set
 //   - systemd_unit: systemctl is-active/is-enabled when PID 1 is systemd
+//   - launchd_agent: launchctl list/print for com.hilather.mount-wrapper (Darwin)
 //
 // All external probes (PATH lookup, filesystem, free space, user lookup,
-// binary --version/--help, fuse.conf, PID 1, systemctl, process liveness,
-// control socket dial) are injectable via Options so unit tests never need
-// real FUSE, ratarmount, systemd, or a running serve.
+// binary --version/--help, fuse.conf, PID 1, systemctl, launchctl, process
+// liveness, control socket dial) are injectable via Options so unit tests
+// never need real FUSE, ratarmount, systemd, launchd, or a running serve.
 package doctor

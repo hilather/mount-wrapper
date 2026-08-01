@@ -34,9 +34,11 @@ probes that never hard-fail offline:
 | **`control_socket_live`** | non-empty `control_socket` | missing sock / dial fail / auth denied (group `mount-wrapper` hint) | **info** with serve version when reachable |
 | **`pidfile_live`** | non-empty `pid_file` | missing path / invalid or stale PID | **info** when the PID is alive |
 | **`systemd_unit`** | Linux + systemd is PID 1 | unit inactive/failed/not-found or `systemctl` unavailable | **info** when `mount-wrapper.service` is active |
+| **`launchd_agent`** | Darwin only | agent not loaded or `launchctl` unavailable | **info** when `com.hilather.mount-wrapper` is loaded |
 
 On hosts without systemd (or Darwin), **`systemd_unit`** is omitted; **`systemd_pid1`**
-still reports platform guidance.
+still reports platform guidance. On non-Darwin hosts, **`launchd_agent`** is
+omitted.
 
 ## Real mount (needs engine)
 
