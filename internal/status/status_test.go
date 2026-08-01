@@ -298,6 +298,62 @@ func TestProgressLabelsConvertingMountingLive(t *testing.T) {
 	}
 }
 
+func TestArchiveToDict_NestedSkipsFromInputAndLive(t *testing.T) {
+	// Mounted row with skip fields pre-filled (service last_error / live path).
+	n := 2
+	sum := "skipped 2 nested mounts: /a.7z, /b.7z"
+	mounted := &status.ArchiveInput{
+		ArchiveID:          "m1",
+		ArchivePath:        "/src/outer.tar",
+		ArchiveBasename:    "outer.tar",
+		Status:             "mounted",
+		HooksStatus:        "success",
+		NestedSkipsCount:   &n,
+		NestedSkipsSummary: sum,
+	}
+	// Live wins over empty input for an in-progress/mounting row.
+	mounting := &status.ArchiveInput{
+		ArchiveID:       "m2",
+		ArchivePath:     "/src/other.tar",
+		ArchiveBasename: "other.tar",
+		Status:          "mounting",
+		HooksStatus:     "none",
+	}
+	live := map[string]status.LiveMount{
+		"m2": {
+			PID:                55,
+			Phase:              "mount",
+			NestedSkipsCount:   1,
+			NestedSkipsSummary: "skipped 1 nested mount: /nested/bad.7z",
+		},
+	}
+	payload := status.Build(status.Options{
+		Version:  "test",
+		PID:      1,
+		Archives: []*status.ArchiveInput{mounted, mounting},
+		Live:     live,
+		Now:      1,
+	})
+	byID := map[string]status.ArchiveDict{}
+	for _, a := range payload.Archives {
+		byID[a.ArchiveID] = a
+	}
+	got := byID["m1"]
+	if got.NestedSkipsCount == nil || *got.NestedSkipsCount != 2 {
+		t.Fatalf("mounted count=%v", got.NestedSkipsCount)
+	}
+	if got.NestedSkipsSummary != sum {
+		t.Fatalf("mounted summary=%q", got.NestedSkipsSummary)
+	}
+	got2 := byID["m2"]
+	if got2.NestedSkipsCount == nil || *got2.NestedSkipsCount != 1 {
+		t.Fatalf("live count=%v", got2.NestedSkipsCount)
+	}
+	if got2.NestedSkipsSummary != "skipped 1 nested mount: /nested/bad.7z" {
+		t.Fatalf("live summary=%q", got2.NestedSkipsSummary)
+	}
+}
+
 func TestFormatHuman(t *testing.T) {
 	started := "2026-01-01T00:00:00Z"
 	now := *status.ParseISOToEpoch("2026-01-01T00:05:00Z")

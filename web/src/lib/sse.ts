@@ -1,16 +1,41 @@
 /**
  * SSE client for GET /api/events with exponential backoff reconnect.
  * Uses EventSource; auth via ?token= when needed (see eventsUrl).
+ *
+ * Named events (server: internal/api/sse.go + sse_diff.go):
+ *   snapshot | counts | archive | scan | low_disk | metrics | heartbeat
  */
 
 import { eventsUrl } from './api'
-import type { StatusSnapshot } from './types'
+import type {
+  ArchiveSSEEvent,
+  LowDiskSSEEvent,
+  MetricsSSEEvent,
+  ScanSSEEvent,
+  StatusSnapshot,
+} from './types'
 
-export type SSEEventName = 'snapshot' | 'counts' | 'heartbeat' | string
+export type SSEEventName =
+  | 'snapshot'
+  | 'counts'
+  | 'archive'
+  | 'scan'
+  | 'low_disk'
+  | 'metrics'
+  | 'heartbeat'
+  | string
 
 export interface SSEHandlers {
   onSnapshot?: (data: StatusSnapshot) => void
   onCounts?: (data: Partial<StatusSnapshot>) => void
+  /** Fine-grained row patch: { archives, removed_ids? }. */
+  onArchive?: (data: ArchiveSSEEvent) => void
+  /** last_scan_at (and optional scan meta) moved. */
+  onScan?: (data: ScanSSEEvent) => void
+  /** low_disk boolean edge. */
+  onLowDisk?: (data: LowDiskSSEEvent) => void
+  /** metrics_summary update (include_sizes path; may be null). */
+  onMetrics?: (data: MetricsSSEEvent) => void
   onHeartbeat?: (data: unknown) => void
   onEvent?: (name: SSEEventName, data: unknown) => void
   onOpen?: () => void
@@ -34,6 +59,16 @@ export interface SSEClient {
   stop: () => void
   readonly connected: boolean
 }
+
+const NAMED_EVENTS = [
+  'snapshot',
+  'counts',
+  'archive',
+  'scan',
+  'low_disk',
+  'metrics',
+  'heartbeat',
+] as const
 
 /**
  * Create a reconnecting SSE client. Call start() to connect; stop() to tear down permanently.
@@ -76,6 +111,33 @@ export function createSSEClient(handlers: SSEHandlers, opts: SSEClientOptions = 
     }
   }
 
+  function dispatchNamed(name: (typeof NAMED_EVENTS)[number], data: unknown) {
+    switch (name) {
+      case 'snapshot':
+        handlers.onSnapshot?.(data as StatusSnapshot)
+        break
+      case 'counts':
+        handlers.onCounts?.(data as Partial<StatusSnapshot>)
+        break
+      case 'archive':
+        handlers.onArchive?.(data as ArchiveSSEEvent)
+        break
+      case 'scan':
+        handlers.onScan?.(data as ScanSSEEvent)
+        break
+      case 'low_disk':
+        handlers.onLowDisk?.(data as LowDiskSSEEvent)
+        break
+      case 'metrics':
+        handlers.onMetrics?.(data as MetricsSSEEvent)
+        break
+      case 'heartbeat':
+        handlers.onHeartbeat?.(data)
+        break
+    }
+    handlers.onEvent?.(name, data)
+  }
+
   function connect() {
     if (stopped) return
     if (!ES) {
@@ -112,23 +174,12 @@ export function createSSEClient(handlers: SSEHandlers, opts: SSEClientOptions = 
       if (!stopped) scheduleReconnect()
     }
 
-    es.addEventListener('snapshot', (ev) => {
-      const data = parseData((ev as MessageEvent).data) as StatusSnapshot
-      handlers.onSnapshot?.(data)
-      handlers.onEvent?.('snapshot', data)
-    })
-
-    es.addEventListener('counts', (ev) => {
-      const data = parseData((ev as MessageEvent).data) as Partial<StatusSnapshot>
-      handlers.onCounts?.(data)
-      handlers.onEvent?.('counts', data)
-    })
-
-    es.addEventListener('heartbeat', (ev) => {
-      const data = parseData((ev as MessageEvent).data)
-      handlers.onHeartbeat?.(data)
-      handlers.onEvent?.('heartbeat', data)
-    })
+    for (const name of NAMED_EVENTS) {
+      es.addEventListener(name, (ev) => {
+        const data = parseData((ev as MessageEvent).data)
+        dispatchNamed(name, data)
+      })
+    }
 
     // Fallback for unnamed messages.
     es.onmessage = (ev) => {

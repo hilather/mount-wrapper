@@ -114,6 +114,42 @@ export function isFailedStatus(status: string | null | undefined): boolean {
   return status === 'index_failed' || status === 'mount_failed'
 }
 
+export interface NestedSkipsLike {
+  nested_skips_count?: number | null
+  nested_skips_summary?: string | null
+  last_error?: string | null
+}
+
+/** True when the row reports nested automount skips (API fields or last_error). */
+export function hasNestedSkips(r: NestedSkipsLike | null | undefined): boolean {
+  if (!r) return false
+  const n = r.nested_skips_count
+  if (n != null && Number(n) > 0) return true
+  if (r.nested_skips_summary && String(r.nested_skips_summary).trim()) return true
+  return false
+}
+
+/**
+ * Compact chip label for nested skip count.
+ * Examples: "1 nested skip", "3 nested skips"
+ */
+export function formatNestedSkipsChip(count: number | null | undefined): string | null {
+  if (count === null || count === undefined || Number.isNaN(Number(count))) return null
+  const n = Number(count)
+  if (n <= 0) return null
+  return n === 1 ? '1 nested skip' : `${n} nested skips`
+}
+
+/**
+ * Subtitle text for nested skips: prefer summary, else chip text from count.
+ */
+export function formatNestedSkipsSubtitle(r: NestedSkipsLike | null | undefined): string | null {
+  if (!r) return null
+  const sum = r.nested_skips_summary != null ? String(r.nested_skips_summary).trim() : ''
+  if (sum) return sum
+  return formatNestedSkipsChip(r.nested_skips_count ?? null)
+}
+
 /** Human-friendly status key for overview pills. */
 export function formatCountKey(key: string): string {
   return key.replace(/_/g, ' ')

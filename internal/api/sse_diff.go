@@ -35,6 +35,8 @@ var archiveWatchKeys = []string{
 	"mount_duration_seconds",
 	"convert_source_size_bytes",
 	"convert_duration_seconds",
+	"nested_skips_count",
+	"nested_skips_summary",
 }
 
 // topLevelCountKeys are snapshot fields mirrored into the counts event.

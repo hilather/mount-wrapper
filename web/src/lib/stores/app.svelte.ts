@@ -9,14 +9,18 @@ import {
   getWSLInfo,
   type ApiError,
 } from '../api'
-import { mergeArchiveRows } from '../merge'
+import { mergeArchiveRows, patchArchiveRows } from '../merge'
 import { createSSEClient, type SSEClient } from '../sse'
 import type {
   ArchiveRow,
   ArchivesPayload,
+  ArchiveSSEEvent,
   ConnectionStatus,
   Counts,
+  LowDiskSSEEvent,
+  MetricsSSEEvent,
   MetricsSummary,
+  ScanSSEEvent,
   StatusSnapshot,
   Toast,
   ToastKind,
@@ -142,6 +146,48 @@ class AppStore {
     }
   }
 
+  /**
+   * Fine-grained SSE `archive` event: upsert/remove rows by archive_id without
+   * wiping the table. Preserves per-row metrics when status patches omit them.
+   */
+  applyArchiveEvent(data: ArchiveSSEEvent) {
+    const patches = Array.isArray(data?.archives) ? (data.archives as ArchiveRow[]) : []
+    const removed = Array.isArray(data?.removed_ids) ? data.removed_ids : []
+    if (patches.length === 0 && removed.length === 0) return
+    this.archives = patchArchiveRows(this.archives, patches, removed)
+    this.lastRefreshAt = new Date().toLocaleTimeString()
+    if (this.connectionStatus !== 'connected') {
+      this.connectionStatus = 'connected'
+      this.connectionLabel = 'connected'
+    }
+  }
+
+  /** SSE `scan` — update last_scan_at without full snapshot. */
+  applyScanEvent(data: ScanSSEEvent) {
+    if (data?.last_scan_at != null) {
+      this.lastScanAt = String(data.last_scan_at)
+      this.lastRefreshAt = new Date().toLocaleTimeString()
+    }
+  }
+
+  /** SSE `low_disk` edge. */
+  applyLowDiskEvent(data: LowDiskSSEEvent) {
+    if (data?.low_disk != null) {
+      this.lowDisk = !!data.low_disk
+      this.lastRefreshAt = new Date().toLocaleTimeString()
+    }
+  }
+
+  /**
+   * SSE `metrics` — metrics_summary from include_sizes path.
+   * Explicit null clears summary (server signals drop); undefined leaves it.
+   */
+  applyMetricsEvent(data: MetricsSSEEvent) {
+    if (!data || !('metrics_summary' in data)) return
+    this.summary = data.metrics_summary ?? null
+    this.lastRefreshAt = new Date().toLocaleTimeString()
+  }
+
   async refreshArchives(opts: { quiet?: boolean } = {}) {
     if (!opts.quiet) this.loading = true
     this.error = ''
@@ -208,6 +254,18 @@ class AppStore {
       },
       onCounts: (data) => {
         this.applyCounts(data)
+      },
+      onArchive: (data) => {
+        this.applyArchiveEvent(data)
+      },
+      onScan: (data) => {
+        this.applyScanEvent(data)
+      },
+      onLowDisk: (data) => {
+        this.applyLowDiskEvent(data)
+      },
+      onMetrics: (data) => {
+        this.applyMetricsEvent(data)
       },
       onError: () => {
         this.sseActive = false

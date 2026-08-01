@@ -133,3 +133,5 @@ _(none — or all covered)_
 - Path defaults rename: `/…/tarmount-wsl` → `/…/mount-wrapper` (D10).
 - Schema version remains `version: 1`.
 - Hot vs restart classification: `HotReloadKeys` / `RestartRequiredKeys` in `internal/config/public.go`.
+- `web_enabled` / `web_token` are **restart-required** (HTTP server captures bind + token at serve start); not live-updated on reload.
+- `log_level` is hot-reloaded into slog; env `MOUNT_WRAPPER_LOG_LEVEL` overrides while set.

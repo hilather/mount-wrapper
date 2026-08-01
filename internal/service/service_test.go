@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,6 +87,142 @@ func testService(t *testing.T) (*service.Service, string) {
 		svc.Shutdown()
 	})
 	return svc, tmp
+}
+
+func TestStartAppliesLogLevel(t *testing.T) {
+	// Process-global slog + env; no t.Parallel.
+	t.Setenv(config.LogLevelEnv, "")
+	svc, _ := testService(t)
+	svc.Config.LogLevel = "ERROR"
+	svc.Config.UseInotify = false
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if slog.Default().Enabled(nil, slog.LevelInfo) {
+		t.Fatal("after Start with log_level=ERROR, INFO should be disabled")
+	}
+	if !slog.Default().Enabled(nil, slog.LevelError) {
+		t.Fatal("ERROR should be enabled")
+	}
+	// Env overrides config at apply time.
+	t.Setenv(config.LogLevelEnv, "DEBUG")
+	svc.RequestReload()
+	svc.Tick()
+	if !slog.Default().Enabled(nil, slog.LevelDebug) {
+		t.Fatal("MOUNT_WRAPPER_LOG_LEVEL=DEBUG should enable debug after reload")
+	}
+	t.Setenv(config.LogLevelEnv, "")
+	_ = config.ApplyLogLevel("INFO")
+}
+
+func TestDoReloadAppliesLogLevelFromConfigFile(t *testing.T) {
+	t.Setenv(config.LogLevelEnv, "")
+	svc, tmp := testService(t)
+	svc.Config.LogLevel = "INFO"
+	svc.Config.UseInotify = false
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	// Minimal valid YAML for Load; re-use paths from svc.Config.
+	content := "version: 1\n" +
+		"source_dirs:\n  - " + svc.Config.SourceDirs[0] + "\n" +
+		"mount_root: " + svc.Config.MountRoot + "\n" +
+		"index_dir: " + svc.Config.IndexDir + "\n" +
+		"overlay_dir: " + svc.Config.OverlayDir + "\n" +
+		"state_db: " + svc.Config.StateDB + "\n" +
+		"hooks_dir: " + svc.Config.HooksDir + "\n" +
+		"pid_file: " + svc.Config.PIDFile + "\n" +
+		"control_socket: " + filepath.Join(tmp, "c.sock") + "\n" +
+		"log_level: DEBUG\n" +
+		"use_inotify: false\n" +
+		"poll_interval_seconds: 3600\n" +
+		"reconcile_interval_seconds: 3600\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc.Config.ConfigPath = cfgPath
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// Start applied INFO from in-memory config before file reload.
+	_ = config.ApplyLogLevel("INFO")
+	svc.RequestReload()
+	svc.Tick()
+	if svc.Config.LogLevel != "DEBUG" {
+		t.Fatalf("config log_level after reload: %s", svc.Config.LogLevel)
+	}
+	if !slog.Default().Enabled(nil, slog.LevelDebug) {
+		t.Fatal("expected DEBUG after reload from file")
+	}
+	_ = config.ApplyLogLevel("INFO")
+}
+
+func TestDoReloadSyncsInotifyFlag(t *testing.T) {
+	svc, tmp := testService(t)
+	svc.Config.UseInotify = false
+	cfgPath := filepath.Join(tmp, "config.yaml")
+	writeReloadConfig := func(useInotify bool) {
+		t.Helper()
+		ui := "false"
+		if useInotify {
+			ui = "true"
+		}
+		content := "version: 1\n" +
+			"source_dirs:\n  - " + svc.Config.SourceDirs[0] + "\n" +
+			"mount_root: " + svc.Config.MountRoot + "\n" +
+			"index_dir: " + svc.Config.IndexDir + "\n" +
+			"overlay_dir: " + svc.Config.OverlayDir + "\n" +
+			"state_db: " + svc.Config.StateDB + "\n" +
+			"hooks_dir: " + svc.Config.HooksDir + "\n" +
+			"pid_file: " + svc.Config.PIDFile + "\n" +
+			"control_socket: " + filepath.Join(tmp, "c.sock") + "\n" +
+			"log_level: INFO\n" +
+			"use_inotify: " + ui + "\n" +
+			"poll_interval_seconds: 3600\n" +
+			"reconcile_interval_seconds: 3600\n"
+		if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeReloadConfig(false)
+	svc.Config.ConfigPath = cfgPath
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if svc.InotifyActive() {
+		t.Fatal("inotify should be off when use_inotify false")
+	}
+	writeReloadConfig(true)
+	svc.RequestReload()
+	svc.Tick()
+	// On Linux, non-DrvFs source dir should be watchable; on non-Linux stub stays inactive.
+	if svc.Config.UseInotify != true {
+		t.Fatalf("use_inotify=%v after reload", svc.Config.UseInotify)
+	}
+	// Toggle off again.
+	writeReloadConfig(false)
+	svc.RequestReload()
+	svc.Tick()
+	if svc.Config.UseInotify {
+		t.Fatal("use_inotify should be false after second reload")
+	}
+	if svc.InotifyActive() {
+		t.Fatal("inotify should stop when use_inotify false")
+	}
+}
+
+func TestHandleRequestReloadSchedules(t *testing.T) {
+	svc, _ := testService(t)
+	svc.Config.UseInotify = false
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	resp := svc.HandleRequest(map[string]any{"op": "reload"})
+	if ok, _ := resp["ok"].(bool); !ok {
+		t.Fatalf("reload: %+v", resp)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if data["reload"] != "scheduled" {
+		t.Fatalf("data=%v", data)
+	}
 }
 
 func TestSortArchivesForIndex(t *testing.T) {

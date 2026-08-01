@@ -84,12 +84,19 @@ func (s *Service) statusOptions(includeSizes bool) status.Options {
 				if m == nil {
 					continue
 				}
-				live[id] = status.LiveMount{
+				skips := m.NestedSkips()
+				skipSum := mounter.FormatNestedSkipSummary(skips, mounter.DefaultNestedSkipSamples)
+				lm := status.LiveMount{
 					PID:          m.PID,
 					Phase:        string(m.Phase),
 					IsFirstIndex: m.IsFirstIndex,
 				}
-				// Prefer live PID/path when present.
+				if len(skips) > 0 {
+					lm.NestedSkipsCount = len(skips)
+					lm.NestedSkipsSummary = skipSum
+				}
+				live[id] = lm
+				// Prefer live PID/path when present; attach nested skip fields.
 				if a, ok := byID[id]; ok {
 					pid := int64(m.PID)
 					a.MountPID = &pid
@@ -97,8 +104,27 @@ func (s *Service) statusOptions(includeSizes bool) status.Options {
 						mp := m.Request.MountPath
 						a.MountPath = &mp
 					}
+					if len(skips) > 0 {
+						n := len(skips)
+						a.NestedSkipsCount = &n
+						a.NestedSkipsSummary = skipSum
+					}
 				}
 			}
+		}
+	}
+	// Persist-derived fallback: last_error may hold pure skip summary (mounted)
+	// or failure reason + "; skipped N …" when live entry is gone.
+	for _, a := range archives {
+		if a == nil || a.NestedSkipsCount != nil {
+			continue
+		}
+		if a.LastError == nil {
+			continue
+		}
+		if sum, n := mounter.ExtractNestedSkipSummary(*a.LastError); n > 0 {
+			a.NestedSkipsCount = &n
+			a.NestedSkipsSummary = sum
 		}
 	}
 

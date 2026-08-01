@@ -72,6 +72,98 @@ func TestEnrichReasonWithNestedSkips(t *testing.T) {
 	}
 }
 
+func TestExtractNestedSkipSummary(t *testing.T) {
+	t.Parallel()
+	sum, n := mounter.ExtractNestedSkipSummary("")
+	if sum != "" || n != 0 {
+		t.Fatalf("empty: %q %d", sum, n)
+	}
+	sum, n = mounter.ExtractNestedSkipSummary("engine exit 1")
+	if sum != "" || n != 0 {
+		t.Fatalf("no skip: %q %d", sum, n)
+	}
+	pure := "skipped 2 nested mounts: /a.7z, /b.7z"
+	sum, n = mounter.ExtractNestedSkipSummary(pure)
+	if n != 2 || sum != pure {
+		t.Fatalf("pure: sum=%q n=%d", sum, n)
+	}
+	enriched := "ratarmount exited; " + pure
+	sum, n = mounter.ExtractNestedSkipSummary(enriched)
+	if n != 2 || sum != pure {
+		t.Fatalf("enriched: sum=%q n=%d", sum, n)
+	}
+	one := "skipped 1 nested mount: /x.7z"
+	sum, n = mounter.ExtractNestedSkipSummary(one)
+	if n != 1 || sum != one {
+		t.Fatalf("one: sum=%q n=%d", sum, n)
+	}
+	if !mounter.IsNestedSkipOnlyLastError(pure) {
+		t.Fatal("expected pure summary only")
+	}
+	if mounter.IsNestedSkipOnlyLastError(enriched) {
+		t.Fatal("enriched should not be skip-only")
+	}
+	if mounter.IsNestedSkipOnlyLastError("boom") {
+		t.Fatal("plain error is not skip-only")
+	}
+}
+
+func TestMarkMounted_PersistsNestedSkipSummaryInLastError(t *testing.T) {
+	cfg, store, tmp := testEngineConfig(t)
+	archive := filepath.Join(tmp, "a.tar.gz")
+	if err := os.WriteFile(archive, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := insertArchive(t, store, archive)
+
+	eng := mounter.NewEngine(cfg, store)
+	rec, err := store.Transition(rec.ArchiveID, state.StatusMounting, state.StatusDiscovered, map[string]any{
+		"mount_path": filepath.Join(cfg.MountRoot, "m"),
+		"index_path": filepath.Join(cfg.IndexDir, "i.sqlite"),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	managed := &mounter.ManagedMount{
+		ArchiveID: rec.ArchiveID,
+		Phase:     mounter.PhaseMount,
+		PID:       4242,
+		Request: mounter.MountRequest{
+			ArchivePath:  archive,
+			IndexPath:    filepath.Join(cfg.IndexDir, "i.sqlite"),
+			MountPath:    filepath.Join(cfg.MountRoot, "m"),
+			MountBackend: "rust",
+		},
+		StartedAt: time.Now(),
+	}
+	managed.NoteNestedSkip("/inner/broken.7z")
+	managed.NoteNestedSkip("/inner/also.7z")
+	eng.Live.Put(managed)
+
+	updated, err := eng.MarkMounted(rec.ArchiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != state.StatusMounted {
+		t.Fatalf("status=%s", updated.Status)
+	}
+	if updated.LastError == nil {
+		t.Fatal("expected last_error with nested skip summary on mounted success")
+	}
+	le := *updated.LastError
+	if !strings.Contains(le, "skipped 2 nested mounts") {
+		t.Fatalf("last_error=%q", le)
+	}
+	if !strings.Contains(le, "/inner/broken.7z") {
+		t.Fatalf("missing sample path: %q", le)
+	}
+	// Live entry kept for FUSE child.
+	if eng.Live.Get(rec.ArchiveID) == nil {
+		t.Fatal("expected live mount retained after MarkMounted")
+	}
+}
+
 func TestDrainRatarmountStderr_FakeLines(t *testing.T) {
 	t.Parallel()
 	// Synthetic stderr (no FUSE / no real ratarmount).

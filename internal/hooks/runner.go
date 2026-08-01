@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hilather/mount-wrapper/internal/config"
+	"github.com/hilather/mount-wrapper/internal/mounter"
 	"github.com/hilather/mount-wrapper/internal/state"
 )
 
@@ -466,15 +467,28 @@ func (r *Runner) finishSuccess(rec *state.ArchiveRecord, results []RunResult) (*
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ts := state.UTCNowISO()
+	fields := map[string]any{
+		"hooks_status":       state.HooksSuccess,
+		"hooks_completed_at": ts,
+		"last_error":         nil,
+	}
+	// Preserve nested-automount skip advisory on last_error (mounted success path).
+	// Re-read store so we do not wipe a summary written after this cycle started.
+	if r.Store != nil {
+		if cur, err := r.Store.GetArchive(rec.ArchiveID); err == nil && cur != nil &&
+			cur.LastError != nil && mounter.IsNestedSkipOnlyLastError(*cur.LastError) {
+			fields["last_error"] = *cur.LastError
+		} else if rec.LastError != nil && mounter.IsNestedSkipOnlyLastError(*rec.LastError) {
+			fields["last_error"] = *rec.LastError
+		}
+	} else if rec.LastError != nil && mounter.IsNestedSkipOnlyLastError(*rec.LastError) {
+		fields["last_error"] = *rec.LastError
+	}
 	updated, err := r.Store.Transition(
 		rec.ArchiveID,
 		state.StatusMounted,
 		[]string{state.StatusHooksRunning, state.StatusMounted},
-		map[string]any{
-			"hooks_status":       state.HooksSuccess,
-			"hooks_completed_at": ts,
-			"last_error":         nil,
-		},
+		fields,
 		"",
 	)
 	if err != nil {

@@ -88,6 +88,9 @@ func formatStatusHuman(data any) string {
 			}
 			if errMsg := anyString(a["last_error"], ""); errMsg != "" {
 				line += "  err=" + errMsg
+			} else if sum := anyString(a["nested_skips_summary"], ""); sum != "" {
+				// Mounted success may only expose nested_skips_* when last_error was cleared.
+				line += "  nested=" + sum
 			}
 			b.WriteString(line + "\n")
 		}

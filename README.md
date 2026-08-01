@@ -42,6 +42,7 @@ make build
 # ./bin/mount-wrapper unmount --all
 # ./bin/mount-wrapper purge ARCHIVE_ID --yes
 # ./bin/mount-wrapper hooks list
+# ./bin/mount-wrapper reload
 
 # SPA (HMR; proxies /api → :8787 when daemon is up)
 make web-install
@@ -91,7 +92,7 @@ testdata/              fixtures
 
 - Schema `version: 1`; full key inventory in [TODO.md Appendix D](./TODO.md)
 - Load/validate: `internal/config` (`Load`, `LoadText`, `FromMap`, atomic write, patch + dry-run)
-- Hot-reload vs restart-required classification for API/CLI later
+- Hot-reload vs restart-required classification (`HotReloadKeys` / `RestartRequiredKeys`); `log_level` + inotify re-sync on reload; `web_enabled`/`web_token` restart-required
 - Examples: `packaging/examples/config.yaml.example`, `config.yaml.macos.example`, `config.debug.yaml.example`
 - Escape hatch for broken peercred: env `MOUNT_WRAPPER_CONTROL_ALLOW_UNAUTH` (default off)
 
@@ -136,7 +137,8 @@ testdata/              fixtures
 
 - `internal/service`: `Start` / `Run` / `Tick` / `Shutdown`, pidfile flock, SIGTERM/SIGINT/SIGHUP, boot remount, scan/reconcile/clean/progress/work/hooks; `NotifyChange` for SSE push wake
 - Control socket bound at start when `control_socket` set; each tick calls `ServeReady`; handler is `HandleRequest`
-- CLI (Phase 7.2): full operator surface — offline `doctor`, `config show --local`, `config set` (dry-run / offline write; socket when serve up); socket-backed `status`, `metrics`, `rescan`, `retry`, `mount`, `unmount`, `purge`, `hooks`; `serve`; platform default config path (Linux `/etc/…`, macOS Application Support)
+- CLI (Phase 7.2): full operator surface — offline `doctor`, `config show --local`, `config set` (dry-run / offline write; socket when serve up); socket-backed `status`, `metrics`, `rescan`, `retry`, `mount`, `unmount`, `purge`, `hooks`, `reload`; `serve`; platform default config path (Linux `/etc/…`, macOS Application Support)
+- Reload: `log_level` → slog (`MOUNT_WRAPPER_LOG_LEVEL` env override); inotify re-sync on `use_inotify`/`source_dirs`; `web_enabled`/`web_token`/`web_host`/`web_port` require process restart
 - Socket client: `control.Client` (JSON-lines) used by CLI socket-backed commands
 
 ### Doctor (Phase 8 library + CLI)

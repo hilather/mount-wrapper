@@ -67,7 +67,7 @@ func TestHelp(t *testing.T) {
 	}
 	for _, cmd := range []string{
 		"serve", "doctor", "config", "status", "metrics", "rescan",
-		"retry", "mount", "unmount", "purge", "hooks", "version",
+		"retry", "mount", "unmount", "purge", "hooks", "reload", "version",
 	} {
 		if !strings.Contains(out, cmd) {
 			t.Fatalf("help should list %q: %q", cmd, out)

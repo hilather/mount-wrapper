@@ -3,6 +3,7 @@ package service
 import (
 	"log/slog"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -265,6 +266,9 @@ func (s *Service) Start() error {
 	}
 	s.mu.Unlock()
 
+	// slog level before boot logs; env MOUNT_WRAPPER_LOG_LEVEL overrides config.
+	s.applyLogging()
+
 	if !s.skipPidfile {
 		if err := s.pidfile.Acquire(); err != nil {
 			return err
@@ -315,17 +319,7 @@ func (s *Service) Start() error {
 		s.control = srv
 	}
 
-	if s.Config.UseInotify {
-		s.inotify = scanner.NewInotifyWatcher()
-		var dirs []string
-		for _, pair := range s.Scanner.MappedSources() {
-			dirs = append(dirs, pair[1])
-		}
-		watched := s.inotify.Start(dirs)
-		if len(watched) > 0 {
-			slog.Info("inotify active", "paths", len(watched))
-		}
-	}
+	s.syncInotify()
 
 	if result, err := s.Reconciler.Boot(); err != nil {
 		slog.Warn("boot remount", "err", err)
@@ -446,6 +440,61 @@ func (s *Service) RequestReload() {
 	s.mu.Lock()
 	s.reloadRequested = true
 	s.mu.Unlock()
+}
+
+// applyLogging sets slog from config log_level, with MOUNT_WRAPPER_LOG_LEVEL
+// env override when set and valid.
+func (s *Service) applyLogging() {
+	if s == nil {
+		return
+	}
+	invalidEnv := config.EnvLogLevelInvalid()
+	invalidVal := ""
+	if invalidEnv {
+		invalidVal = os.Getenv(config.LogLevelEnv)
+	}
+	applied := config.ApplyEffectiveLogLevel(s.Config)
+	if invalidEnv {
+		slog.Warn("ignoring invalid "+config.LogLevelEnv, "value", invalidVal)
+	}
+	slog.Info("log level applied", "level", applied)
+}
+
+// syncInotify restarts or stops the Linux inotify watcher from the current
+// config and mapped source dirs. Poll remains authoritative; inotify is a hint.
+func (s *Service) syncInotify() {
+	if s == nil {
+		return
+	}
+	if s.inotify != nil {
+		s.inotify.Close()
+		s.inotify = nil
+	}
+	if s.Config == nil || !s.Config.UseInotify {
+		return
+	}
+	s.inotify = scanner.NewInotifyWatcher()
+	var dirs []string
+	if s.Scanner != nil {
+		for _, pair := range s.Scanner.MappedSources() {
+			dirs = append(dirs, pair[1])
+		}
+	}
+	watched := s.inotify.Start(dirs)
+	if len(watched) > 0 {
+		slog.Info("inotify active", "paths", len(watched))
+	} else if !s.inotify.Active() {
+		// Start closed the watcher when nothing watchable (e.g. all DrvFs).
+		s.inotify = nil
+	}
+}
+
+// InotifyActive reports whether an inotify watcher is currently open (tests).
+func (s *Service) InotifyActive() bool {
+	if s == nil || s.inotify == nil {
+		return false
+	}
+	return s.inotify.Active()
 }
 
 // Shutdown unmounts live work, closes watchers, control socket, releases pidfile, closes store.

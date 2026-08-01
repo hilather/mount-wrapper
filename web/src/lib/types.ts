@@ -68,6 +68,9 @@ export interface ArchiveRow {
   is_first_index?: boolean | null
   mount_phase?: string
   is_mounted?: boolean | null
+  /** Nested automount skips from ratarmount-rs (count > 0 when present). */
+  nested_skips_count?: number | null
+  nested_skips_summary?: string | null
   metrics?: ArchiveMetrics | null
 }
 
@@ -109,6 +112,31 @@ export interface StatusSnapshot extends ArchivesPayload {
   ok?: boolean
   error?: unknown
   generated_at?: string
+  metrics_summary?: MetricsSummary | null
+}
+
+/** SSE event: `archive` — fine-grained row patch (server ArchiveEventPayload). */
+export interface ArchiveSSEEvent {
+  archives?: ArchiveRow[]
+  removed_ids?: string[]
+}
+
+/** SSE event: `scan` — last_scan_at moved. */
+export interface ScanSSEEvent {
+  last_scan_at?: string
+  last_scan?: unknown
+  last_scan_duration_ms?: number
+}
+
+/** SSE event: `low_disk` — boolean edge (+ optional free/min bytes). */
+export interface LowDiskSSEEvent {
+  low_disk?: boolean
+  disk_free_bytes?: number
+  min_free_bytes?: number
+}
+
+/** SSE event: `metrics` — metrics_summary when include_sizes path changes. */
+export interface MetricsSSEEvent {
   metrics_summary?: MetricsSummary | null
 }
 

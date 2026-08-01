@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -80,6 +81,48 @@ func EnrichReasonWithNestedSkips(reason string, paths []string) string {
 		return sum
 	}
 	return reason + "; " + sum
+}
+
+// nestedSkipSummaryRE matches FormatNestedSkipSummary output (optionally as a
+// trailing "; skipped N …" segment of a richer last_error).
+var nestedSkipSummaryRE = regexp.MustCompile(`^skipped (\d+) nested mounts?(?:: .+)?$`)
+
+// ExtractNestedSkipSummary finds a nested-skip summary in last_error text.
+// Returns the summary segment and parsed count, or ("", 0) when absent.
+//
+// Handles pure summaries ("skipped 2 nested mounts: /a, /b") and enriched
+// failures ("engine exit 1; skipped 2 nested mounts: /a, /b").
+func ExtractNestedSkipSummary(lastError string) (summary string, count int) {
+	text := strings.TrimSpace(lastError)
+	if text == "" {
+		return "", 0
+	}
+	// Prefer the last "skipped … nested mount" segment (after optional "; ").
+	idx := strings.LastIndex(text, "skipped ")
+	if idx < 0 {
+		return "", 0
+	}
+	candidate := strings.TrimSpace(text[idx:])
+	m := nestedSkipSummaryRE.FindStringSubmatch(candidate)
+	if m == nil {
+		return "", 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n <= 0 {
+		return "", 0
+	}
+	return candidate, n
+}
+
+// IsNestedSkipOnlyLastError reports whether last_error is solely a nested-skip
+// advisory (no failure reason prefix). Used so hooks success does not wipe the
+// operator-visible skip summary on mounted archives.
+func IsNestedSkipOnlyLastError(lastError string) bool {
+	text := strings.TrimSpace(lastError)
+	if text == "" {
+		return false
+	}
+	return nestedSkipSummaryRE.MatchString(text)
 }
 
 // DrainRatarmountStderr reads child stderr line-by-line until EOF, recording

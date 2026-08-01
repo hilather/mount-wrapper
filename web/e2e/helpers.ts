@@ -61,7 +61,7 @@ export const MOCK_HOT_RELOAD_KEYS = [
   'source_dirs',
   'recursive',
   'name_regex',
-  'web_enabled',
+  'use_inotify',
 ]
 
 export const MOCK_RESTART_REQUIRED_KEYS = [
@@ -75,6 +75,10 @@ export const MOCK_RESTART_REQUIRED_KEYS = [
   'windows_visible',
   'mount_backend',
   'ratarmount_bin',
+  'web_enabled',
+  'web_token',
+  'web_host',
+  'web_port',
 ]
 
 /** Sample archive rows for table / action e2e (mounted + mount_failed). */

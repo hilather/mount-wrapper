@@ -272,6 +272,32 @@ func runPurge(args []string, stdout, stderr io.Writer) int {
 	return ExitOK
 }
 
+func runReload(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("reload", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var configFlag, socketFlag string
+	addConfigSocketFlags(fs, &configFlag, &socketFlag)
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return ExitOK
+		}
+		return ExitUsage
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "unexpected arguments: %s\n", strings.Join(fs.Args(), " "))
+		return ExitUsage
+	}
+	data, code := requestOK(configFlag, socketFlag, "reload", nil, stderr)
+	if code != ExitOK {
+		return code
+	}
+	if err := printJSON(stdout, data); err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return ExitError
+	}
+	return ExitOK
+}
+
 func runHooks(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: mount-wrapper hooks <list|status> …")

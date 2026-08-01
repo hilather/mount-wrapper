@@ -202,6 +202,27 @@ func TestClassifyChanges_hotVsRestart(t *testing.T) {
 	if _, ok := RestartRequiredKeys["mount_root"]; !ok {
 		t.Fatal("mount_root should be restart required")
 	}
+	// web_enabled / web_token bind and auth at serve start — restart-required.
+	if _, ok := HotReloadKeys["web_enabled"]; ok {
+		t.Fatal("web_enabled must not be hot-reload")
+	}
+	if _, ok := HotReloadKeys["web_token"]; ok {
+		t.Fatal("web_token must not be hot-reload")
+	}
+	if _, ok := RestartRequiredKeys["web_enabled"]; !ok {
+		t.Fatal("web_enabled should be restart required")
+	}
+	if _, ok := RestartRequiredKeys["web_token"]; !ok {
+		t.Fatal("web_token should be restart required")
+	}
+	webNew := testCfg(t, map[string]any{"web_token": "secret", "web_enabled": true})
+	_, hot2, restart2 := ClassifyChanges(old, webNew)
+	if has(hot2, "web_token") || has(hot2, "web_enabled") {
+		t.Fatalf("web keys should not be hot: hot=%v", hot2)
+	}
+	if !has(restart2, "web_token") || !has(restart2, "web_enabled") {
+		t.Fatalf("web keys should be restart: restart=%v", restart2)
+	}
 }
 
 func TestWriteFile_atomic(t *testing.T) {

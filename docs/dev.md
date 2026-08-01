@@ -42,6 +42,7 @@ make build
 # ./bin/mount-wrapper doctor --config packaging/examples/config.yaml.example --json
 # ./bin/mount-wrapper config show --local --config packaging/examples/config.yaml.example
 # ./bin/mount-wrapper config set --config … --patch --json '{"log_level":"DEBUG"}' --dry-run
+# ./bin/mount-wrapper reload --config …   # or SIGHUP; applies log_level + hot keys
 
 # Serve one tick (loads config, opens state DB, scan/reconcile/work once, exits)
 # Use a writable debug config with source_dirs / state_db under /tmp or a project path.
@@ -100,7 +101,8 @@ make build
 | `lib/api.ts` | `fetchJson` + typed helpers; Bearer from `__MOUNT_WRAPPER_TOKEN__` |
 | `lib/api-types.ts` | D11 typed API surface (re-exports from `types.ts`; not OpenAPI codegen) |
 | `lib/types.ts` | Hand-written request/response shapes (aligned with [openapi.yaml](./openapi.yaml) schemas) |
-| `lib/sse.ts` | EventSource client, exponential backoff reconnect |
+| `lib/sse.ts` | EventSource client (all SSE named events), exponential backoff reconnect |
+| `lib/merge.ts` | Archive row merge / fine-grained SSE patch (preserve metrics) |
 | `lib/format.ts` | Bytes / duration / status labels |
 | `lib/settings-schema.ts` | Public config field groups (Settings form) |
 | `lib/stores/app.svelte.ts` | Shared runes state (archives, connection, toasts) |

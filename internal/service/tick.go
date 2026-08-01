@@ -125,13 +125,9 @@ func (s *Service) doReload() {
 		path = s.Config.ConfigPath
 	}
 	if path == "" {
-		slog.Warn("reload ignored: no config_path")
-		// Still rematerialize scanner sources from current in-memory config.
-		if s.Scanner != nil {
-			if err := s.Scanner.ReloadSources(); err != nil {
-				slog.Warn("reload sources failed", "err", err)
-			}
-		}
+		slog.Warn("reload: no config_path; applying in-memory config only")
+		// Still rematerialize from current in-memory config (e.g. tests).
+		s.applyReloadedConfig(s.Config)
 		return
 	}
 	newCfg, err := config.Load(path)
@@ -139,33 +135,52 @@ func (s *Service) doReload() {
 		slog.Error("reload failed", "err", err)
 		return
 	}
-	s.Config = newCfg
+	// Keep pointer identity when Engine/Scanner/Cleaner already hold *Config
+	// (config_set path). Otherwise replace the service pointer (file reload).
+	if s.Config != nil {
+		*s.Config = *newCfg
+		newCfg = s.Config
+	} else {
+		s.Config = newCfg
+	}
+	s.applyReloadedConfig(newCfg)
+	slog.Info("config reloaded", "path", path)
+}
+
+// applyReloadedConfig pushes cfg into subsystems, applies log level, and
+// restarts/stops inotify. cfg should be the effective *Config (usually s.Config).
+func (s *Service) applyReloadedConfig(cfg *config.Config) {
+	if s == nil || cfg == nil {
+		return
+	}
+	s.applyLogging()
 	if s.Scanner != nil {
-		s.Scanner.Config = newCfg
+		s.Scanner.Config = cfg
 		if err := s.Scanner.ReloadSources(); err != nil {
 			slog.Warn("reload sources failed", "err", err)
 		}
 	}
 	if s.Engine != nil {
-		s.Engine.Config = newCfg
+		s.Engine.Config = cfg
 		// Re-bind best-effort flatten probe when still default/nil (tests that
 		// inject a custom NeedsFlatten keep it across reload).
 		if s.Engine.NeedsFlatten == nil {
-			s.Engine.NeedsFlatten = convert.DefaultFlattenNeeded(newCfg, s.Engine.ConvertOpts, nil)
+			s.Engine.NeedsFlatten = convert.DefaultFlattenNeeded(cfg, s.Engine.ConvertOpts, nil)
 		}
 	}
 	if s.Hooks != nil {
-		s.Hooks.Config = newCfg
+		s.Hooks.Config = cfg
 	}
 	if s.Cleaner != nil {
-		s.Cleaner.Config = newCfg
+		s.Cleaner.Config = cfg
 	}
 	if s.Reconciler != nil {
-		// Push hot-reloadable reconcile settings.
-		s.Reconciler.Settings.MountReadyTimeoutSeconds = newCfg.MountReadyTimeoutSeconds
-		s.Reconciler.Settings.MaxMountAttempts = newCfg.MaxMountAttempts
+		// Push hot-reloadable reconcile settings (not a *Config field).
+		s.Reconciler.Settings.MountReadyTimeoutSeconds = cfg.MountReadyTimeoutSeconds
+		s.Reconciler.Settings.MaxMountAttempts = cfg.MaxMountAttempts
 	}
-	slog.Info("config reloaded", "path", path)
+	// Restart/stop inotify when use_inotify or mapped source_dirs change.
+	s.syncInotify()
 }
 
 func (s *Service) doScan(assumeStable bool) map[string]any {

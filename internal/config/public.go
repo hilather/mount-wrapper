@@ -5,7 +5,8 @@ import (
 )
 
 // HotReloadKeys are public YAML keys that can be applied without process restart.
-// Copied from upstream config_io.HOT_RELOAD_KEYS (+ web_enabled / web_token).
+// Copied from upstream config_io.HOT_RELOAD_KEYS. web_enabled / web_token are
+// restart-required: the HTTP server binds and captures token at serve start.
 var HotReloadKeys = map[string]struct{}{
 	"log_level":                               {},
 	"poll_interval_seconds":                   {},
@@ -81,11 +82,10 @@ var HotReloadKeys = map[string]struct{}{
 	"archiveconverter_extra_args":             {},
 	"archiveconverter_overhead_bytes":         {},
 	"archiveconverter_timeout_seconds":        {},
-	"web_enabled":                             {},
-	"web_token":                               {},
 }
 
 // RestartRequiredKeys require a process restart to take effect.
+// web_enabled / web_token: HTTP listener and auth close over start-time values.
 var RestartRequiredKeys = map[string]struct{}{
 	"mount_root":                  {},
 	"index_dir":                   {},
@@ -102,6 +102,8 @@ var RestartRequiredKeys = map[string]struct{}{
 	"archiveconverter_output_dir": {},
 	"web_host":                    {},
 	"web_port":                    {},
+	"web_enabled":                 {},
+	"web_token":                   {},
 }
 
 // PublicKeys returns the sorted public YAML/API key names from an empty

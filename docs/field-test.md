@@ -58,6 +58,20 @@ With `web_enabled: true`:
 - Rescan / Doctor panel
 - Settings validate dry-run
 
+### Nested automount skips (operator surface)
+
+When a mounted outer archive has nested members ratarmount-rs skipped:
+
+- Status JSON / SSE archive row: `nested_skips_count`, `nested_skips_summary` (and often `last_error` = pure summary on mounted success)
+- SPA Archives: warn chip (`N nested skip(s)`) + subtitle under status for **mounted** rows; failed rows show full `last_error` (enriched with skip segment when present)
+- Logs: `event=nested_archive_skipped` per path; `event=index_nested_skipped` summary
+
+Quick check:
+
+```bash
+curl -sS http://127.0.0.1:8787/api/status | jq '.archives[] | select(.nested_skips_count != null) | {archive_basename, status, nested_skips_count, nested_skips_summary, last_error}'
+```
+
 Prometheus: `curl -sS http://127.0.0.1:8787/metrics | head`
 
 ## File bugs for v0.1.2

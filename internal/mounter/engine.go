@@ -686,11 +686,17 @@ func (e *Engine) MarkMounted(archiveID string) (*state.ArchiveRecord, error) {
 		return nil, mounterErrorf("unknown archive_id=%s", archiveID)
 	}
 
+	// last_error cleared on clean mount; when nested automounts were skipped,
+	// persist the skip summary so status/SPA can warn operators (no schema migration).
 	fields := map[string]any{"last_error": nil}
 	if managed != nil {
 		// Drain may still be reading automount skips while FUSE is up.
 		managed.WaitStderrDrain(time.Second)
-		LogNestedSkipSummary(archiveID, managed.NestedSkips())
+		skips := managed.NestedSkips()
+		LogNestedSkipSummary(archiveID, skips)
+		if sum := FormatNestedSkipSummary(skips, DefaultNestedSkipSamples); sum != "" {
+			fields["last_error"] = sum
+		}
 
 		pid := int64(managed.PID)
 		fields["mount_pid"] = pid
@@ -713,7 +719,6 @@ func (e *Engine) MarkMounted(archiveID string) (*state.ArchiveRecord, error) {
 
 	// Keep live entry after mounted so unmount can still signal the FUSE process.
 	// Python keeps process alive under mounted status with mount_pid set.
-	// Nested skips on a successful mount are logged only (last_error cleared).
 	updated, err := e.Store.Transition(
 		archiveID,
 		state.StatusMounted,

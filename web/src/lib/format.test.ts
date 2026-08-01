@@ -5,8 +5,11 @@ import {
   formatConvertDelta,
   formatDuration,
   formatDurationCell,
+  formatNestedSkipsChip,
+  formatNestedSkipsSubtitle,
   formatOriginalSize,
   formatStatusLabel,
+  hasNestedSkips,
   isFailedStatus,
   isInProgressStatus,
 } from './format'
@@ -120,5 +123,33 @@ describe('status helpers', () => {
     expect(isInProgressStatus('mounted')).toBe(false)
     expect(isFailedStatus('mount_failed')).toBe(true)
     expect(isFailedStatus('mounted')).toBe(false)
+  })
+})
+
+describe('nested skips display', () => {
+  it('hasNestedSkips', () => {
+    expect(hasNestedSkips(null)).toBe(false)
+    expect(hasNestedSkips({})).toBe(false)
+    expect(hasNestedSkips({ nested_skips_count: 0 })).toBe(false)
+    expect(hasNestedSkips({ nested_skips_count: 2 })).toBe(true)
+    expect(hasNestedSkips({ nested_skips_summary: 'skipped 1 nested mount: /a' })).toBe(true)
+  })
+
+  it('formatNestedSkipsChip', () => {
+    expect(formatNestedSkipsChip(null)).toBeNull()
+    expect(formatNestedSkipsChip(0)).toBeNull()
+    expect(formatNestedSkipsChip(1)).toBe('1 nested skip')
+    expect(formatNestedSkipsChip(3)).toBe('3 nested skips')
+  })
+
+  it('formatNestedSkipsSubtitle prefers summary', () => {
+    expect(
+      formatNestedSkipsSubtitle({
+        nested_skips_count: 2,
+        nested_skips_summary: 'skipped 2 nested mounts: /a.7z, /b.7z',
+      }),
+    ).toBe('skipped 2 nested mounts: /a.7z, /b.7z')
+    expect(formatNestedSkipsSubtitle({ nested_skips_count: 1 })).toBe('1 nested skip')
+    expect(formatNestedSkipsSubtitle({})).toBeNull()
   })
 })

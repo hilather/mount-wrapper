@@ -115,6 +115,8 @@ func TestPackagingArtifacts(t *testing.T) {
 			rel: "packaging/env.example",
 			contains: []string{
 				"PATH=",
+				"MOUNT_WRAPPER_CONTROL_ALLOW_UNAUTH",
+				"MOUNT_WRAPPER_LOG_LEVEL",
 			},
 		},
 		{
@@ -232,6 +234,8 @@ func TestPackagingArtifacts(t *testing.T) {
 				"doctor",
 				"config",
 				"status",
+				"reload",
+				"MOUNT_WRAPPER_LOG_LEVEL",
 			},
 		},
 		{

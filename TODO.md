@@ -174,7 +174,7 @@ CLI ──────UDS JSON────► same process
 - [x] Unmount sequence: SIGTERM group → wait → fusermount → lazy
 - [x] Windows visibility / parent dir traverse notes (Linux `o+x` parents) — `docs/architecture.md` + `mounter` package doc; packaging `create-user.sh` o+x; no runtime chmod of arbitrary parents
 - [x] Refuse indexes under DrvFs unless `allow_indexes_on_drvfs`
-- [x] Nested mount failure parsing / skip summary (line parse + stderr drain on Engine spawn; `last_error` enrichment on MarkFailed; summary log on mount/index complete)
+- [x] Nested mount failure parsing / skip summary (line parse + stderr drain on Engine spawn; `last_error` enrichment on MarkFailed; pure skip summary in `last_error` + `nested_skips_count`/`nested_skips_summary` on status/SPA for mounted success; summary log on mount/index complete)
 - [x] `mount` / `unmount` / `unmount --all` / `retry` ops (via `Service.HandleRequest`; CLI socket clients later)
 - [x] Note: `recursive_mount` applies at **index build** only; config change needs re-index
 

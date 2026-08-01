@@ -45,6 +45,22 @@ func ArchiveToDict(rec *ArchiveInput, now float64, live map[string]LiveMount, pi
 		d.IsMounted = &mounted
 	}
 
+	// Nested skip fields: prefer ArchiveInput (service may pre-fill from live or
+	// last_error), then live map, then last_error-derived values set on input.
+	if rec.NestedSkipsCount != nil && *rec.NestedSkipsCount > 0 {
+		n := *rec.NestedSkipsCount
+		d.NestedSkipsCount = &n
+		d.NestedSkipsSummary = rec.NestedSkipsSummary
+	}
+	lm, hasLive := live[rec.ArchiveID]
+	if hasLive && lm.NestedSkipsCount > 0 {
+		n := lm.NestedSkipsCount
+		d.NestedSkipsCount = &n
+		if lm.NestedSkipsSummary != "" {
+			d.NestedSkipsSummary = lm.NestedSkipsSummary
+		}
+	}
+
 	if isInProgress(rec.Status) {
 		started := ""
 		if rec.IndexStartedAt != nil {
@@ -54,7 +70,6 @@ func ArchiveToDict(rec *ArchiveInput, now float64, live map[string]LiveMount, pi
 			r := Round1(*elapsed)
 			d.ElapsedS = &r
 		}
-		lm, hasLive := live[rec.ArchiveID]
 		d.ProgressLabel = progressLabel(rec.Status, lm, hasLive)
 		if hasLive {
 			pid := lm.PID

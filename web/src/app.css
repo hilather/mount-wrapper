@@ -523,6 +523,16 @@ table.archives tbody tr.row-failed {
   color: var(--bad);
 }
 
+.status-chip.nested-skips {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 15%, var(--badge));
+  margin-left: 0.25rem;
+}
+
+.path-sub.nested-skips-sub {
+  color: var(--warn);
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;

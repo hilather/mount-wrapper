@@ -60,6 +60,8 @@ func RunWithIO(args []string, info BuildInfo, stdout, stderr io.Writer) int {
 		return runPurge(args[1:], stdout, stderr)
 	case "hooks":
 		return runHooks(args[1:], stdout, stderr)
+	case "reload":
+		return runReload(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
 		printUsage(stderr)
@@ -135,6 +137,7 @@ Commands:
   unmount TARGET|--all Unmount managed archive(s) (requires serve)
   purge ARCHIVE_ID     Purge state/index/overlay (requires --yes; serve)
   hooks list|status    Inspect first-mount hooks (requires serve)
+  reload               Reload config from disk (SIGHUP equivalent; serve)
 
 Common flags:
   --config, -c PATH    Config YAML (default: %s)

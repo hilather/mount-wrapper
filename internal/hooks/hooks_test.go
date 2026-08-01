@@ -402,6 +402,38 @@ exit 0
 	}
 }
 
+func TestRunnerSuccessPreservesNestedSkipLastError(t *testing.T) {
+	// Mounted success may store pure nested-skip summary in last_error; hooks
+	// success must not wipe that operator advisory.
+	tmp := t.TempDir()
+	hd := filepath.Join(tmp, "hooks.d")
+	// Empty hooks.d → finishSuccess with no scripts.
+	if err := os.MkdirAll(hd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := openStore(t)
+	rec := mountedArchive(t, store, tmp)
+	advisory := "skipped 2 nested mounts: /a.7z, /b.7z"
+	if _, err := store.Transition(rec.ArchiveID, state.StatusMounted, state.StatusMounted, map[string]any{
+		"last_error": advisory,
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	pol := testPolicy()
+	runner := hooks.NewRunner(cfg(t, tmp, hd, nil), store, &pol)
+	result, err := runner.RunForArchive(rec.ArchiveID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Ran || result.HooksStatus != state.HooksSuccess {
+		t.Fatalf("result=%+v", result)
+	}
+	rec2, _ := store.GetArchive(rec.ArchiveID)
+	if rec2.LastError == nil || *rec2.LastError != advisory {
+		t.Fatalf("expected nested-skip last_error preserved, got %v", rec2.LastError)
+	}
+}
+
 func TestRunnerHardFailStopsAndSkips(t *testing.T) {
 	tmp := t.TempDir()
 	hd := filepath.Join(tmp, "hooks.d")

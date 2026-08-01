@@ -8,6 +8,10 @@ type LiveMount struct {
 	PID          int
 	Phase        string
 	IsFirstIndex bool
+	// NestedSkipsCount / NestedSkipsSummary are set when the live child recorded
+	// ratarmount nested automount skips (optional; also derived from last_error).
+	NestedSkipsCount   int
+	NestedSkipsSummary string
 }
 
 // Options configures Build. Archives are typically from state.Store.ListArchives.
@@ -83,6 +87,10 @@ type ArchiveInput struct {
 	MountDurationSeconds   *float64
 	ConvertSourceSizeBytes *int64
 	ConvertDurationSeconds *float64
+	// NestedSkipsCount / NestedSkipsSummary optional operator diagnostics
+	// (from live ManagedMount and/or last_error nested-skip advisory).
+	NestedSkipsCount   *int
+	NestedSkipsSummary string
 }
 
 // MetricsProvider is the subset of metrics.MetricsCollector used for include_sizes.
@@ -163,6 +171,11 @@ type ArchiveDict struct {
 
 	// IsMounted is set only when Options.IsMount is non-nil.
 	IsMounted *bool `json:"is_mounted,omitempty"`
+
+	// Nested automount skips (ratarmount-rs). Present when count > 0.
+	// On mounted success, last_error may also hold the same summary (no DB migration).
+	NestedSkipsCount   *int   `json:"nested_skips_count,omitempty"`
+	NestedSkipsSummary string `json:"nested_skips_summary,omitempty"`
 
 	// Metrics is attached when IncludeSizes is true.
 	Metrics *metrics.ArchiveMetrics `json:"metrics,omitempty"`

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Nested automount skips on mounted rows:** when ratarmount-rs skips nested
+  members during a successful mount, status/API expose `nested_skips_count` +
+  `nested_skips_summary` (from live engine state and/or `last_error` summary).
+  SPA Archives shows a warning chip and subtitle; failed rows still enrich
+  `last_error`. No SQLite migration — pure skip summary may be stored in
+  `last_error` on mounted success; hooks success preserves that advisory.
+- **SPA SSE fine-grained events:** client handles `archive` / `scan` / `low_disk` /
+  `metrics` in addition to `snapshot` / `counts` / `heartbeat`. Archive events
+  patch or remove rows by `archive_id` without a full table wipe; merge helpers
+  preserve per-row size metrics when status patches omit them.
+- **Hot-reload / logging apply:** `log_level` is applied to slog at `serve`
+  start and on every config reload; `MOUNT_WRAPPER_LOG_LEVEL` overrides config
+  while set (documented in `packaging/env.example` and the man page).
+- **Inotify re-sync on reload:** `use_inotify` / mapped `source_dirs` changes
+  restart or stop the Linux inotify watcher (poll remains authoritative).
+- **CLI `reload`:** socket-backed equivalent of control `reload` / SIGHUP.
+
+### Changed
+
+- **`web_enabled` / `web_token` are restart-required** (HTTP bind and Bearer
+  token are fixed at serve start). SPA settings schema marks them as restart;
+  API `hot_reload_keys` / `restart_required_keys` updated.
+
 ## [0.1.2] - 2026-08-01
 
 Patch after v0.1.1: convert outer-cache production path, packaging inventory,

@@ -118,6 +118,17 @@ and a running
 .B hooks list|status
 Inspect first-mount hooks (requires
 .BR serve ).
+.TP
+.B reload
+Reload configuration from disk (control
+.B reload
+op / SIGHUP equivalent). Applies hot-reloadable keys such as
+.BR log_level ,
+.BR source_dirs ,
+and
+.BR use_inotify
+(inotify watches are restarted). Requires a running
+.BR serve .
 .SH COMMON OPTIONS
 .TP
 .BR \-c ", " \-\-config " " \fIPATH\fR
@@ -132,8 +143,13 @@ Primary file:
 .I /etc/mount-wrapper/config.yaml
 (Linux FHS). Schema version 1. Hot-reloadable keys apply on
 .B reload
-/ SIGHUP without a full process restart; path and bind keys typically require
-restart. See packaged examples under
+/ SIGHUP without a full process restart;
+.BR web_enabled ,
+.BR web_token ,
+.BR web_host ,
+.BR web_port ,
+and path keys require process restart (HTTP bind and token are fixed at serve start).
+See packaged examples under
 .I /usr/share/mount-wrapper/
 or the source tree
 .IR packaging/examples/ .
@@ -144,9 +160,16 @@ Important security-related keys:
 HTTP API + SPA. Default bind is loopback. Empty
 .B web_token
 means no Bearer auth (acceptable only on trusted loopback).
+Changing any of these four keys requires a process restart.
 When the web server is on,
 .B GET /metrics
 exposes Prometheus text gauges; scrapes on loopback need no token.
+.TP
+.B log_level
+Daemon slog verbosity (DEBUG, INFO, WARNING, ERROR, CRITICAL). Hot-reloaded.
+Overridden while
+.B MOUNT_WRAPPER_LOG_LEVEL
+is set to a valid level.
 .TP
 .B control_socket
 Unix socket path for CLI and local control.
@@ -161,6 +184,15 @@ When set to
 .BR 1 ,
 allows control connections without peer credentials (default off). Prefer
 fix/group socket auth in production.
+.TP
+.B MOUNT_WRAPPER_LOG_LEVEL
+When set to a valid level (DEBUG, INFO, WARNING, ERROR, CRITICAL), overrides
+config
+.B log_level
+for the serve process at start and on each config reload. Invalid values are
+ignored. See
+.I packaging/env.example
+for a sample EnvironmentFile.
 .TP
 .B WSL_DISTRO_NAME
 Used by the HTTP

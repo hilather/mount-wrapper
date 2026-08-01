@@ -602,6 +602,16 @@ components:
         is_first_index: { type: boolean, nullable: true }
         mount_phase: { type: string }
         is_mounted: { type: boolean, nullable: true }
+        nested_skips_count:
+          type: integer
+          description: >
+            Count of nested automount paths skipped by ratarmount-rs during
+            index/mount. Omitted when zero. Surfaced for mounted and failed rows.
+        nested_skips_summary:
+          type: string
+          description: >
+            Human summary (e.g. "skipped 2 nested mounts: /a.7z, /b.7z").
+            On successful mounts may also appear in last_error (no DB column).
         metrics:
           allOf:
             - $ref: "#/components/schemas/ArchiveMetrics"

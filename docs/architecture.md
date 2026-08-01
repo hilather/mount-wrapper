@@ -30,7 +30,7 @@ SPA source lives in `web/`; production assets are copied into `internal/webui/di
 
 | Package | Responsibility |
 |---------|----------------|
-| `internal/config` | YAML schema v1 load/validate, duration parse/format, public snapshot, hot/restart key sets, patch merge, atomic write |
+| `internal/config` | YAML schema v1 load/validate, duration parse/format, public snapshot, hot/restart key sets, patch merge, atomic write, slog `log_level` apply (`MOUNT_WRAPPER_LOG_LEVEL` env override) |
 | `internal/platform` | Host/WSL detection, Linux/macOS path profiles, FUSE probes, unmount argv, peer credentials, `MOUNT_WRAPPER_CONTROL_ALLOW_UNAUTH` |
 | `internal/paths` | Drive-letter → `/mnt/<letter>`, UNC reject, DrvFs detect, mount-name sanitize, service directory creation |
 
@@ -62,7 +62,7 @@ SPA source lives in `web/`; production assets are copied into `internal/webui/di
 | `internal/mounter` | Backend normalize/resolve, ratarmount argv + child env, live registry (`index_only`/`mount`), process-group start/kill/wait, unmount sequence (SIGTERM → fusermount → lazy), partial-index cleanup, concurrent-limit + mount-attempt helpers, DrvFs index refuse, nested-automount stderr drain + skip summary |
 | `internal/mounter.Engine` | Claim + spawn, `CheckChild` / index→mount, mark mounted/failed, convert jobs (async: archiveconverter → zip repack → flatten), relocate (sync v1), `ProgressLive`, `Unmount` |
 
-**Nested automount skips:** while a ratarmount-rs child runs, Engine pipes stderr and parses lines matching `Mounting of '…' failed because of: …`. Paths accumulate on `ManagedMount.SkippedNested`. On failure, `MarkFailed` enriches `last_error` with `skipped N nested mounts: path…` (sample paths). On success / index→mount, a summary is logged (`event=index_nested_skipped`); `last_error` is cleared when mounted.
+**Nested automount skips:** while a ratarmount-rs child runs, Engine pipes stderr and parses lines matching `Mounting of '…' failed because of: …`. Paths accumulate on `ManagedMount.SkippedNested`. On failure, `MarkFailed` enriches `last_error` with `skipped N nested mounts: path…` (sample paths). On success (`MarkMounted`), when any skips were recorded: summary is logged (`event=index_nested_skipped`), **`last_error` holds the pure skip summary** (operator advisory; no SQLite migration), and status/API archive rows expose `nested_skips_count` + `nested_skips_summary` (from live `ManagedMount` while the FUSE child is registered, else derived from `last_error`). Hooks success preserves a pure nested-skip `last_error` so the SPA warning remains after first-mount hooks. SPA Archives table shows a warn chip + subtitle on mounted rows with skips; failed rows still show full `last_error` (which may include the skip segment).
 
 **Still deferred:** stream-flatten / full solid-folder parse. Flatten + outer-cache probes are best-effort CLI (`7z l -slt`), not ratarmountcore. Optional real-FUSE smoke: `go test -tags=fuse ./internal/mounter/` (skips without `/dev/fuse` or engine on PATH; not in default `make test`).
 
@@ -208,10 +208,20 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 
 | Package | Responsibility |
 |---------|----------------|
-| `internal/service` | Daemon lifecycle: pidfile flock, service dirs, boot remount, control socket, inotify hint, signal stop/reload, single-threaded `Tick`, `HandleRequest` control map, status payload via `internal/status` |
+| `internal/service` | Daemon lifecycle: pidfile flock, service dirs, boot remount, control socket, inotify hint, signal stop/reload, single-threaded `Tick`, `HandleRequest` control map, status payload via `internal/status`; on reload: re-apply `log_level` (env override), rematerialize scanner sources, restart/stop inotify when `use_inotify` / `source_dirs` change |
 | `internal/doctor` | Offline environment diagnostics: host/WSL/FUSE/unmount tool, `user_allow_other`, Go + ratarmount(-rs) + archiveconverter + 7z bins, service paths/source dirs, index DrvFs layout, free-space, peercred/control socket notes, **`web_bind_security`** (non-loopback + empty `web_token` → warn), **`convert_cache_dir`** / archiveconverter output writability when convert features are on, Darwin **`control_socket_path_length`** (~100-byte sun_path warn), systemd PID1 + drop-in generation, service-user messaging |
 
-**CLI:** `mount-wrapper serve [--config] [--once] [--allow-unauth]` plus socket-backed ops (Phase 7.2).
+**CLI:** `mount-wrapper serve [--config] [--once] [--allow-unauth]` plus socket-backed ops (Phase 7.2), including `reload`.
+
+#### Hot reload vs restart (serve)
+
+| Applied on `reload` / SIGHUP / `config_set` apply | Requires process restart |
+|--------------------------------------------------|---------------------------|
+| `log_level` (slog via `LevelVar`; `MOUNT_WRAPPER_LOG_LEVEL` env overrides while set) | `web_enabled`, `web_token`, `web_host`, `web_port` (HTTP bind + token captured at serve start) |
+| `source_dirs`, `use_inotify` (inotify watcher restarted/stopped), discovery knobs | Path / DB / socket / hooks_dir / mount_backend / engine bin paths |
+| Concurrency, cleanup, hooks, convert, ratarmount engine args, … (see `HotReloadKeys`) | See `RestartRequiredKeys` in `internal/config/public.go` |
+
+Control op `reload` schedules work on the next tick (or immediate via `config_set`). CLI: `mount-wrapper reload`.
 
 **Still deferred:** real FUSE CI; stream-flatten; full solid-folder parse (CLI probe only).
 
@@ -295,6 +305,20 @@ Auth matches other `/api/*` routes. Stream is `text/event-stream`.
 | `heartbeat` | Named event + SSE comment; default every 15s |
 
 Defaults (overridable via `api.ServerOptions`): refresh **2s**, heartbeat **15s**, full snapshot every **4** ticks. Production `APIBackend` implements `ChangeNotifier`: `service.Tick` and mutating control ops call `NotifyChange` (buffered, coalesced) so SSE can wake earlier than the 2s ticker; ticker remains the idle fallback.
+
+**SPA client** (`web/src/lib/sse.ts` + `web/src/lib/stores/app.svelte.ts`):
+
+| Event | Client behavior |
+|-------|-----------------|
+| `snapshot` | Full apply via `applySnapshot`; `mergeArchiveRows` preserves per-row `metrics` when status rows omit sizes |
+| `counts` | Overview pills / top-level counts (+ `low_disk` / `last_scan_at` when present) without wiping the table |
+| `archive` | `patchArchiveRows` upserts by `archive_id`, drops `removed_ids`; metrics preserved on partial status patches |
+| `scan` | Updates `last_scan_at` only |
+| `low_disk` | Updates low-disk badge flag |
+| `metrics` | Sets `metrics_summary` (explicit `null` clears; omit leaves previous) |
+| `heartbeat` | Keeps connection healthy (no state wipe) |
+
+Reconnect uses exponential backoff; ~15s poll + occasional `/api/archives` soft-refresh keeps size columns warm while SSE is primary. Pure merge helpers live in `web/src/lib/merge.ts`.
 
 **Dev split:** Vite (`make web-dev`) proxies `/api` → `http://127.0.0.1:8787` (see `web/vite.config.ts` and `docs/dev.md`).
 

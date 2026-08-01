@@ -5,6 +5,10 @@
 // Tick polls ServeReady, and Shutdown closes the socket. HandleRequest is the
 // shared op dispatcher used by the socket and HTTP/SSE (via APIBackend).
 //
+// Start and doReload apply slog log_level (MOUNT_WRAPPER_LOG_LEVEL env
+// override) and sync the Linux inotify watcher from use_inotify + mapped
+// source_dirs. web_enabled / web_token are not live-updated (restart-required).
+//
 // Tick runs first-mount hooks (hooks.Runner) for mounted archives that are
 // eligible (ShouldRunHooksRecord). After scan/reconcile/cleanup/work/hooks
 // activity, NotifyChange wakes SSE clients early; the SSE refresh ticker is

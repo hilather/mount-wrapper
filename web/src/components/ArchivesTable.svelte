@@ -4,8 +4,11 @@
     formatBytesCell,
     formatDuration,
     formatDurationCell,
+    formatNestedSkipsChip,
+    formatNestedSkipsSubtitle,
     formatOriginalSize,
     formatStatusLabel,
+    hasNestedSkips,
     isFailedStatus,
     isInProgressStatus,
   } from '../lib/format'
@@ -169,8 +172,20 @@
             </td>
             <td>
               <span class="status-chip {r.status || ''}">{formatStatusLabel(r)}</span>
+              {#if hasNestedSkips(r)}
+                {@const skipChip = formatNestedSkipsChip(r.nested_skips_count)}
+                {@const skipSub = formatNestedSkipsSubtitle(r)}
+                {#if skipChip}
+                  <span class="status-chip nested-skips" title={skipSub || skipChip}>{skipChip}</span>
+                {/if}
+              {/if}
               {#if r.last_error && isFailedStatus(r.status)}
                 <div class="path-sub" title={r.last_error}>{r.last_error}</div>
+              {:else if hasNestedSkips(r)}
+                {@const skipSub = formatNestedSkipsSubtitle(r)}
+                {#if skipSub}
+                  <div class="path-sub nested-skips-sub" title={skipSub}>{skipSub}</div>
+                {/if}
               {/if}
             </td>
             <td>
