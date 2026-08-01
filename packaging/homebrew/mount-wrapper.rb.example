@@ -12,7 +12,7 @@
 # Or rename in-tree (Homebrew requires a .rb path, not .example):
 #
 #   cp packaging/homebrew/mount-wrapper.rb.example packaging/homebrew/mount-wrapper.rb
-#   VERSION=0.1.5 SHA256SUMS=dist/SHA256SUMS OUT=packaging/homebrew/mount-wrapper.rb \
+#   VERSION=0.1.6 SHA256SUMS=dist/SHA256SUMS OUT=packaging/homebrew/mount-wrapper.rb \
 #     ./scripts/update-homebrew-formula.sh
 #   brew install --formula ./packaging/homebrew/mount-wrapper.rb
 #
@@ -29,7 +29,7 @@
 #   mount-wrapper_#{version}_darwin_amd64.tar.gz   # Intel
 #
 # Fill sha256 from release SHA256SUMS (or):
-#   ./scripts/update-homebrew-formula.sh 0.1.5 path/to/SHA256SUMS
+#   ./scripts/update-homebrew-formula.sh 0.1.6 path/to/SHA256SUMS
 #
 # After install, seed config under Application Support (see caveats).
 
@@ -38,7 +38,7 @@ class MountWrapper < Formula
   homepage "https://github.com/hilather/mount-wrapper"
   # Keep in sync with the latest GitHub Release tag (no leading "v").
   # Placeholders below are rewritten by scripts/update-homebrew-formula.sh.
-  version "0.1.5"
+  version "0.1.6"
   license "MIT"
 
   # Binary install from GitHub Releases (GoReleaser darwin archives).

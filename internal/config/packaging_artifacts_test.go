@@ -251,7 +251,7 @@ func TestPackagingArtifacts(t *testing.T) {
 			rel: "packaging/homebrew/mount-wrapper.rb.example",
 			contains: []string{
 				"class MountWrapper < Formula",
-				`version "0.1.5"`,
+				`version "0.1.6"`,
 				"mount-wrapper_#{version}_darwin_arm64.tar.gz",
 				"mount-wrapper_#{version}_darwin_amd64.tar.gz",
 				"REPLACE_ME_DARWIN_ARM64",
