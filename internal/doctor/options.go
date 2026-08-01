@@ -10,8 +10,13 @@ import (
 	"time"
 
 	"github.com/hilather/mount-wrapper/internal/config"
+	"github.com/hilather/mount-wrapper/internal/control"
 	"github.com/hilather/mount-wrapper/internal/platform"
 )
+
+// defaultControlProbeTimeout bounds doctor live status dial/read so a hung
+// serve cannot stall diagnostics.
+const defaultControlProbeTimeout = 2 * time.Second
 
 // WhichFunc locates an executable by name (like exec.LookPath / shutil.which).
 // Returns the resolved path, or empty string if not found.
@@ -46,6 +51,13 @@ type ReadFileFunc func(path string) (string, error)
 // RunBinFunc runs bin with args and returns combined output (for --version / --help).
 // Implementations should apply a short timeout. err non-nil means probe failed.
 type RunBinFunc func(bin string, args ...string) (output string, err error)
+
+// ControlRequestFunc dials a Unix control socket and sends one JSON-lines
+// request (op). Returns the decoded response map, or a transport/dial error.
+// ok:false protocol responses (e.g. PERMISSION_DENIED) are returned as maps
+// with err=nil so callers can inspect code/message. Nil Options field uses a
+// short-timeout control.Client (doctor live probe).
+type ControlRequestFunc func(socketPath, op string) (resp map[string]any, err error)
 
 // WriteFileFunc writes content to path with mode (for --fix-systemd).
 type WriteFileFunc func(path string, content []byte, mode os.FileMode) error
@@ -106,19 +118,20 @@ type Options struct {
 	IsWSL *bool
 
 	// Injectable probes (nil = production defaults).
-	Which        WhichFunc
-	PathExists   PathExistsFunc
-	IsExecutable IsExecutableFunc
-	IsDir        IsDirFunc
-	Writable     WritableFunc
-	FreeBytes    FreeBytesFunc
-	DirMode      DirModeFunc
-	LookupUser   LookupUserFunc
-	ReadFile     ReadFileFunc
-	RunBin       RunBinFunc
-	WriteFile    WriteFileFunc
-	MkdirAll     MkdirAllFunc
-	ReadPID1Comm func() (string, error)
+	Which          WhichFunc
+	PathExists     PathExistsFunc
+	IsExecutable   IsExecutableFunc
+	IsDir          IsDirFunc
+	Writable       WritableFunc
+	FreeBytes      FreeBytesFunc
+	DirMode        DirModeFunc
+	LookupUser     LookupUserFunc
+	ReadFile       ReadFileFunc
+	RunBin         RunBinFunc
+	ControlRequest ControlRequestFunc
+	WriteFile      WriteFileFunc
+	MkdirAll       MkdirAllFunc
+	ReadPID1Comm   func() (string, error)
 }
 
 func (o *Options) platform() string {
@@ -189,6 +202,13 @@ func (o *Options) readFile() ReadFileFunc {
 		return o.ReadFile
 	}
 	return defaultReadFile
+}
+
+func (o *Options) controlRequest() ControlRequestFunc {
+	if o != nil && o.ControlRequest != nil {
+		return o.ControlRequest
+	}
+	return defaultControlRequest
 }
 
 func (o *Options) writeFile() WriteFileFunc {
@@ -317,6 +337,13 @@ func defaultReadFile(path string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// defaultControlRequest performs a short control-plane status against socketPath.
+// Used by checkControlSocketLive when Options.ControlRequest is nil.
+func defaultControlRequest(socketPath, op string) (map[string]any, error) {
+	c := control.NewClient(socketPath, defaultControlProbeTimeout)
+	return c.Request(op, nil)
 }
 
 // runBinWithTimeout bounds --version / --help probes so a hung binary cannot

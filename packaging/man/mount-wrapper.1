@@ -48,10 +48,17 @@ Allow control-plane ops without peer credentials. Also enabled when env
 .RE
 .TP
 .B doctor
-Offline environment diagnostics (FUSE, bins, paths, disk, peercred notes).
+Offline environment diagnostics (FUSE, bins, paths, disk, peercred notes,
+control socket live reachability).
 Does not require a running
 .B serve
-process.
+process; when
+.B control_socket
+is set, check
+.B control_socket_live
+warns if the socket is missing, unreachable, or auth-denied (group
+.BR mount-wrapper ),
+and reports serve version when reachable.
 .RS
 .TP
 .B \-\-json
@@ -92,19 +99,38 @@ Flags:
 .B status
 Service status (requires
 .BR serve ).
+Default stdout is a multi-line human summary.
 .B \-\-json
 for machine-readable output;
 .B \-\-sizes
 includes size metrics (slower).
+With
+.B \-\-sizes
+and without
+.BR \-\-json ,
+human status is followed by a sizes appendix (summary totals + per-archive
+archive/index/extracted/space-saved lines). Combine
+.B \-\-sizes \-\-json
+for the full status JSON including
+.B metrics_summary
+and per-row
+.BR metrics .
 .TP
 .B metrics [\fIARCHIVE_ID\fR]
 Archive size metrics (requires
 .BR serve ).
+Default stdout is multi-line human output: a summary block (when listing all
+archives) plus per-archive size lines.
+.B \-\-json
+prints the control payload as machine-readable JSON.
 .B \-\-no\-cache
 bypasses the metrics TTL cache;
 .B \-\-prefer\-mount
 walks the FUSE mount for extracted size instead of the index first.
 Index-first and prefer-mount results are cached separately.
+Optional
+.I ARCHIVE_ID
+limits the report to one archive.
 .TP
 .B rescan
 Trigger an immediate source scan (requires

@@ -29,8 +29,11 @@
 //     list fail / encrypted → remove dest + clear error; no stream-flatten);
 //     extract/create stderr encryption → Encrypted7zMessage;
 //     leftover *.nonsolid.partial / *.work cleaned before populate.
-//     Path helpers (NonsolidPartialPath / LockPath / DestFromLockPath) are
-//     shared with cleaner.PruneNonsolidCache hygiene under the cache dir.
+//     Cache hit (fast path + under-lock re-check) without convert sidecar:
+//     best-effort size-only metadata (source/dest Stat sizes, method
+//     outer-nonsolid-cli, duration omitted); no thrash-rewrite when sidecar
+//     exists. Path helpers (NonsolidPartialPath / LockPath / DestFromLockPath)
+//     are shared with cleaner.PruneNonsolidCache hygiene under the cache dir.
 //     Path prediction via ResolveMountArchivePath / NonsolidCacheDestPath.
 //     No stream-repack / stream-flatten; nested members not expanded in outer
 //     cache (child env still handles nested when scope allows).

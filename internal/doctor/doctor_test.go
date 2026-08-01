@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hilather/mount-wrapper/internal/config"
+	"github.com/hilather/mount-wrapper/internal/control"
 	"github.com/hilather/mount-wrapper/internal/doctor"
 )
 
@@ -26,6 +27,8 @@ type testEnv struct {
 	files        map[string]string
 	binOut       map[string]string // key: "path|--version" or "path|--help"
 	binErr       map[string]error
+	// controlReq injects control socket status probes (nil = production dial).
+	controlReq   doctor.ControlRequestFunc
 	pid1         string
 	pid1Err      error
 	writes       map[string]string
@@ -131,6 +134,7 @@ func (e *testEnv) opts(cfg *config.Config) doctor.Options {
 			err := e.binErr[key]
 			return out, err
 		},
+		ControlRequest: e.controlReq,
 		WriteFile: func(path string, content []byte, mode os.FileMode) error {
 			e.writes[path] = string(content)
 			e.exists[path] = true
@@ -245,6 +249,7 @@ func TestDoctorCheckInventory(t *testing.T) {
 				doctor.CheckNameConvertCacheDir,
 				doctor.CheckNameArchiveconverterOutputDir,
 				doctor.CheckNameControlSocketPathLength,
+				doctor.CheckNameControlSocketLive,
 				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameConfig,
 				doctor.CheckNameIndexLayout,
@@ -285,6 +290,7 @@ func TestDoctorCheckInventory(t *testing.T) {
 				doctor.CheckNameWebBindSecurity,
 				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameIndexLayout,
+				doctor.CheckNameControlSocketLive,
 				doctor.CheckNameConfig,
 				"path.mount_root",
 				"path.index_dir",
@@ -308,7 +314,172 @@ func TestDoctorCheckInventory(t *testing.T) {
 				if !c.OK || c.Severity != doctor.SeverityInfo {
 					t.Fatalf("windows_visible_parent_ox baseline: %+v", c)
 				}
+				// Socket path missing → warn offline (not hard-fail).
+				live := checkByName(r, doctor.CheckNameControlSocketLive)
+				if live.OK || live.Severity != doctor.SeverityWarn {
+					t.Fatalf("control_socket_live offline baseline: %+v", live)
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatalf("control_socket_live warn must not hard-fail")
+				}
 			},
+		},
+		{
+			name: "control_socket_live_missing_path_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				// Sock path deliberately absent from e.exists / e.dirs.
+				return mustCfg(t, map[string]any{
+					"control_socket":      "/run/mount-wrapper/missing.sock",
+					"convert_7z_nonsolid": false,
+					"convert_zip_to_7z":   false,
+				}, "")
+			},
+			required:     []string{doctor.CheckNameControlSocketLive},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameControlSocketLive)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want warn missing sock: %+v", c)
+				}
+				if !strings.Contains(c.Message, "not found") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("missing sock must not hard-fail")
+				}
+			},
+		},
+		{
+			name: "control_socket_live_dial_fail_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				sock := "/run/mount-wrapper/control.sock"
+				e.exists[sock] = true
+				e.controlReq = func(socketPath, op string) (map[string]any, error) {
+					if socketPath != sock || op != "status" {
+						t.Fatalf("unexpected probe path=%q op=%q", socketPath, op)
+					}
+					return nil, &control.Error{
+						Message: "cannot connect to control socket " + sock + ": connection refused",
+						Code:    "UNAVAILABLE",
+					}
+				}
+				return mustCfg(t, map[string]any{
+					"control_socket": sock,
+				}, "")
+			},
+			required:     []string{doctor.CheckNameControlSocketLive},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameControlSocketLive)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want dial-fail warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "not reachable") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if code, _ := c.Details["code"].(string); code != "UNAVAILABLE" {
+					t.Fatalf("details.code=%v", c.Details["code"])
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("dial fail must not hard-fail")
+				}
+			},
+		},
+		{
+			name: "control_socket_live_auth_denied_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				sock := "/run/mount-wrapper/control.sock"
+				e.exists[sock] = true
+				e.controlReq = func(socketPath, op string) (map[string]any, error) {
+					return map[string]any{
+						"ok":    false,
+						"code":  "PERMISSION_DENIED",
+						"error": "permission denied: user must be root or in group mount-wrapper (uid 1000 is not root or in group mount-wrapper)",
+					}, nil
+				}
+				return mustCfg(t, map[string]any{
+					"control_socket": sock,
+				}, "")
+			},
+			required:     []string{doctor.CheckNameControlSocketLive},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameControlSocketLive)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want auth warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "auth denied") {
+					t.Fatalf("message missing auth denied: %q", c.Message)
+				}
+				if !strings.Contains(c.Message, "mount-wrapper") {
+					t.Fatalf("message missing group hint: %q", c.Message)
+				}
+				if g, _ := c.Details["auth_group"].(string); g != "mount-wrapper" {
+					t.Fatalf("auth_group=%v", c.Details["auth_group"])
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("auth denied must not hard-fail")
+				}
+			},
+		},
+		{
+			name: "control_socket_live_ok_with_version",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				sock := "/run/mount-wrapper/control.sock"
+				e.exists[sock] = true
+				e.controlReq = func(socketPath, op string) (map[string]any, error) {
+					return map[string]any{
+						"ok": true,
+						"data": map[string]any{
+							"version": "0.1.5-test",
+							"pid":     float64(4242),
+						},
+					}, nil
+				}
+				return mustCfg(t, map[string]any{
+					"control_socket": sock,
+				}, "")
+			},
+			required:     []string{doctor.CheckNameControlSocketLive},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameControlSocketLive)
+				if !c.OK || c.Severity != doctor.SeverityInfo {
+					t.Fatalf("want info reachable: %+v", c)
+				}
+				if !strings.Contains(c.Message, "0.1.5-test") {
+					t.Fatalf("message missing version: %q", c.Message)
+				}
+				if v, _ := c.Details["version"].(string); v != "0.1.5-test" {
+					t.Fatalf("details.version=%v", c.Details["version"])
+				}
+				if pid, _ := c.Details["pid"].(int); pid != 4242 {
+					t.Fatalf("details.pid=%v", c.Details["pid"])
+				}
+			},
+		},
+		{
+			name: "control_socket_empty_skips_live",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				// Validated configs always have a non-empty control_socket; doctor
+				// still skips the live probe when the field is cleared (defensive).
+				cfg := mustCfg(t, map[string]any{
+					"convert_7z_nonsolid": false,
+					"convert_zip_to_7z":   false,
+				}, "")
+				cfg.ControlSocket = ""
+				return cfg
+			},
+			forbidden: []string{doctor.CheckNameControlSocketLive},
 		},
 		{
 			name: "windows_visible_parent_ox_missing_bit_warn",
@@ -1800,6 +1971,7 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 				doctor.CheckNameWebBindSecurity,
 				doctor.CheckNameConvertCacheDir,
 				doctor.CheckNameWindowsVisibleParentOX,
+				doctor.CheckNameControlSocketLive,
 				doctor.CheckNameConfig,
 				doctor.CheckNameIndexLayout,
 				doctor.CheckNameFixSystemd,
@@ -1853,6 +2025,7 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameConvertCacheDir,
 				doctor.CheckNameIndexLayout,
+				doctor.CheckNameControlSocketLive,
 				doctor.CheckNameConfig,
 				"path.mount_root",
 				"source_dirs[0]",
@@ -1869,6 +2042,10 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 				c := checkByName(r, doctor.CheckNameWebBindSecurity)
 				if c.OK || c.Severity != doctor.SeverityWarn {
 					t.Fatalf("web_bind_security: ok=%v sev=%q", c.OK, c.Severity)
+				}
+				live := checkByName(r, doctor.CheckNameControlSocketLive)
+				if live.OK || live.Severity != doctor.SeverityWarn {
+					t.Fatalf("control_socket_live offline: ok=%v sev=%q", live.OK, live.Severity)
 				}
 				// Presence of disk.* gated by free-space probes (prefix only).
 				foundDisk := false

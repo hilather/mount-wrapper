@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- CLI **`metrics`** human multi-line output by default (summary + per-archive
+  sizes); **`--json`** for the control payload. Flags unchanged:
+  `[ARCHIVE_ID]`, `--no-cache`, `--prefer-mount`.
+- CLI **`status --sizes`** without **`--json`**: human status plus a sizes
+  appendix (no longer forces JSON-only). **`--sizes --json`** still dumps full
+  status JSON with `metrics_summary` / per-row `metrics`.
+- Doctor **`control_socket_live`**: when config has `control_socket`, stat the
+  path and send a short control `status` request. Missing sock / dial failure /
+  auth denied → **warn** (group `mount-wrapper` hint; never hard-fail); reachable
+  → **info** with serve version when available.
+
+### Fixed
+
+- Outer nonsolid cache hit without convert sidecar: best-effort size-only
+  metadata write (`original`/`converted` from Stat, method `outer-nonsolid-cli`,
+  duration omitted) on fast-path and under-lock re-check hits so status/metrics
+  do not depend on a repopulate for sizes.
+
 ## [0.1.5] - 2026-08-01
 
 Operator surfaces and boot hygiene after v0.1.4. Mount backend remains

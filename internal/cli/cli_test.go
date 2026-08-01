@@ -755,6 +755,7 @@ func TestHelpParseTable(t *testing.T) {
 		{[]string{"hooks", "rerun"}, ExitUsage, "ARCHIVE_ID"},
 		{[]string{"hooks", "rerun", "-h"}, ExitOK, "force"},
 		{[]string{"metrics", "-h"}, ExitOK, "no-cache"},
+		{[]string{"metrics", "-h"}, ExitOK, "json"},
 		{[]string{"reload", "-h"}, ExitOK, "json"},
 		{[]string{"reload", "--help"}, ExitOK, "socket"},
 		{[]string{"reload", "extra-arg"}, ExitUsage, "unexpected"},
@@ -810,6 +811,244 @@ func TestFormatStatusHuman(t *testing.T) {
 	}
 	if !strings.Contains(text, "/tmp/a.tar") {
 		t.Fatalf("archive: %q", text)
+	}
+}
+
+func TestFormatBytes(t *testing.T) {
+	cases := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0 B"},
+		{512, "512 B"},
+		{1024, "1.00 KiB"},
+		{1536, "1.50 KiB"},
+		{1024 * 1024, "1.00 MiB"},
+		{10 * 1024, "10.0 KiB"},
+		{100 * 1024, "100 KiB"},
+		{5 * 1024 * 1024 * 1024, "5.00 GiB"},
+		{-1, "—"},
+	}
+	for _, tc := range cases {
+		if got := formatBytes(tc.n); got != tc.want {
+			t.Errorf("formatBytes(%d)=%q want %q", tc.n, got, tc.want)
+		}
+	}
+	if formatBytesNullable(nil) != "—" {
+		t.Fatal("nil → —")
+	}
+	if formatBytesNullable(float64(1024)) != "1.00 KiB" {
+		t.Fatalf("float64: %q", formatBytesNullable(float64(1024)))
+	}
+}
+
+func TestFormatMetricsHumanSummaryAndRows(t *testing.T) {
+	data := map[string]any{
+		"summary": map[string]any{
+			"archive_count":                float64(2),
+			"archives_with_extracted_size": float64(2),
+			"archives_with_convert_metadata": float64(1),
+			"total_archive_size_bytes":     float64(1024),
+			"total_index_size_bytes":       float64(100),
+			"total_extracted_size_bytes":   float64(4096),
+			"total_space_saved_bytes":      float64(3996),
+			"total_convert_source_size_bytes": float64(2048),
+			"total_convert_size_delta_bytes":  float64(-1024),
+			"max_convert_duration_seconds":    float64(12.4),
+			"archives_with_convert_duration":  float64(1),
+		},
+		"metrics": []any{
+			map[string]any{
+				"archive_id":                 "bbbbbbbb-2222",
+				"archive_basename":           "b.tar",
+				"status":                     "mounted",
+				"archive_size_bytes":         float64(500),
+				"index_size_bytes":           float64(40),
+				"extracted_size_bytes":       float64(2000),
+				"space_saved_bytes":          float64(1960),
+				"space_saved_vs_archive_bytes": float64(1460),
+				"extracted_source":           "index",
+			},
+			map[string]any{
+				"archive_id":           "aaaaaaaa-1111",
+				"archive_basename":     "a.tar",
+				"status":               "mounted",
+				"archive_size_bytes":   float64(524),
+				"index_size_bytes":     float64(60),
+				"extracted_size_bytes": float64(2096),
+				"space_saved_bytes":    float64(2036),
+				"extracted_source":     "mount",
+				"convert_source_size_bytes": float64(2048),
+				"convert_size_delta_bytes":  float64(-1524),
+				"convert_duration_seconds":  float64(12.4),
+			},
+		},
+	}
+	text := formatMetricsHuman(data)
+	for _, want := range []string{
+		"mount-wrapper metrics",
+		"summary: archives=2",
+		"with_extracted=2",
+		"archive total:",
+		"1.00 KiB",
+		"space saved:",
+		"convert source:",
+		"convert delta:",
+		"-1.00 KiB",
+		"convert duration max: 12s",
+		"archives:",
+		// Sorted by basename: a.tar before b.tar
+		"a.tar",
+		"b.tar",
+		"extracted=2.05 KiB (mount)",
+		"extracted=1.95 KiB (index)",
+		"space_saved=",
+		"convert source=",
+		"delta=-1.49 KiB",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+	// a.tar should appear before b.tar
+	ia := strings.Index(text, "a.tar")
+	ib := strings.Index(text, "b.tar")
+	if ia < 0 || ib < 0 || ia > ib {
+		t.Fatalf("expected a.tar before b.tar: ia=%d ib=%d\n%s", ia, ib, text)
+	}
+}
+
+func TestFormatMetricsHumanSingleArchive(t *testing.T) {
+	data := map[string]any{
+		"metrics": map[string]any{
+			"archive_id":           "abcdef12-zzzz",
+			"archive_basename":     "solo.tar",
+			"status":               "indexing",
+			"archive_size_bytes":   float64(2048),
+			"index_size_bytes":     nil,
+			"extracted_size_bytes": nil,
+			"error":                "index incomplete",
+		},
+	}
+	text := formatMetricsHuman(data)
+	for _, want := range []string{
+		"mount-wrapper metrics",
+		"solo.tar",
+		"abcdef12",
+		"archive=2.00 KiB",
+		"index=—",
+		"extracted=—",
+		"err=index incomplete",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "summary:") {
+		t.Fatalf("single-archive should not invent summary:\n%s", text)
+	}
+}
+
+func TestFormatMetricsHumanEmpty(t *testing.T) {
+	if !strings.Contains(formatMetricsHuman(nil), "empty") {
+		t.Fatal("nil")
+	}
+	text := formatMetricsHuman(map[string]any{
+		"summary": map[string]any{"archive_count": float64(0)},
+		"metrics": []any{},
+	})
+	if !strings.Contains(text, "archives: (none)") {
+		t.Fatalf("empty list: %q", text)
+	}
+}
+
+func TestFormatStatusOutputWithSizesAppendix(t *testing.T) {
+	data := map[string]any{
+		"version": "1.0.0",
+		"pid":     float64(7),
+		"counts": map[string]any{
+			"mounted": float64(1),
+		},
+		"mounted": float64(1),
+		"archives": []any{
+			map[string]any{
+				"archive_id":       "aabbccdd-eeee",
+				"archive_basename": "x.tar",
+				"archive_path":     "/data/x.tar",
+				"status":           "mounted",
+				"hooks_status":     "success",
+				"metrics": map[string]any{
+					"archive_id":           "aabbccdd-eeee",
+					"archive_basename":     "x.tar",
+					"status":               "mounted",
+					"archive_size_bytes":   float64(1024),
+					"index_size_bytes":     float64(10),
+					"extracted_size_bytes": float64(5000),
+					"space_saved_bytes":    float64(4990),
+					"extracted_source":     "index",
+				},
+			},
+		},
+		"metrics_summary": map[string]any{
+			"archive_count":              float64(1),
+			"archives_with_extracted_size": float64(1),
+			"archives_with_convert_metadata": float64(0),
+			"total_archive_size_bytes":   float64(1024),
+			"total_index_size_bytes":     float64(10),
+			"total_extracted_size_bytes": float64(5000),
+			"total_space_saved_bytes":    float64(4990),
+		},
+		"low_disk": false,
+	}
+	text := formatStatusOutput(data)
+	// Human status header still present.
+	if !strings.Contains(text, "mount-wrapper 1.0.0") {
+		t.Fatalf("status header: %q", text)
+	}
+	if !strings.Contains(text, "mounted=1") {
+		t.Fatalf("counts: %q", text)
+	}
+	// Sizes appendix (not raw JSON).
+	for _, want := range []string{
+		"sizes:",
+		"summary: archives=1",
+		"per-archive:",
+		"x.tar",
+		"space_saved=",
+		"extracted=4.88 KiB (index)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, `"metrics_summary"`) || strings.HasPrefix(strings.TrimSpace(text), "{") {
+		t.Fatalf("should not dump JSON:\n%s", text)
+	}
+}
+
+func TestFormatStatusOutputWithoutSizesOmitsAppendix(t *testing.T) {
+	data := map[string]any{
+		"version": "1.0.0",
+		"pid":     float64(1),
+		"counts":  map[string]any{"mounted": float64(0)},
+		"archives": []any{},
+	}
+	text := formatStatusOutput(data)
+	if strings.Contains(text, "sizes:") {
+		t.Fatalf("unexpected sizes appendix:\n%s", text)
+	}
+}
+
+func TestMetricsHelpListsJSON(t *testing.T) {
+	code, out, errBuf := runCLI(t, "metrics", "-h")
+	if code != ExitOK {
+		t.Fatalf("exit %d err=%s", code, errBuf)
+	}
+	help := out + errBuf
+	for _, want := range []string{"json", "no-cache", "prefer-mount"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("metrics -h missing %q: %q", want, help)
+		}
 	}
 }
 

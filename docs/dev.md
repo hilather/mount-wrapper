@@ -54,7 +54,11 @@ make build
 # ./bin/mount-wrapper serve --config packaging/examples/config.debug.yaml.example --once
 
 # Socket-backed CLI (requires running serve + control socket server — Phase 7.1)
-# ./bin/mount-wrapper status --config … --json
+# ./bin/mount-wrapper status --config …                 # human
+# ./bin/mount-wrapper status --sizes                    # human + sizes appendix
+# ./bin/mount-wrapper status --sizes --json             # full JSON with metrics
+# ./bin/mount-wrapper metrics                           # human summary + per-archive
+# ./bin/mount-wrapper metrics --json                    # control JSON payload
 # ./bin/mount-wrapper rescan --assume-stable
 # Override socket without full config: --socket /path/to/control.sock
 

@@ -638,7 +638,8 @@ func TestBeginMount_OuterCachePersistsConvertStatsOnClaim(t *testing.T) {
 }
 
 // TestBeginMount_OuterCacheHitWithoutSidecarFallsBackSourceSizeOnly: cache hit
-// with no sidecar sets convert_source_size_bytes from Stat(source) and leaves
+// with no prior sidecar — Ensure writes size-only metadata (duration omitted);
+// claim fills convert_source_size_bytes from that sidecar and leaves
 // convert_duration_seconds nil (do not invent duration).
 func TestBeginMount_OuterCacheHitWithoutSidecarFallsBackSourceSizeOnly(t *testing.T) {
 	cfg, store, tmp := testEngineConfig(t)
@@ -659,8 +660,12 @@ func TestBeginMount_OuterCacheHitWithoutSidecarFallsBackSourceSizeOnly(t *testin
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(dest, []byte("nonsolid-cached"), 0o644); err != nil {
+	destPayload := []byte("nonsolid-cached")
+	if err := os.WriteFile(dest, destPayload, 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if convert.HasConvertMetadata(dest) {
+		t.Fatal("test setup must not have sidecar before BeginMount")
 	}
 
 	rec := insertArchive(t, store, archive)
@@ -682,8 +687,22 @@ func TestBeginMount_OuterCacheHitWithoutSidecarFallsBackSourceSizeOnly(t *testin
 	if managed == nil || managed.Request.ArchivePath != dest {
 		t.Fatalf("managed=%v path=%v want cache dest", managed != nil, managed)
 	}
-	if convert.ReadConvertMetadata(dest) != nil {
-		t.Fatal("test setup must not have sidecar")
+	// Ensure hit path writes size-only sidecar for metrics/status durability.
+	meta := convert.ReadConvertMetadata(dest)
+	if meta == nil {
+		t.Fatal("expected size-only sidecar after cache hit")
+	}
+	if meta.OriginalSizeBytes != int64(len(srcBytes)) {
+		t.Fatalf("sidecar original=%d want %d", meta.OriginalSizeBytes, len(srcBytes))
+	}
+	if meta.ConvertedSizeBytes != int64(len(destPayload)) {
+		t.Fatalf("sidecar converted=%d want %d", meta.ConvertedSizeBytes, len(destPayload))
+	}
+	if meta.ConvertDurationSeconds != nil {
+		t.Fatalf("hit sidecar must omit duration, got %v", *meta.ConvertDurationSeconds)
+	}
+	if meta.Method != convert.MethodOuterNonsolidCLI {
+		t.Fatalf("method=%q", meta.Method)
 	}
 
 	fresh, err := store.GetArchive(rec.ArchiveID)
@@ -694,7 +713,7 @@ func TestBeginMount_OuterCacheHitWithoutSidecarFallsBackSourceSizeOnly(t *testin
 		t.Fatalf("convert_source_size_bytes=%v want %d", fresh.ConvertSourceSizeBytes, len(srcBytes))
 	}
 	if fresh.ConvertDurationSeconds != nil {
-		t.Fatalf("duration should stay nil without sidecar, got %v", *fresh.ConvertDurationSeconds)
+		t.Fatalf("duration should stay nil without timed populate, got %v", *fresh.ConvertDurationSeconds)
 	}
 	_, _ = eng.Unmount(rec.ArchiveID, false)
 }

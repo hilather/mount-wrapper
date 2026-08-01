@@ -132,7 +132,7 @@ Commands:
   doctor               Offline environment diagnostics
   config show|set      Show or update configuration
   status               Service status (requires serve)
-  metrics [ARCHIVE_ID] Archive size metrics (requires serve; --no-cache, --prefer-mount)
+  metrics [ARCHIVE_ID] Archive size metrics (requires serve; human default; --json)
   rescan               Trigger an immediate source scan (requires serve)
   retry ARCHIVE_ID     Reset mount attempts (requires serve)
   mount PATH           Request mount of an archive path (requires serve)
@@ -165,7 +165,12 @@ config set flags:
 
 status flags:
   --json               Machine-readable JSON
-  --sizes              Include size metrics (slower)
+  --sizes              Include size metrics (slower; human appendix unless --json)
+
+metrics flags:
+  --json               Machine-readable JSON
+  --no-cache           Bypass metrics TTL cache
+  --prefer-mount       Prefer FUSE mount walk for extracted size
 
 reload flags:
   --json               Machine-readable JSON (control ack, e.g. {"reload":"scheduled"})

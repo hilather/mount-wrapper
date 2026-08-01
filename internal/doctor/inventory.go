@@ -35,6 +35,10 @@ const (
 	// CheckNameControlSocketPathLength is emitted on Darwin when Config is
 	// non-nil (including empty control_socket).
 	CheckNameControlSocketPathLength = "control_socket_path_length"
+	// CheckNameControlSocketLive is emitted when Config is non-nil and
+	// control_socket is non-empty. Probes path existence + short status
+	// dial; missing serve / dial fail / auth deny are warn (never hard-fail).
+	CheckNameControlSocketLive = "control_socket_live"
 	// CheckNameConfig is the trailing schema summary when Config is non-nil.
 	CheckNameConfig = "config"
 	// CheckNameFixSystemd is emitted only when Options.FixSystemd is true.

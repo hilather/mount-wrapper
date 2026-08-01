@@ -36,36 +36,46 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if *jsonOut || *sizes {
+	if *jsonOut {
 		if err := printJSON(stdout, data); err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return ExitError
 		}
 		return ExitOK
 	}
+	// Default human status; --sizes appends a sizes appendix (not JSON-only).
 	fmt.Fprint(stdout, formatStatusOutput(data))
 	return ExitOK
 }
 
 // formatStatusOutput prefers status.FormatHuman when the payload re-decodes
 // into status.Payload; otherwise falls back to the map-based formatter.
+// When include_sizes populated metrics_summary / per-archive metrics, a human
+// sizes appendix is appended (status --sizes without --json).
 func formatStatusOutput(data any) string {
 	if data == nil {
 		return formatStatusHuman(nil)
 	}
 	// Already a *status.Payload (in-process; rare for CLI client path).
 	if p, ok := data.(*status.Payload); ok {
-		return status.FormatHuman(p)
+		text := status.FormatHuman(p)
+		if b, err := json.Marshal(p); err == nil {
+			var m map[string]any
+			if json.Unmarshal(b, &m) == nil {
+				text += formatStatusSizesAppendixMap(m)
+			}
+		}
+		return text
 	}
 	b, err := json.Marshal(data)
 	if err != nil {
-		return formatStatusHuman(data)
+		return formatStatusHuman(data) + formatStatusSizesAppendix(data)
 	}
 	var p status.Payload
 	if err := json.Unmarshal(b, &p); err != nil {
-		return formatStatusHuman(data)
+		return formatStatusHuman(data) + formatStatusSizesAppendix(data)
 	}
-	return status.FormatHuman(&p)
+	return status.FormatHuman(&p) + formatStatusSizesAppendix(data)
 }
 
 func runMetrics(args []string, stdout, stderr io.Writer) int {
@@ -73,6 +83,7 @@ func runMetrics(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var configFlag, socketFlag string
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	noCache := fs.Bool("no-cache", false, "bypass metrics cache")
 	preferMount := fs.Bool("prefer-mount", false, "prefer walking the FUSE mount over the index")
 	if err := fs.Parse(args); err != nil {
@@ -101,10 +112,14 @@ func runMetrics(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if err := printJSON(stdout, data); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return ExitError
+	if *jsonOut {
+		if err := printJSON(stdout, data); err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return ExitError
+		}
+		return ExitOK
 	}
+	fmt.Fprint(stdout, formatMetricsHuman(data))
 	return ExitOK
 }
 

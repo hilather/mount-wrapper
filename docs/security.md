@@ -77,7 +77,10 @@ browser convenience).
 **Doctor:** `mount-wrapper doctor` / `GET /api/doctor` includes check
 `web_bind_security`: when `web_enabled` is true, `web_host` is non-loopback,
 and `web_token` is empty → **severity warn** (does not hard-fail the report).
-Loopback binds without a token are OK.
+Loopback binds without a token are OK. Check **`control_socket_live`** dials the
+configured control socket with a short `status` request: offline / dial fail /
+`PERMISSION_DENIED` (not root or group `mount-wrapper`) → **warn**; reachable →
+**info** with serve version when present. Doctor never hard-fails on this probe.
 
 **Destructive POST rate limits:** `purge`, `unmount` with `all: true`, and
 `rescan` are limited per client IP (default **2s** min interval). Exceeding

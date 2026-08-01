@@ -49,6 +49,9 @@ func Run(opts Options) *Report {
 		if c := checkControlSocketPathLength(o); c.Name != "" {
 			checks = append(checks, c)
 		}
+		if c := checkControlSocketLive(o); c.Name != "" {
+			checks = append(checks, c)
+		}
 		checks = append(checks, checkConfig(o))
 	}
 

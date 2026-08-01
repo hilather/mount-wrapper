@@ -35,9 +35,12 @@ make build
 # ./bin/mount-wrapper serve --config packaging/examples/config.debug.yaml.example --once
 
 # Socket-backed ops (require a running serve with control_socket)
-# ./bin/mount-wrapper status --config /path/to/config.yaml --json
+# ./bin/mount-wrapper status --config /path/to/config.yaml          # human
+# ./bin/mount-wrapper status --sizes                                # human + sizes appendix
+# ./bin/mount-wrapper status --sizes --json                         # full JSON with metrics
 # ./bin/mount-wrapper rescan --assume-stable
-# ./bin/mount-wrapper metrics
+# ./bin/mount-wrapper metrics                                       # human summary + per-archive
+# ./bin/mount-wrapper metrics --json                                # control JSON payload
 # ./bin/mount-wrapper mount /path/to/archive.tar
 # ./bin/mount-wrapper unmount --all
 # ./bin/mount-wrapper purge ARCHIVE_ID --yes

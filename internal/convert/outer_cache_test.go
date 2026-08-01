@@ -672,6 +672,12 @@ func TestEnsureNonsolidCachedCopy_SolidPopulate(t *testing.T) {
 
 	// Cache hit — second call should not re-run create with empty dest.
 	listCalls = 0
+	metaBefore := convert.ReadConvertMetadata(got)
+	if metaBefore == nil || metaBefore.ConvertDurationSeconds == nil {
+		t.Fatal("populate should write duration on sidecar")
+	}
+	durBefore := *metaBefore.ConvertDurationSeconds
+	convertedAtBefore := metaBefore.ConvertedAt
 	got2, err := convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
 		List7z: listCounting,
 		Run7z: func(string, []string, string) error {
@@ -690,6 +696,147 @@ func TestEnsureNonsolidCachedCopy_SolidPopulate(t *testing.T) {
 	}
 	if creates.Load() != 1 {
 		t.Fatalf("cache hit must not re-create; creates=%d", creates.Load())
+	}
+	// Existing sidecar must not be thrash-rewritten on hit.
+	metaAfter := convert.ReadConvertMetadata(got)
+	if metaAfter == nil {
+		t.Fatal("sidecar should remain after hit")
+	}
+	if metaAfter.ConvertedAt != convertedAtBefore {
+		t.Fatalf("hit rewrote converted_at: %q → %q", convertedAtBefore, metaAfter.ConvertedAt)
+	}
+	if metaAfter.ConvertDurationSeconds == nil || *metaAfter.ConvertDurationSeconds != durBefore {
+		t.Fatalf("hit clobbered duration: before=%v after=%v", durBefore, metaAfter.ConvertDurationSeconds)
+	}
+}
+
+// TestEnsureNonsolidCachedCopy_HitWithoutSidecarWritesSizeOnlyMetadata: when
+// dest is a usable cache hit but lacks a convert sidecar, Ensure best-effort
+// writes size-only metadata (no invented duration).
+func TestEnsureNonsolidCachedCopy_HitWithoutSidecarWritesSizeOnlyMetadata(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	srcBytes := []byte(strings.Repeat("S", 900))
+	src := filepath.Join(dir, "solid.7z")
+	if err := os.WriteFile(src, srcBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(dir, "cache")
+	cfg, err := config.FromMap(map[string]any{
+		"convert_7z_nonsolid":  true,
+		"convert_7z_scope":     "outer",
+		"convert_7z_cache_dir": cache,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := convert.NonsolidCacheDestPath(cache, src)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-seed non-solid dest large enough for hit; no sidecar.
+	destPayload := bytes.Repeat([]byte("nonsolid-cached\n"), 30) // 480 bytes
+	if err := os.WriteFile(dest, destPayload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if convert.HasConvertMetadata(dest) {
+		t.Fatal("setup must not have sidecar")
+	}
+
+	got, err := convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
+		List7z: solidListForCache(src),
+		Run7z: func(string, []string, string) error {
+			t.Fatal("Run7z must not run on cache hit")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if got != dest {
+		t.Fatalf("got %q want %q", got, dest)
+	}
+	meta := convert.ReadConvertMetadata(dest)
+	if meta == nil {
+		t.Fatal("expected size-only sidecar on hit without prior metadata")
+	}
+	if meta.Method != convert.MethodOuterNonsolidCLI {
+		t.Fatalf("method=%q", meta.Method)
+	}
+	if meta.OriginalSizeBytes != int64(len(srcBytes)) {
+		t.Fatalf("original=%d want %d", meta.OriginalSizeBytes, len(srcBytes))
+	}
+	if meta.ConvertedSizeBytes != int64(len(destPayload)) {
+		t.Fatalf("converted=%d want %d", meta.ConvertedSizeBytes, len(destPayload))
+	}
+	if meta.ConvertDurationSeconds != nil {
+		t.Fatalf("duration must be omitted on hit metadata, got %v", *meta.ConvertDurationSeconds)
+	}
+	if meta.SizeDeltaBytes != meta.ConvertedSizeBytes-meta.OriginalSizeBytes {
+		t.Fatalf("size_delta=%d", meta.SizeDeltaBytes)
+	}
+}
+
+// TestEnsureNonsolidCachedCopy_HitWithSidecarDoesNotRewrite: existing sidecar
+// (including duration) is left alone on subsequent hits.
+func TestEnsureNonsolidCachedCopy_HitWithSidecarDoesNotRewrite(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "solid.7z")
+	if err := os.WriteFile(src, []byte(strings.Repeat("S", 400)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(dir, "cache")
+	cfg, err := config.FromMap(map[string]any{
+		"convert_7z_nonsolid":  true,
+		"convert_7z_scope":     "all",
+		"convert_7z_cache_dir": cache,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := convert.NonsolidCacheDestPath(cache, src)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, nonsolidCachedPayload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dur := 7.5
+	seed := convert.BuildConvertMetadata(1111, 2222, convert.MethodOuterNonsolidCLI, &dur)
+	// Pin converted_at so we can detect rewrites.
+	seed.ConvertedAt = "2020-01-02T03:04:05Z"
+	if _, err := convert.WriteConvertMetadata(dest, seed); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 2; i++ {
+		got, err := convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
+			List7z: solidListForCache(src),
+			Run7z: func(string, []string, string) error {
+				t.Fatal("Run7z must not run on cache hit")
+				return nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("Ensure[%d]: %v", i, err)
+		}
+		if got != dest {
+			t.Fatalf("got %q want %q", got, dest)
+		}
+	}
+	meta := convert.ReadConvertMetadata(dest)
+	if meta == nil {
+		t.Fatal("sidecar missing")
+	}
+	if meta.ConvertedAt != "2020-01-02T03:04:05Z" {
+		t.Fatalf("converted_at rewritten: %q", meta.ConvertedAt)
+	}
+	if meta.OriginalSizeBytes != 1111 || meta.ConvertedSizeBytes != 2222 {
+		t.Fatalf("sizes rewritten: orig=%d conv=%d", meta.OriginalSizeBytes, meta.ConvertedSizeBytes)
+	}
+	if meta.ConvertDurationSeconds == nil || *meta.ConvertDurationSeconds != 7.5 {
+		t.Fatalf("duration rewritten: %v", meta.ConvertDurationSeconds)
 	}
 }
 

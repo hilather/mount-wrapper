@@ -144,6 +144,30 @@ func nonsolidCacheHit(dest, bin string, list List7zFunc) bool {
 	return strings.TrimSpace(dout) != "" && !Parse7zListEncrypted(dout) && !Parse7zListIsSolid(dout)
 }
 
+// writeNonsolidCacheHitMetadata best-effort writes a size-only convert sidecar
+// next to dest when a cache hit is reused without an existing sidecar (e.g.
+// dest copied in without metadata). original = source Stat size, converted =
+// dest Stat size, method = MethodOuterNonsolidCLI, duration omitted (never
+// invent duration on a hit). No-op when a readable sidecar already exists.
+func writeNonsolidCacheHitMetadata(source, dest string) {
+	if HasConvertMetadata(dest) {
+		return
+	}
+	st, err := os.Stat(source)
+	if err != nil || !st.Mode().IsRegular() {
+		return
+	}
+	dstSt, err := os.Stat(dest)
+	if err != nil || !dstSt.Mode().IsRegular() || dstSt.Size() <= 0 {
+		return
+	}
+	meta := BuildConvertMetadata(st.Size(), dstSt.Size(), MethodOuterNonsolidCLI, nil)
+	if _, err := WriteConvertMetadata(dest, meta); err != nil {
+		// Non-fatal: mount path remains valid without sidecar.
+		_ = err
+	}
+}
+
 // withNonsolidCacheLock opens dest's sibling .lock and holds a blocking
 // exclusive flock for the duration of fn (Python fcntl.flock LOCK_EX).
 func withNonsolidCacheLock(dest string, fn func() error) error {
@@ -173,7 +197,10 @@ func withNonsolidCacheLock(dest string, fn func() error) error {
 //   - encrypted (7z l -slt markers, or extract/create stderr) → Encrypted7zMessage
 //   - list succeeds and Solid != + → return source (no cache copy needed)
 //   - solid → extract + `7z a -t7z -ms=off` into cache; return cache path
-//   - cache hit when dest exists and lists as non-solid / non-encrypted
+//   - cache hit when dest exists and lists as non-solid / non-encrypted; on hit
+//     without a convert sidecar, best-effort write size-only metadata
+//     (original=source size, converted=dest size, method outer-nonsolid-cli;
+//     duration omitted — never invent duration on a hit)
 //   - concurrent populates of the same dest serialize on `{cacheKey}.lock`
 //     (re-check hit inside exclusive flock before free-space + populate)
 //   - post-populate size floor via FlattenMinOKSize; under-floor dest removed
@@ -234,6 +261,7 @@ func EnsureNonsolidCachedCopy(cfg *config.Config, source string, p NonsolidCache
 
 	// Fast path: cache hit without taking the flock.
 	if nonsolidCacheHit(dest, bin, list) {
+		writeNonsolidCacheHitMetadata(source, dest)
 		return dest, nil
 	}
 
@@ -242,6 +270,7 @@ func EnsureNonsolidCachedCopy(cfg *config.Config, source string, p NonsolidCache
 	var outPath string
 	err = withNonsolidCacheLock(dest, func() error {
 		if nonsolidCacheHit(dest, bin, list) {
+			writeNonsolidCacheHitMetadata(source, dest)
 			outPath = dest
 			return nil
 		}

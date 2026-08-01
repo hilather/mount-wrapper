@@ -26,6 +26,11 @@ From a built binary:
 
 Expect: `version`, `doctor --json`, `config show --local`, `serve --once` all succeed.
 
+With a config that sets `control_socket`, `doctor --json` emits **`control_socket_live`**:
+**warn** when serve is not running (missing sock / dial fail) or auth is denied
+(group `mount-wrapper` hint); **info** with serve version when reachable. Offline
+doctor never hard-fails on this check.
+
 ## Real mount (needs engine)
 
 1. Install **ratarmount-rs** and **fuse3** / **macFUSE**.

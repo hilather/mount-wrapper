@@ -216,8 +216,9 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] Outer nonsolid cache populate: `EnsureNonsolidCachedCopy` (CLI extract + `-ms=off`) + content-keyed dest; engine mount path wires for scope outer/all; `ResolveMountArchivePath` remains path prediction
 - [x] Outer nonsolid cache exclusive flock: `{cacheKey}.lock` + re-check hit inside lock before free-space + populate (Python `ensure_nonsolid_cached_copy` parity)
 - [x] Outer cache convert stats on mount claim: when Ensure resolves to cache dest, fill nil `convert_source_size_bytes` / `convert_duration_seconds` from cache sidecar (Stat source size fallback; no invented duration without sidecar)
+- [x] Outer nonsolid cache hit size-only metadata: on `nonsolidCacheHit` (fast path + under-lock re-check) when sidecar missing, best-effort write `original=source Stat`, `converted=dest Stat`, method `outer-nonsolid-cli`, duration omitted; do not thrash-rewrite when sidecar exists
 - [x] Outer nonsolid cache edge hardening (no stream-flatten): fail-closed on `7z l` error/empty; post-populate `FlattenMinOKSize` floor (remove under-floor dest); post-populate re-list `nonsolidCacheHit` (still-solid/unlistable → remove dest); clean leftover `*.nonsolid.partial` / `*.work` before populate; extract/create encryption stderr → `Encrypted7zMessage`
-- [ ] **Residual:** no full ratarmountcore solid/folder parser; no stream-flatten / py7zr folder walk; outer cache is CLI-only (no stream-repack); real FUSE CI deferred; full engine convert still needs `7z` on PATH; cache hits without sidecar still lack duration until a repopulate writes metadata
+- [ ] **Residual:** no full ratarmountcore solid/folder parser; no stream-flatten / py7zr folder walk; outer cache is CLI-only (no stream-repack); real FUSE CI deferred; full engine convert still needs `7z` on PATH; cache-hit size-only sidecars still omit duration (only a timed populate records `convert_duration_seconds`)
 
 ### 5.3 ZIP → non-solid 7z repack
 

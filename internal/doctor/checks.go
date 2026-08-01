@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hilather/mount-wrapper/internal/config"
+	"github.com/hilather/mount-wrapper/internal/control"
 	"github.com/hilather/mount-wrapper/internal/convert"
 	"github.com/hilather/mount-wrapper/internal/mounter"
 	"github.com/hilather/mount-wrapper/internal/paths"
@@ -909,6 +910,108 @@ func checkConvertDirs(opts *Options) []CheckResult {
 		}
 	}
 	return out
+}
+
+// checkControlSocketLive probes whether the configured control_socket path
+// exists and accepts a short status request. Offline-safe: missing path,
+// dial failure, or auth denial are severity warn (never hard-fail).
+// Skipped when Config is nil or control_socket is empty.
+func checkControlSocketLive(opts *Options) CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return CheckResult{}
+	}
+	sock := strings.TrimSpace(cfg.ControlSocket)
+	if sock == "" {
+		return CheckResult{}
+	}
+	name := CheckNameControlSocketLive
+	details := map[string]any{
+		"path": sock,
+	}
+
+	if !opts.pathExists()(sock) {
+		return warnCheck(name, false,
+			fmt.Sprintf("control socket %s not found (serve not running or path wrong)", sock),
+			details)
+	}
+	details["exists"] = true
+
+	resp, err := opts.controlRequest()(sock, "status")
+	if err != nil {
+		details["error"] = err.Error()
+		if ce, ok := err.(*control.Error); ok && ce.Code != "" {
+			details["code"] = ce.Code
+		}
+		return warnCheck(name, false,
+			fmt.Sprintf("control socket %s not reachable (serve not running?): %v", sock, err),
+			details)
+	}
+	if resp == nil {
+		return warnCheck(name, false,
+			fmt.Sprintf("control socket %s returned empty status response", sock),
+			details)
+	}
+
+	ok, _ := resp["ok"].(bool)
+	if !ok {
+		code, _ := resp["code"].(string)
+		msg, _ := resp["error"].(string)
+		if msg == "" {
+			msg = "request failed"
+		}
+		details["code"] = code
+		details["error"] = msg
+		if code == "PERMISSION_DENIED" {
+			group := control.DefaultAuthGroup
+			details["auth_group"] = group
+			return warnCheck(name, false,
+				fmt.Sprintf("control socket reachable but auth denied — run as root or member of group %s (%s)",
+					group, msg),
+				details)
+		}
+		return warnCheck(name, false,
+			fmt.Sprintf("control socket status failed: %s", msg),
+			details)
+	}
+
+	var version string
+	if data, _ := resp["data"].(map[string]any); data != nil {
+		if v, ok := data["version"].(string); ok {
+			version = v
+		}
+		if pid, ok := asJSONInt(data["pid"]); ok {
+			details["pid"] = pid
+		}
+	}
+	details["reachable"] = true
+	if version != "" {
+		details["version"] = version
+	}
+	msg := fmt.Sprintf("control socket reachable at %s", sock)
+	if version != "" {
+		msg += " (serve " + version + ")"
+	}
+	return infoCheck(name, msg, details)
+}
+
+// asJSONInt coerces JSON number types from control responses to int.
+func asJSONInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	case float64:
+		if n == float64(int(n)) {
+			return int(n), true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
 }
 
 // checkControlSocketPathLength warns on Darwin when control_socket is long

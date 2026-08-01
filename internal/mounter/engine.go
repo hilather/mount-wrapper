@@ -416,8 +416,9 @@ func (e *Engine) beginMountProcess(
 	}
 	// Persist outer-cache convert stats on the mount claim when Ensure resolved
 	// to a cache dest (store columns for status/SPA durability). Prefer the
-	// sidecar next to mountArchive; fall back to source Stat for size only.
-	// Do not invent duration without a sidecar (cache hits without metadata).
+	// sidecar next to mountArchive (populate duration or hit size-only backfill);
+	// fall back to source Stat for size only. Do not invent duration when the
+	// sidecar omits convert_duration_seconds (hit size-only metadata).
 	if outerCacheErr == nil && mountArchive != archivePath {
 		for k, v := range outerCacheConvertFields(rec, archivePath, mountArchive) {
 			pathFields[k] = v
@@ -545,9 +546,9 @@ func (e *Engine) failStart(rec *state.ArchiveRecord, indexPhase bool, reason str
 // outerCacheConvertFields builds optional Transition fields when mount uses an
 // outer nonsolid cache dest (mountArchive != sourcePath). Only fills keys where
 // rec currently has nil store values. Prefers convert.ReadConvertMetadata on
-// the cache path; falls back to Stat(sourcePath) for convert_source_size_bytes
-// only. Never invents convert_duration_seconds without a sidecar (e.g. cache
-// hit from a copy written without metadata).
+// the cache path (populate sidecar or Ensure hit size-only backfill); falls
+// back to Stat(sourcePath) for convert_source_size_bytes only. Never invents
+// convert_duration_seconds when the sidecar omits it (size-only hit metadata).
 func outerCacheConvertFields(rec *state.ArchiveRecord, sourcePath, mountArchive string) map[string]any {
 	if rec == nil || mountArchive == "" || mountArchive == sourcePath {
 		return nil
