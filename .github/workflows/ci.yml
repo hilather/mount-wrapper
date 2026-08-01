@@ -12,6 +12,12 @@ on:
         type: boolean
         default: false
 
+# Commit comments for macOS failure diagnostics need contents:write.
+permissions:
+  contents: write
+  actions: read
+  checks: write
+
 jobs:
   go:
     name: go-test
@@ -46,71 +52,79 @@ jobs:
           # Match go.mod / ubuntu go-test job (modernc.org/sqlite toolchain).
           go-version: "1.25.x"
       - name: Test
-        # Package-by-package so failures land in the step summary + a public
-        # commit comment (raw job logs may require auth). TMPDIR=/tmp shortens
-        # Unix socket paths under macOS sun_path (~104 bytes).
+        # TMPDIR=/tmp shortens Unix socket paths (macOS sun_path ~104 bytes).
+        # On failure re-run package-by-package and capture output for a public
+        # commit comment (raw job logs often require sign-in).
         env:
           TMPDIR: /tmp
         run: |
-          set -euo pipefail
-          fail=0
-          : > /tmp/macos-fail.md
-          {
-            echo "## macOS go test"
-            echo ""
-            echo "TMPDIR=\`$TMPDIR\` GOOS=\`$(go env GOOS)\` GOARCH=\`$(go env GOARCH)\`"
-            echo ""
-          } | tee -a /tmp/macos-fail.md >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-          while IFS= read -r pkg; do
+          set -uo pipefail
+          echo "TMPDIR=$TMPDIR GOOS=$(go env GOOS) GOARCH=$(go env GOARCH)" | tee /tmp/macos-fail.md
+          if go test ./... -count=1 -timeout 10m 2>&1 | tee -a /tmp/macos-gotest.log; then
+            echo "go test ./... ok" | tee -a /tmp/macos-fail.md
+            exit 0
+          fi
+          echo "go test ./... failed; isolating packages" | tee -a /tmp/macos-fail.md
+          fail=1
+          for pkg in $(go list ./...); do
             if ! go test -count=1 -timeout 120s "$pkg" >"/tmp/gotest-pkg.log" 2>&1; then
-              fail=1
               {
+                echo ""
                 echo "### FAIL \`$pkg\`"
                 echo '```'
-                tail -n 100 "/tmp/gotest-pkg.log" || true
+                tail -n 120 "/tmp/gotest-pkg.log"
                 echo '```'
-                echo ""
-              } | tee -a /tmp/macos-fail.md >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-              echo "FAIL $pkg" >&2
+              } | tee -a /tmp/macos-fail.md
               cat "/tmp/gotest-pkg.log" >&2
             else
               echo "ok $pkg"
             fi
-          done < <(go list ./...)
+          done
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            cat /tmp/macos-fail.md >> "$GITHUB_STEP_SUMMARY" || true
+          fi
           exit "$fail"
       - name: Publish test failures (public commit comment)
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Official gh may not be on PATH; use API via curl + GITHUB_TOKEN.
+          set -uo pipefail
           body_file=/tmp/macos-fail.md
           if [[ ! -s "$body_file" ]]; then
             echo "macOS go test failed (no package log captured)" > "$body_file"
+            if [[ -f /tmp/macos-gotest.log ]]; then
+              echo '```' >> "$body_file"
+              tail -n 200 /tmp/macos-gotest.log >> "$body_file"
+              echo '```' >> "$body_file"
+            fi
           fi
-          # Truncate to stay under GitHub comment size limits.
           head -c 60000 "$body_file" > /tmp/macos-fail-trim.md
-          python3 - <<'PY'
-          import json, os, urllib.request
-          body = open("/tmp/macos-fail-trim.md").read()
-          repo = os.environ["GITHUB_REPOSITORY"]
-          sha = os.environ["GITHUB_SHA"]
-          token = os.environ["GH_TOKEN"]
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
-              data=json.dumps({"body": body}).encode(),
-              headers={
-                  "Authorization": f"Bearer {token}",
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-                  "Content-Type": "application/json",
-                  "User-Agent": "mount-wrapper-ci",
-              },
-              method="POST",
-          )
-          with urllib.request.urlopen(req) as resp:
-              print("comment status", resp.status)
-          PY
+          # Avoid indented heredoc (YAML would indent Python → IndentationError).
+          python3 -c 'import json,os,urllib.request,urllib.error
+body=open("/tmp/macos-fail-trim.md").read()
+repo=os.environ["GITHUB_REPOSITORY"]
+sha=os.environ["GITHUB_SHA"]
+token=os.environ["GH_TOKEN"]
+req=urllib.request.Request(
+  f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
+  data=json.dumps({"body": body}).encode(),
+  headers={
+    "Authorization": f"Bearer {token}",
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "Content-Type": "application/json",
+    "User-Agent": "mount-wrapper-ci",
+  },
+  method="POST",
+)
+try:
+  with urllib.request.urlopen(req) as resp:
+    print("comment status", resp.status)
+except urllib.error.HTTPError as e:
+  print("comment HTTPError", e.code, e.read()[:500])
+  raise
+'
       - name: Build (CGO=0)
         env:
           CGO_ENABLED: "0"
