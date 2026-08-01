@@ -36,6 +36,11 @@ var knownArchiveStatuses = []string{
 // Auth policy:
 //   - Loopback bind (127.0.0.1 / ::1 / localhost): always open — scrapers need no token.
 //   - Non-loopback bind: same as /api/* (empty web_token = open; else Bearer / ?token=).
+//
+// Size/savings gauges (default on): requests control status with include_sizes so
+// metrics_summary can drive aggregate totals. If summary is missing, falls back to
+// the metrics op. Omit with ServerOptions.PrometheusOmitSizeGauges for a fast
+// count-only scrape. Never emits high-cardinality per-archive series.
 func (s *Server) handlePrometheus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
@@ -43,7 +48,12 @@ func (s *Server) handlePrometheus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.backend.HandleRequest(map[string]any{"op": "status"})
+	includeSizes := !s.opts.PrometheusOmitSizeGauges
+	req := map[string]any{"op": "status"}
+	if includeSizes {
+		req["include_sizes"] = true
+	}
+	resp := s.backend.HandleRequest(req)
 	code, body := unwrapControl(resp)
 	if code != http.StatusOK {
 		// Prefer plain text for scrapers when status is unavailable.
@@ -55,6 +65,21 @@ func (s *Server) handlePrometheus(w http.ResponseWriter, r *http.Request) {
 		st = map[string]any{}
 	}
 
+	var sizeSummary map[string]any
+	if includeSizes {
+		sizeSummary = asMap(st["metrics_summary"])
+		if sizeSummary == nil {
+			// Fallback when status omit metrics_summary (e.g. Metrics unset on
+			// status path) but the metrics control op is still available.
+			mresp := s.backend.HandleRequest(map[string]any{"op": "metrics"})
+			if mcode, mbody := unwrapControl(mresp); mcode == http.StatusOK {
+				if m := asMap(mbody); m != nil {
+					sizeSummary = asMap(m["summary"])
+				}
+			}
+		}
+	}
+
 	version := s.backend.Version()
 	if version == "" {
 		version = s.version
@@ -63,7 +88,7 @@ func (s *Server) handlePrometheus(w http.ResponseWriter, r *http.Request) {
 		version = v
 	}
 
-	text := renderPrometheus(st, version)
+	text := renderPrometheus(st, version, sizeSummary)
 	w.Header().Set("Content-Type", prometheusContentType)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
@@ -114,8 +139,10 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// renderPrometheus builds Prometheus text exposition from a status map.
-func renderPrometheus(st map[string]any, version string) string {
+// renderPrometheus builds Prometheus text exposition from a status map and
+// optional size/savings summary (metrics_summary or metrics op summary).
+// sizeSummary may be nil to omit size gauges (fast scrape or unavailable).
+func renderPrometheus(st map[string]any, version string, sizeSummary map[string]any) string {
 	var b strings.Builder
 
 	// --- mount_wrapper_archives ---
@@ -176,6 +203,11 @@ func renderPrometheus(st map[string]any, version string) string {
 	b.WriteString("# TYPE mount_wrapper_last_scan_timestamp_seconds gauge\n")
 	fmt.Fprintf(&b, "mount_wrapper_last_scan_timestamp_seconds %s\n", formatPromFloat(lastScan))
 
+	// --- size / savings summary gauges (aggregates only; no per-archive labels) ---
+	if sizeSummary != nil {
+		writePromSizeGauges(&b, sizeSummary)
+	}
+
 	// --- mount_wrapper_info ---
 	if version == "" {
 		version = "unknown"
@@ -185,6 +217,103 @@ func renderPrometheus(st map[string]any, version string) string {
 	fmt.Fprintf(&b, "mount_wrapper_info{version=%s} 1\n", promLabelValue(version))
 
 	return b.String()
+}
+
+// promSizeGauge is one aggregate size/savings metric mapped from metrics_summary.
+type promSizeGauge struct {
+	name string
+	help string
+	// key is the metrics_summary / Summary JSON field name.
+	key string
+	// optional: when true, omit the series if the key is absent (nullable fields).
+	optional bool
+}
+
+// promSizeGauges is the stable emission order for size/savings scrapes.
+var promSizeGauges = []promSizeGauge{
+	{
+		name: "mount_wrapper_archive_size_bytes",
+		help: "Total size in bytes of tracked archive files (sum of known archive_size_bytes).",
+		key:  "total_archive_size_bytes",
+	},
+	{
+		name: "mount_wrapper_index_size_bytes",
+		help: "Total size in bytes of ratarmount index files (sum of known index_size_bytes).",
+		key:  "total_index_size_bytes",
+	},
+	{
+		name: "mount_wrapper_extracted_size_bytes",
+		help: "Total logical extracted size in bytes (sum of known extracted_size_bytes).",
+		key:  "total_extracted_size_bytes",
+	},
+	{
+		name: "mount_wrapper_space_saved_bytes",
+		help: "Total space saved vs full extract: sum of max(0, extracted − index) over archives with both sizes.",
+		key:  "total_space_saved_bytes",
+	},
+	{
+		name: "mount_wrapper_archives_with_extracted_size",
+		help: "Number of tracked archives with a known extracted (logical) size.",
+		key:  "archives_with_extracted_size",
+	},
+	{
+		name: "mount_wrapper_archives_with_convert_metadata",
+		help: "Number of tracked archives with convert source-size metadata.",
+		key:  "archives_with_convert_metadata",
+	},
+	{
+		name:     "mount_wrapper_convert_source_size_bytes",
+		help:     "Total convert source size in bytes when convert metadata is present.",
+		key:      "total_convert_source_size_bytes",
+		optional: true,
+	},
+	{
+		name:     "mount_wrapper_convert_size_delta_bytes",
+		help:     "Total convert size delta (archive − source) in bytes when convert metadata is present.",
+		key:      "total_convert_size_delta_bytes",
+		optional: true,
+	},
+	{
+		name:     "mount_wrapper_max_convert_duration_seconds",
+		help:     "Maximum convert duration in seconds among archives with convert duration metadata.",
+		key:      "max_convert_duration_seconds",
+		optional: true,
+	},
+}
+
+func writePromSizeGauges(b *strings.Builder, sum map[string]any) {
+	for _, g := range promSizeGauges {
+		v, ok := sum[g.key]
+		if !ok || v == nil {
+			if g.optional {
+				continue
+			}
+			// Required totals: emit 0 when key missing so scrapes stay stable.
+			b.WriteString("# HELP ")
+			b.WriteString(g.name)
+			b.WriteByte(' ')
+			b.WriteString(g.help)
+			b.WriteByte('\n')
+			b.WriteString("# TYPE ")
+			b.WriteString(g.name)
+			b.WriteString(" gauge\n")
+			b.WriteString(g.name)
+			b.WriteString(" 0\n")
+			continue
+		}
+		b.WriteString("# HELP ")
+		b.WriteString(g.name)
+		b.WriteByte(' ')
+		b.WriteString(g.help)
+		b.WriteByte('\n')
+		b.WriteString("# TYPE ")
+		b.WriteString(g.name)
+		b.WriteString(" gauge\n")
+		b.WriteString(g.name)
+		b.WriteByte(' ')
+		b.WriteString(formatPromFloat(anyToFloat(v)))
+		b.WriteByte('\n')
+	}
 }
 
 // promLabelValue returns a double-quoted, escaped Prometheus label value.

@@ -101,6 +101,14 @@ follow the same HTTP auth as other `/api/*` routes.
 Prefer loopback scrapes. If you bind the web UI beyond loopback, set
 `web_token` so both the API and `/metrics` require authentication.
 
+**Cardinality / scrape cost:** size and space-saved series are **fleet
+aggregates** only (`mount_wrapper_*_size_bytes`, `mount_wrapper_space_saved_bytes`,
+convert totals when present) — not one series per archive. Default scrapes
+request status with `include_sizes` (metrics-op fallback), which can be slower
+than count-only status when size providers hit disk/index. Operators who need
+minimal scrape latency can build with `PrometheusOmitSizeGauges` (in-process
+`api.ServerOptions`; not a YAML config key today).
+
 ---
 
 ## Hooks path escape & env

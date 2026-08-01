@@ -28,7 +28,13 @@ type testEnv struct {
 	binOut       map[string]string // key: "path|--version" or "path|--help"
 	binErr       map[string]error
 	// controlReq injects control socket status probes (nil = production dial).
-	controlReq   doctor.ControlRequestFunc
+	controlReq doctor.ControlRequestFunc
+	// systemctlOut keys: "is-active mount-wrapper.service", etc.
+	// Empty maps use healthy defaults (active + enabled) for inventory baselines.
+	systemctlOut map[string]string
+	systemctlErr map[string]error
+	// alivePIDs is used by ProcessAlive; missing keys are not alive.
+	alivePIDs    map[int]bool
 	pid1         string
 	pid1Err      error
 	writes       map[string]string
@@ -42,22 +48,25 @@ type testEnv struct {
 
 func newEnv() *testEnv {
 	return &testEnv{
-		which:     map[string]string{},
-		exists:    map[string]bool{},
-		dirs:      map[string]bool{},
-		exec:      map[string]bool{},
-		writable:  map[string]bool{},
-		free:      map[string]int64{},
-		freeOK:    map[string]bool{},
-		modes:     map[string]os.FileMode{},
-		users:     map[string]bool{},
-		files:     map[string]string{},
-		binOut:    map[string]string{},
-		binErr:    map[string]error{},
-		writes:    map[string]string{},
-		platform:  "linux",
-		pid1:      "systemd",
-		goVersion: "go1.25.0",
+		which:        map[string]string{},
+		exists:       map[string]bool{},
+		dirs:         map[string]bool{},
+		exec:         map[string]bool{},
+		writable:     map[string]bool{},
+		free:         map[string]int64{},
+		freeOK:       map[string]bool{},
+		modes:        map[string]os.FileMode{},
+		users:        map[string]bool{},
+		files:        map[string]string{},
+		binOut:       map[string]string{},
+		binErr:       map[string]error{},
+		systemctlOut: map[string]string{},
+		systemctlErr: map[string]error{},
+		alivePIDs:    map[int]bool{},
+		writes:       map[string]string{},
+		platform:     "linux",
+		pid1:         "systemd",
+		goVersion:    "go1.25.0",
 	}
 }
 
@@ -135,6 +144,32 @@ func (e *testEnv) opts(cfg *config.Config) doctor.Options {
 			return out, err
 		},
 		ControlRequest: e.controlReq,
+		Systemctl: func(args ...string) (string, error) {
+			key := strings.Join(args, " ")
+			if err, ok := e.systemctlErr[key]; ok {
+				return e.systemctlOut[key], err
+			}
+			if out, ok := e.systemctlOut[key]; ok {
+				return out, nil
+			}
+			// Healthy defaults so inventory baselines stay report-OK when
+			// Linux + systemd PID1 emits systemd_unit.
+			if len(args) >= 2 && args[1] == doctor.DefaultSystemdUnit {
+				switch args[0] {
+				case "is-active":
+					return "active", nil
+				case "is-enabled":
+					return "enabled", nil
+				}
+			}
+			return "", os.ErrNotExist
+		},
+		ProcessAlive: func(pid int) bool {
+			if e.alivePIDs == nil {
+				return false
+			}
+			return e.alivePIDs[pid]
+		},
 		WriteFile: func(path string, content []byte, mode os.FileMode) error {
 			e.writes[path] = string(content)
 			e.exists[path] = true
@@ -242,7 +277,10 @@ func TestDoctorCheckInventory(t *testing.T) {
 				t.Helper()
 				return nil
 			},
-			required:        append([]string(nil), doctor.CoreCheckNames...),
+			// Linux + systemd PID1 also emits systemd_unit after core checks.
+			required: append(append([]string(nil), doctor.CoreCheckNames...),
+				doctor.CheckNameSystemdUnit,
+			),
 			wantOrderPrefix: append([]string(nil), doctor.CoreCheckNames...),
 			forbidden: []string{
 				doctor.CheckNameWebBindSecurity,
@@ -250,6 +288,7 @@ func TestDoctorCheckInventory(t *testing.T) {
 				doctor.CheckNameArchiveconverterOutputDir,
 				doctor.CheckNameControlSocketPathLength,
 				doctor.CheckNameControlSocketLive,
+				doctor.CheckNamePidfileLive,
 				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameConfig,
 				doctor.CheckNameIndexLayout,
@@ -266,10 +305,18 @@ func TestDoctorCheckInventory(t *testing.T) {
 						t.Errorf("unexpected config-dependent check %q without config", c.Name)
 					}
 				}
-				// Core order equals full report when no config.
+				// Core + systemd_unit when PID1 is systemd.
 				got := orderedNames(r)
-				if len(got) != len(doctor.CoreCheckNames) {
-					t.Fatalf("check count=%d want %d: %v", len(got), len(doctor.CoreCheckNames), got)
+				wantN := len(doctor.CoreCheckNames) + 1
+				if len(got) != wantN {
+					t.Fatalf("check count=%d want %d: %v", len(got), wantN, got)
+				}
+				if got[len(doctor.CoreCheckNames)] != doctor.CheckNameSystemdUnit {
+					t.Fatalf("after core want systemd_unit, got %q", got[len(doctor.CoreCheckNames)])
+				}
+				su := checkByName(r, doctor.CheckNameSystemdUnit)
+				if !su.OK || su.Severity != doctor.SeverityInfo {
+					t.Fatalf("systemd_unit baseline: %+v", su)
 				}
 			},
 		},
@@ -278,19 +325,21 @@ func TestDoctorCheckInventory(t *testing.T) {
 			setup: func(t *testing.T, e *testEnv) *config.Config {
 				t.Helper()
 				return mustCfg(t, map[string]any{
-					"source_dirs":             []any{"/tmp"},
-					"convert_7z_nonsolid":     false,
-					"convert_zip_to_7z":       false,
+					"source_dirs":              []any{"/tmp"},
+					"convert_7z_nonsolid":      false,
+					"convert_zip_to_7z":        false,
 					"archiveconverter_enabled": false,
-					"web_enabled":             false,
-					"control_socket":          "/run/mount-wrapper/control.sock",
+					"web_enabled":              false,
+					"control_socket":           "/run/mount-wrapper/control.sock",
 				}, "/tmp/inventory-config.yaml")
 			},
 			required: append(append([]string(nil), doctor.CoreCheckNames...),
+				doctor.CheckNameSystemdUnit,
 				doctor.CheckNameWebBindSecurity,
 				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameIndexLayout,
 				doctor.CheckNameControlSocketLive,
+				doctor.CheckNamePidfileLive,
 				doctor.CheckNameConfig,
 				"path.mount_root",
 				"path.index_dir",
@@ -298,7 +347,7 @@ func TestDoctorCheckInventory(t *testing.T) {
 				"path.control_socket_dir",
 				"source_dirs[0]",
 			),
-			requiredPrefix: []string{doctor.DiskCheckPrefix},
+			requiredPrefix:  []string{doctor.DiskCheckPrefix},
 			wantOrderPrefix: append([]string(nil), doctor.CoreCheckNames...),
 			forbidden: []string{
 				doctor.CheckNameConvertCacheDir,
@@ -319,8 +368,13 @@ func TestDoctorCheckInventory(t *testing.T) {
 				if live.OK || live.Severity != doctor.SeverityWarn {
 					t.Fatalf("control_socket_live offline baseline: %+v", live)
 				}
+				// Default pid_file missing in fakes → warn offline.
+				pf := checkByName(r, doctor.CheckNamePidfileLive)
+				if pf.OK || pf.Severity != doctor.SeverityWarn {
+					t.Fatalf("pidfile_live offline baseline: %+v", pf)
+				}
 				if doctor.HardFail(r.Checks) {
-					t.Fatalf("control_socket_live warn must not hard-fail")
+					t.Fatalf("live probe warns must not hard-fail")
 				}
 			},
 		},
@@ -480,6 +534,175 @@ func TestDoctorCheckInventory(t *testing.T) {
 				return cfg
 			},
 			forbidden: []string{doctor.CheckNameControlSocketLive},
+		},
+		{
+			name: "systemd_unit_inactive_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.systemctlOut["is-active "+doctor.DefaultSystemdUnit] = "inactive"
+				e.systemctlOut["is-enabled "+doctor.DefaultSystemdUnit] = "disabled"
+				return nil
+			},
+			required:     []string{doctor.CheckNameSystemdUnit},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameSystemdUnit)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want inactive warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "not active") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if active, _ := c.Details["active"].(string); active != "inactive" {
+					t.Fatalf("details.active=%v", c.Details["active"])
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("inactive unit must not hard-fail")
+				}
+			},
+		},
+		{
+			name: "systemd_unit_systemctl_unavailable_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.systemctlErr["is-active "+doctor.DefaultSystemdUnit] = os.ErrNotExist
+				e.systemctlErr["is-enabled "+doctor.DefaultSystemdUnit] = os.ErrNotExist
+				return nil
+			},
+			required:     []string{doctor.CheckNameSystemdUnit},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameSystemdUnit)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want systemctl unavailable warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "systemctl") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("systemctl missing must not hard-fail")
+				}
+			},
+		},
+		{
+			name: "systemd_unit_skipped_when_not_pid1",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.pid1 = "init"
+				return nil
+			},
+			forbidden: []string{doctor.CheckNameSystemdUnit},
+		},
+		{
+			name: "systemd_unit_skipped_on_darwin",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.platform = "darwin"
+				e.exists["/Library/Filesystems/macfuse.fs"] = true
+				e.which["umount"] = "/usr/bin/umount"
+				return nil
+			},
+			forbidden: []string{doctor.CheckNameSystemdUnit},
+		},
+		{
+			name: "pidfile_live_missing_path_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				return mustCfg(t, map[string]any{
+					"pid_file":            "/run/mount-wrapper/missing.pid",
+					"convert_7z_nonsolid": false,
+					"convert_zip_to_7z":   false,
+				}, "")
+			},
+			required:     []string{doctor.CheckNamePidfileLive},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNamePidfileLive)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want missing pidfile warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "not found") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("missing pidfile must not hard-fail")
+				}
+			},
+		},
+		{
+			name: "pidfile_live_stale_pid_warn",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				path := "/run/mount-wrapper/mount-wrapper.pid"
+				e.exists[path] = true
+				e.files[path] = "99999\n"
+				// alivePIDs empty → not alive
+				return mustCfg(t, map[string]any{
+					"pid_file": path,
+				}, "")
+			},
+			required:     []string{doctor.CheckNamePidfileLive},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNamePidfileLive)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("want stale pid warn: %+v", c)
+				}
+				if !strings.Contains(c.Message, "not running") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if pid, _ := c.Details["pid"].(int); pid != 99999 {
+					t.Fatalf("details.pid=%v", c.Details["pid"])
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatal("stale pid must not hard-fail")
+				}
+			},
+		},
+		{
+			name: "pidfile_live_ok_alive",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				path := "/run/mount-wrapper/mount-wrapper.pid"
+				e.exists[path] = true
+				e.files[path] = "4242\n"
+				e.alivePIDs[4242] = true
+				return mustCfg(t, map[string]any{
+					"pid_file": path,
+				}, "")
+			},
+			required:     []string{doctor.CheckNamePidfileLive},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNamePidfileLive)
+				if !c.OK || c.Severity != doctor.SeverityInfo {
+					t.Fatalf("want info alive: %+v", c)
+				}
+				if !strings.Contains(c.Message, "4242") || !strings.Contains(c.Message, "alive") {
+					t.Fatalf("message=%q", c.Message)
+				}
+				if alive, _ := c.Details["alive"].(bool); !alive {
+					t.Fatalf("details.alive=%v", c.Details["alive"])
+				}
+			},
+		},
+		{
+			name: "pidfile_empty_skips_live",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				cfg := mustCfg(t, map[string]any{
+					"convert_7z_nonsolid": false,
+					"convert_zip_to_7z":   false,
+				}, "")
+				cfg.PIDFile = ""
+				return cfg
+			},
+			forbidden: []string{doctor.CheckNamePidfileLive},
 		},
 		{
 			name: "windows_visible_parent_ox_missing_bit_warn",
@@ -1960,18 +2183,22 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 				t.Helper()
 				return doctor.Run(inventoryBaseEnv().opts(nil))
 			},
-			wantOK:                    boolPtr(true),
-			wantConfigPathSet:         true,
-			wantConfigPath:            nil,
-			wantNotesLen:              intPtr(0),
-			wantFixesLen:              intPtr(0),
-			wantMinChecks:             len(doctor.CoreCheckNames),
-			requiredChecks:            append([]string(nil), doctor.CoreCheckNames...),
+			wantOK:            boolPtr(true),
+			wantConfigPathSet: true,
+			wantConfigPath:    nil,
+			wantNotesLen:      intPtr(0),
+			wantFixesLen:      intPtr(0),
+			// Core + systemd_unit (linux + systemd PID1 defaults).
+			wantMinChecks: len(doctor.CoreCheckNames) + 1,
+			requiredChecks: append(append([]string(nil), doctor.CoreCheckNames...),
+				doctor.CheckNameSystemdUnit,
+			),
 			forbiddenChecks: []string{
 				doctor.CheckNameWebBindSecurity,
 				doctor.CheckNameConvertCacheDir,
 				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameControlSocketLive,
+				doctor.CheckNamePidfileLive,
 				doctor.CheckNameConfig,
 				doctor.CheckNameIndexLayout,
 				doctor.CheckNameFixSystemd,
@@ -1979,16 +2206,21 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 			assertHardFailConsistency: true,
 			extra: func(t *testing.T, m map[string]any, r *doctor.Report) {
 				t.Helper()
-				if len(r.Checks) != len(doctor.CoreCheckNames) {
-					t.Fatalf("core check count=%d want %d", len(r.Checks), len(doctor.CoreCheckNames))
+				wantN := len(doctor.CoreCheckNames) + 1
+				if len(r.Checks) != wantN {
+					t.Fatalf("check count=%d want %d", len(r.Checks), wantN)
 				}
-				// Core order frozen in JSON checks array.
+				// Core order frozen in JSON checks array; systemd_unit follows.
 				checks := m["checks"].([]any)
 				for i, want := range doctor.CoreCheckNames {
 					c := checks[i].(map[string]any)
 					if c["name"] != want {
 						t.Fatalf("checks[%d].name=%v want %q", i, c["name"], want)
 					}
+				}
+				last := checks[len(doctor.CoreCheckNames)].(map[string]any)
+				if last["name"] != doctor.CheckNameSystemdUnit {
+					t.Fatalf("checks[%d].name=%v want %q", len(doctor.CoreCheckNames), last["name"], doctor.CheckNameSystemdUnit)
 				}
 			},
 		},
@@ -2021,11 +2253,13 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 			wantFixesLen:      intPtr(0),
 			wantMinChecks:     len(doctor.CoreCheckNames) + 1,
 			requiredChecks: []string{
+				doctor.CheckNameSystemdUnit,
 				doctor.CheckNameWebBindSecurity,
 				doctor.CheckNameWindowsVisibleParentOX,
 				doctor.CheckNameConvertCacheDir,
 				doctor.CheckNameIndexLayout,
 				doctor.CheckNameControlSocketLive,
+				doctor.CheckNamePidfileLive,
 				doctor.CheckNameConfig,
 				"path.mount_root",
 				"source_dirs[0]",
@@ -2046,6 +2280,10 @@ func TestDoctorFormatJSONStructural(t *testing.T) {
 				live := checkByName(r, doctor.CheckNameControlSocketLive)
 				if live.OK || live.Severity != doctor.SeverityWarn {
 					t.Fatalf("control_socket_live offline: ok=%v sev=%q", live.OK, live.Severity)
+				}
+				pf := checkByName(r, doctor.CheckNamePidfileLive)
+				if pf.OK || pf.Severity != doctor.SeverityWarn {
+					t.Fatalf("pidfile_live offline: ok=%v sev=%q", pf.OK, pf.Severity)
 				}
 				// Presence of disk.* gated by free-space probes (prefix only).
 				foundDisk := false

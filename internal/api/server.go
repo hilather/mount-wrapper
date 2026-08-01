@@ -60,6 +60,13 @@ type ServerOptions struct {
 	// SSEIncludeSizes requests status with include_sizes so metrics_summary
 	// can drive optional metrics delta events (heavier; off by default).
 	SSEIncludeSizes bool
+	// PrometheusOmitSizeGauges when true skips size/savings summary gauges on
+	// GET /metrics and avoids status include_sizes / metrics control calls
+	// (count / low_disk / last_scan / info only — faster scrape). Default
+	// false: scrapes request include_sizes (fallback: metrics op) and emit
+	// aggregate size/savings gauges from metrics_summary. That path can be
+	// slower (disk/index size providers). No per-archive Prometheus series.
+	PrometheusOmitSizeGauges bool
 	// DestructiveMinInterval is the min gap between admits for destructive
 	// POSTs (purge, unmount-all, rescan) per client IP. Zero → default 2s.
 	// Negative disables the limiter (tests only).

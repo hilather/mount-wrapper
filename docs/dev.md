@@ -59,7 +59,14 @@ make build
 # ./bin/mount-wrapper status --sizes --json             # full JSON with metrics
 # ./bin/mount-wrapper metrics                           # human summary + per-archive
 # ./bin/mount-wrapper metrics --json                    # control JSON payload
-# ./bin/mount-wrapper rescan --assume-stable
+# ./bin/mount-wrapper rescan --assume-stable            # human scan summary
+# ./bin/mount-wrapper rescan --json                     # control scan summary
+# ./bin/mount-wrapper retry ARCHIVE_ID                  # human; --json for payload
+# ./bin/mount-wrapper mount PATH                        # human; --json for payload
+# ./bin/mount-wrapper unmount --all                     # human; --json for payload
+# ./bin/mount-wrapper purge ARCHIVE_ID --yes            # human; --json for payload
+# ./bin/mount-wrapper hooks list                        # human; --json for payload
+# ./bin/mount-wrapper hooks status ARCHIVE_ID           # human; --json for payload
 # Override socket without full config: --socket /path/to/control.sock
 
 # Frontend (HMR; proxies /api → http://127.0.0.1:8787)

@@ -49,5 +49,7 @@ web_port: 8787
 web_token: ""
 # Prometheus: GET /metrics is always exposed when web is on (no extra flag).
 # Loopback bind → scrape without token; non-loopback → requires web_token when set.
+# Default scrape includes aggregate size/savings gauges via status include_sizes
+# (metrics_summary); can be slower than count-only. No per-archive series.
 
 log_level: INFO

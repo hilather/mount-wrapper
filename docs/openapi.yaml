@@ -442,6 +442,24 @@ paths:
         Always registered when the HTTP server is up (`web_enabled`).
         **Auth:** open on loopback bind; non-loopback requires same token as `/api/*`
         when `web_token` is set. HEAD allowed.
+
+        **Series (gauges):** lifecycle counts `mount_wrapper_archives{status=…}`,
+        `mount_wrapper_low_disk`, `mount_wrapper_last_scan_timestamp_seconds`,
+        `mount_wrapper_info{version=…}`, plus **aggregate** size/savings totals
+        when available: `mount_wrapper_archive_size_bytes`,
+        `mount_wrapper_index_size_bytes`, `mount_wrapper_extracted_size_bytes`,
+        `mount_wrapper_space_saved_bytes`,
+        `mount_wrapper_archives_with_extracted_size`,
+        `mount_wrapper_archives_with_convert_metadata`, and optional convert
+        totals (`mount_wrapper_convert_source_size_bytes`,
+        `mount_wrapper_convert_size_delta_bytes`,
+        `mount_wrapper_max_convert_duration_seconds`).
+        No per-archive label cardinality.
+
+        **Scrape path:** control `status` with `include_sizes` → `metrics_summary`;
+        fallback to control `metrics` `summary`. Size providers can make scrapes
+        slower than count-only status. Server option `PrometheusOmitSizeGauges`
+        skips size gauges (fast path; not a query parameter).
       responses:
         "200":
           description: Prometheus text

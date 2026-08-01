@@ -26,10 +26,17 @@ From a built binary:
 
 Expect: `version`, `doctor --json`, `config show --local`, `serve --once` all succeed.
 
-With a config that sets `control_socket`, `doctor --json` emits **`control_socket_live`**:
-**warn** when serve is not running (missing sock / dial fail) or auth is denied
-(group `mount-wrapper` hint); **info** with serve version when reachable. Offline
-doctor never hard-fails on this check.
+With a config that sets `control_socket` / `pid_file`, `doctor --json` emits live
+probes that never hard-fail offline:
+
+| Check | When | Offline warn | OK |
+|-------|------|--------------|-----|
+| **`control_socket_live`** | non-empty `control_socket` | missing sock / dial fail / auth denied (group `mount-wrapper` hint) | **info** with serve version when reachable |
+| **`pidfile_live`** | non-empty `pid_file` | missing path / invalid or stale PID | **info** when the PID is alive |
+| **`systemd_unit`** | Linux + systemd is PID 1 | unit inactive/failed/not-found or `systemctl` unavailable | **info** when `mount-wrapper.service` is active |
+
+On hosts without systemd (or Darwin), **`systemd_unit`** is omitted; **`systemd_pid1`**
+still reports platform guidance.
 
 ## Real mount (needs engine)
 
@@ -92,6 +99,16 @@ curl -sS http://127.0.0.1:8787/api/status | jq '.archives[] | select(.nested_ski
 ```
 
 Prometheus: `curl -sS http://127.0.0.1:8787/metrics | head`
+
+Size/savings aggregates (default scrape; may be slower than count-only status):
+
+```bash
+curl -sS http://127.0.0.1:8787/metrics | grep -E 'mount_wrapper_(archive|index|extracted|space_saved)_'
+```
+
+Expect `mount_wrapper_archive_size_bytes`, `…_index_size_bytes`,
+`…_extracted_size_bytes`, `…_space_saved_bytes` (and optional convert totals).
+No per-archive label sets.
 
 ## Operator surfaces (v0.1.3)
 

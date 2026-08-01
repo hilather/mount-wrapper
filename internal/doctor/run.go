@@ -32,6 +32,10 @@ func Run(opts Options) *Report {
 		checkSystemd(o),
 		checkServiceUser(o),
 	}
+	// Platform-gated: Linux + systemd PID1 only (after systemd_pid1 / service_user).
+	if c := checkSystemdUnit(o); c.Name != "" {
+		checks = append(checks, c)
+	}
 
 	var notes []string
 	var fixes []string
@@ -50,6 +54,9 @@ func Run(opts Options) *Report {
 			checks = append(checks, c)
 		}
 		if c := checkControlSocketLive(o); c.Name != "" {
+			checks = append(checks, c)
+		}
+		if c := checkPidfileLive(o); c.Name != "" {
 			checks = append(checks, c)
 		}
 		checks = append(checks, checkConfig(o))

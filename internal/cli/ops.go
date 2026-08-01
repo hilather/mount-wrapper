@@ -129,6 +129,7 @@ func runRescan(args []string, stdout, stderr io.Writer) int {
 	var configFlag, socketFlag string
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
 	assumeStable := fs.Bool("assume-stable", false, "bypass stable-file gate (admin/acceptance only)")
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return ExitOK
@@ -145,11 +146,7 @@ func runRescan(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if err := printJSON(stdout, data); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return ExitError
-	}
-	return ExitOK
+	return printControlData(stdout, stderr, data, *jsonOut, formatRescanHuman)
 }
 
 func runRetry(args []string, stdout, stderr io.Writer) int {
@@ -157,6 +154,7 @@ func runRetry(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var configFlag, socketFlag string
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return ExitOK
@@ -164,7 +162,7 @@ func runRetry(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: mount-wrapper retry ARCHIVE_ID [--config PATH] [--socket PATH]")
+		fmt.Fprintln(stderr, "usage: mount-wrapper retry ARCHIVE_ID [--json] [--config PATH] [--socket PATH]")
 		return ExitUsage
 	}
 	fields := map[string]any{"archive_id": fs.Arg(0)}
@@ -172,11 +170,7 @@ func runRetry(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if err := printJSON(stdout, data); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return ExitError
-	}
-	return ExitOK
+	return printControlData(stdout, stderr, data, *jsonOut, formatRetryHuman)
 }
 
 func runMount(args []string, stdout, stderr io.Writer) int {
@@ -184,6 +178,7 @@ func runMount(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var configFlag, socketFlag string
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return ExitOK
@@ -191,7 +186,7 @@ func runMount(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: mount-wrapper mount PATH [--config PATH] [--socket PATH]")
+		fmt.Fprintln(stderr, "usage: mount-wrapper mount PATH [--json] [--config PATH] [--socket PATH]")
 		return ExitUsage
 	}
 	fields := map[string]any{"path": fs.Arg(0)}
@@ -199,11 +194,7 @@ func runMount(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if err := printJSON(stdout, data); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return ExitError
-	}
-	return ExitOK
+	return printControlData(stdout, stderr, data, *jsonOut, formatMountHuman)
 }
 
 func runUnmount(args []string, stdout, stderr io.Writer) int {
@@ -212,6 +203,7 @@ func runUnmount(args []string, stdout, stderr io.Writer) int {
 	var configFlag, socketFlag string
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
 	all := fs.Bool("all", false, "unmount all managed archives")
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return ExitOK
@@ -245,11 +237,7 @@ func runUnmount(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if err := printJSON(stdout, data); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return ExitError
-	}
-	return ExitOK
+	return printControlData(stdout, stderr, data, *jsonOut, formatUnmountHuman)
 }
 
 func runPurge(args []string, stdout, stderr io.Writer) int {
@@ -258,6 +246,7 @@ func runPurge(args []string, stdout, stderr io.Writer) int {
 	var configFlag, socketFlag string
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
 	yes := fs.Bool("yes", false, "confirm purge (required)")
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return ExitOK
@@ -265,7 +254,7 @@ func runPurge(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: mount-wrapper purge ARCHIVE_ID --yes [--config PATH] [--socket PATH]")
+		fmt.Fprintln(stderr, "usage: mount-wrapper purge ARCHIVE_ID --yes [--json] [--config PATH] [--socket PATH]")
 		return ExitUsage
 	}
 	if !*yes {
@@ -280,11 +269,7 @@ func runPurge(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if err := printJSON(stdout, data); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return ExitError
-	}
-	return ExitOK
+	return printControlData(stdout, stderr, data, *jsonOut, formatPurgeHuman)
 }
 
 func runReload(args []string, stdout, stderr io.Writer) int {
@@ -315,7 +300,7 @@ func runReload(args []string, stdout, stderr io.Writer) int {
 		}
 		return ExitOK
 	}
-	// Default: human line for operators (other ops dump useful JSON payloads).
+	// Default: human line for operators.
 	fmt.Fprintln(stdout, "reload scheduled")
 	return ExitOK
 }
@@ -348,7 +333,7 @@ func runStop(args []string, stdout, stderr io.Writer) int {
 		}
 		return ExitOK
 	}
-	// Default: human line for operators (other ops dump useful JSON payloads).
+	// Default: human line for operators.
 	fmt.Fprintln(stdout, "stop scheduled")
 	return ExitOK
 }
@@ -369,16 +354,17 @@ func runHooks(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, `hooks — inspect or re-run first-mount hooks
 
 Usage:
-  mount-wrapper hooks list [--config PATH] [--socket PATH]
-  mount-wrapper hooks status ARCHIVE_ID [--config PATH] [--socket PATH]
+  mount-wrapper hooks list [--json] [--config PATH] [--socket PATH]
+  mount-wrapper hooks status ARCHIVE_ID [--json] [--config PATH] [--socket PATH]
   mount-wrapper hooks rerun [flags] ARCHIVE_ID
 
 Flags:
   --force              re-run even when hooks_status is terminal success/failed
-  --json               machine-readable JSON
+  --json               machine-readable JSON (control payload; default is human)
   --config PATH / -c   config YAML
   --socket PATH        control socket override
 
+hooks list / status default to human summary; --json dumps the control payload.
 hooks rerun uses control op hooks_run. Without --force, eligibility matches
 serve (none|pending|retry|running; failed only if hook_rerun_on_failure).
 --force re-runs even after terminal success/failed. Archive must be mounted
@@ -397,6 +383,7 @@ func runHooksList(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var configFlag, socketFlag string
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return ExitOK
@@ -411,11 +398,7 @@ func runHooksList(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if err := printJSON(stdout, data); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return ExitError
-	}
-	return ExitOK
+	return printControlData(stdout, stderr, data, *jsonOut, formatHooksListHuman)
 }
 
 func runHooksStatus(args []string, stdout, stderr io.Writer) int {
@@ -423,6 +406,7 @@ func runHooksStatus(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var configFlag, socketFlag string
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return ExitOK
@@ -430,7 +414,7 @@ func runHooksStatus(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: mount-wrapper hooks status ARCHIVE_ID [--config PATH] [--socket PATH]")
+		fmt.Fprintln(stderr, "usage: mount-wrapper hooks status ARCHIVE_ID [--json] [--config PATH] [--socket PATH]")
 		return ExitUsage
 	}
 	fields := map[string]any{"archive_id": fs.Arg(0)}
@@ -438,11 +422,7 @@ func runHooksStatus(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if err := printJSON(stdout, data); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return ExitError
-	}
-	return ExitOK
+	return printControlData(stdout, stderr, data, *jsonOut, formatHooksStatusHuman)
 }
 
 func runHooksRerun(args []string, stdout, stderr io.Writer) int {
@@ -470,15 +450,7 @@ func runHooksRerun(args []string, stdout, stderr io.Writer) int {
 	if code != ExitOK {
 		return code
 	}
-	if *jsonOut {
-		if err := printJSON(stdout, data); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return ExitError
-		}
-		return ExitOK
-	}
-	fmt.Fprint(stdout, formatHooksRerunHuman(data))
-	return ExitOK
+	return printControlData(stdout, stderr, data, *jsonOut, formatHooksRerunHuman)
 }
 
 // formatHooksRerunHuman prints a one-line operator summary of hooks_run data.

@@ -1032,6 +1032,19 @@ func TestPrometheusMetricsScrape(t *testing.T) {
 			"low_disk":     true,
 			"last_scan_at": "2026-01-15T12:00:00Z",
 			"mounted":      2,
+			// Default scrape requests include_sizes; summary drives size gauges.
+			"metrics_summary": map[string]any{
+				"archive_count":                  6,
+				"archives_with_extracted_size":   2,
+				"archives_with_convert_metadata": 1,
+				"total_archive_size_bytes":       1000,
+				"total_index_size_bytes":         40,
+				"total_extracted_size_bytes":     5000,
+				"total_space_saved_bytes":        4960,
+				"total_convert_source_size_bytes": 1200,
+				"total_convert_size_delta_bytes":  -200,
+				"max_convert_duration_seconds":   3.5,
+			},
 		},
 	}
 	// Loopback bind + token: /metrics still open without Bearer (scrape policy).
@@ -1070,6 +1083,17 @@ func TestPrometheusMetricsScrape(t *testing.T) {
 		"# TYPE mount_wrapper_low_disk gauge",
 		"# TYPE mount_wrapper_last_scan_timestamp_seconds gauge",
 		"# TYPE mount_wrapper_info gauge",
+		// Size / savings aggregates (no per-archive labels).
+		"mount_wrapper_archive_size_bytes 1000",
+		"mount_wrapper_index_size_bytes 40",
+		"mount_wrapper_extracted_size_bytes 5000",
+		"mount_wrapper_space_saved_bytes 4960",
+		"mount_wrapper_archives_with_extracted_size 2",
+		"mount_wrapper_archives_with_convert_metadata 1",
+		"mount_wrapper_convert_source_size_bytes 1200",
+		"mount_wrapper_convert_size_delta_bytes -200",
+		"mount_wrapper_max_convert_duration_seconds 3.5",
+		"# TYPE mount_wrapper_space_saved_bytes gauge",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Errorf("scrape missing %q\n--- body ---\n%s", needle, text)
@@ -1089,6 +1113,14 @@ func TestPrometheusMetricsScrape(t *testing.T) {
 		t.Error("missing mount_wrapper_last_scan_timestamp_seconds line")
 	}
 
+	// Default scrape requests status with include_sizes (not bare status).
+	be.mu.Lock()
+	ops := append([]string(nil), be.ops...)
+	be.mu.Unlock()
+	if len(ops) == 0 || ops[0] != "status" {
+		t.Fatalf("ops=%v want status first", ops)
+	}
+
 	// /api/* still requires token when set.
 	res2, err := http.Get(ts.URL + "/api/health")
 	if err != nil {
@@ -1097,6 +1129,114 @@ func TestPrometheusMetricsScrape(t *testing.T) {
 	res2.Body.Close()
 	if res2.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("/api/health without token status=%d want 401", res2.StatusCode)
+	}
+}
+
+func TestPrometheusMetricsSizeGaugesFromMetricsOpFallback(t *testing.T) {
+	// Status without metrics_summary → fallback to metrics op summary.
+	be := &fakeBackend{
+		version: "v",
+		status: map[string]any{
+			"counts":   map[string]any{"mounted": 1},
+			"low_disk": false,
+		},
+		metrics: map[string]any{
+			"metrics": []any{},
+			"summary": map[string]any{
+				"total_archive_size_bytes":   42,
+				"total_index_size_bytes":     7,
+				"total_extracted_size_bytes": 100,
+				"total_space_saved_bytes":    93,
+				"archives_with_extracted_size": 1,
+				"archives_with_convert_metadata": 0,
+			},
+		},
+	}
+	srv := newTestServer(t, "", be)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	res, err := http.Get(ts.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, needle := range []string{
+		"mount_wrapper_archive_size_bytes 42",
+		"mount_wrapper_index_size_bytes 7",
+		"mount_wrapper_extracted_size_bytes 100",
+		"mount_wrapper_space_saved_bytes 93",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Errorf("fallback scrape missing %q\n--- body ---\n%s", needle, text)
+		}
+	}
+	// Optional convert gauges absent when summary keys are nil/missing.
+	if strings.Contains(text, "mount_wrapper_convert_source_size_bytes") {
+		t.Error("optional convert_source gauge should be omitted when key missing")
+	}
+
+	be.mu.Lock()
+	ops := append([]string(nil), be.ops...)
+	be.mu.Unlock()
+	// status (include_sizes) then metrics fallback.
+	if len(ops) < 2 || ops[0] != "status" || ops[1] != "metrics" {
+		t.Fatalf("ops=%v want [status, metrics, ...]", ops)
+	}
+}
+
+func TestPrometheusMetricsOmitSizeGauges(t *testing.T) {
+	be := &fakeBackend{
+		version: "v",
+		status: map[string]any{
+			"counts": map[string]any{"mounted": 1},
+			"metrics_summary": map[string]any{
+				"total_archive_size_bytes": 999,
+				"total_space_saved_bytes":  1,
+			},
+		},
+		metrics: map[string]any{
+			"summary": map[string]any{"total_archive_size_bytes": 999},
+		},
+	}
+	srv := api.New(be, api.ServerOptions{
+		Bind:                     "127.0.0.1:0",
+		Token:                    "",
+		Version:                  "web-test",
+		SSEInterval:              50 * time.Millisecond,
+		HeartbeatInterval:        200 * time.Millisecond,
+		DestructiveMinInterval:   -1,
+		PrometheusOmitSizeGauges: true,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	res, err := http.Get(ts.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	text := string(body)
+	if !strings.Contains(text, "mount_wrapper_low_disk") {
+		t.Fatalf("expected base gauges, body=%s", truncate(text, 300))
+	}
+	if strings.Contains(text, "mount_wrapper_archive_size_bytes") ||
+		strings.Contains(text, "mount_wrapper_space_saved_bytes") {
+		t.Fatalf("size gauges should be omitted, body=%s", truncate(text, 400))
+	}
+	be.mu.Lock()
+	ops := append([]string(nil), be.ops...)
+	be.mu.Unlock()
+	for _, op := range ops {
+		if op == "metrics" {
+			t.Fatalf("omit path should not call metrics op, ops=%v", ops)
+		}
 	}
 }
 

@@ -49,16 +49,31 @@ Allow control-plane ops without peer credentials. Also enabled when env
 .TP
 .B doctor
 Offline environment diagnostics (FUSE, bins, paths, disk, peercred notes,
-control socket live reachability).
+control socket and pidfile liveness, systemd unit when applicable).
 Does not require a running
 .B serve
-process; when
+process. Live probes never hard-fail offline:
+when
 .B control_socket
 is set, check
 .B control_socket_live
 warns if the socket is missing, unreachable, or auth-denied (group
 .BR mount-wrapper ),
-and reports serve version when reachable.
+and reports serve version when reachable;
+when
+.B pid_file
+is set, check
+.B pidfile_live
+warns if the path is missing or the PID is not running;
+on Linux with systemd as PID 1, check
+.B systemd_unit
+best-effort probes
+.B systemctl is-active
+/
+.B is-enabled
+for
+.B mount-wrapper.service
+(warn when inactive or systemctl unavailable).
 .RS
 .TP
 .B \-\-json
@@ -135,24 +150,51 @@ limits the report to one archive.
 .B rescan
 Trigger an immediate source scan (requires
 .BR serve ).
+Default stdout is a one-line human scan summary
+.RB ( seen ,
+.BR inserted ,
+.BR stable ,
+etc.);
+.B \-\-json
+prints the control scan summary.
+.B \-\-assume\-stable
+bypasses the stable-file gate (admin/acceptance only).
 .TP
 .B retry \fIARCHIVE_ID\fR
 Reset mount attempts for one archive (requires
 .BR serve ).
+Default stdout is a human line
+.RB ( archive_id ,
+.BR status ,
+.BR mount_attempts );
+.B \-\-json
+for the control archive dict.
 .TP
 .B mount \fIPATH\fR
 Request mount of an archive path (requires
 .BR serve ).
+Default stdout is a human line (queued or started with
+.BR pid / mount_path );
+.B \-\-json
+for the control payload.
 .TP
 .B unmount \fITARGET\fR|\-\-all
 Unmount managed archive(s) (requires
 .BR serve ).
+Default stdout is a human summary (single target or
+.B \-\-all
+list);
+.B \-\-json
+for the control payload.
 .TP
 .B purge \fIARCHIVE_ID\fR
 Purge state/index/overlay for an archive. Requires
 .B \-\-yes
 and a running
 .BR serve .
+Default stdout is a human purge summary;
+.B \-\-json
+for the control payload.
 .TP
 .B hooks list|status|rerun
 Inspect or re-run first-mount hooks (requires
@@ -160,9 +202,13 @@ Inspect or re-run first-mount hooks (requires
 .B hooks list
 lists discovered
 .I hooks.d
-scripts;
+scripts (human multi-line by default;
+.B \-\-json
+for control payload);
 .B hooks status \fIARCHIVE_ID\fR
-shows per-archive hook rows;
+shows per-archive hook rows (human multi-line by default;
+.B \-\-json
+for control payload);
 .B hooks rerun
 .RI [ \-\-force ]
 .RI [ \-\-json ]
@@ -248,7 +294,10 @@ means no Bearer auth (acceptable only on trusted loopback).
 Changing any of these four keys requires a process restart.
 When the web server is on,
 .B GET /metrics
-exposes Prometheus text gauges; scrapes on loopback need no token.
+exposes Prometheus text gauges (lifecycle counts, low_disk, last scan, info,
+and aggregate size/savings totals from metrics_summary — no per-archive series).
+Default scrapes request status with include_sizes and may be slower than
+count-only status. Scrapes on loopback need no token.
 .TP
 .B log_level
 Daemon slog verbosity (DEBUG, INFO, WARNING, ERROR, CRITICAL). Hot-reloaded.

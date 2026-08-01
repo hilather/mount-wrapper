@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -497,6 +498,146 @@ func checkSystemd(opts *Options) CheckResult {
 		Message:  msg,
 		Details:  map[string]any{"pid1": comm, "is_systemd": isSystemd},
 	}
+}
+
+// checkSystemdUnit best-effort probes systemctl is-active / is-enabled for
+// mount-wrapper.service when PID 1 is systemd on non-Darwin hosts.
+// Skipped on Darwin or when PID 1 is not systemd. Offline-safe: inactive,
+// disabled, failed, not-found, or missing systemctl are severity warn
+// (never hard-fail).
+func checkSystemdUnit(opts *Options) CheckResult {
+	plat := opts.platform()
+	if platform.IsDarwin(plat) {
+		return CheckResult{}
+	}
+	comm, err := opts.readPID1()()
+	if err != nil || comm != "systemd" {
+		return CheckResult{}
+	}
+
+	name := CheckNameSystemdUnit
+	unit := DefaultSystemdUnit
+	sysctl := opts.systemctl()
+	active, activeErr := sysctl("is-active", unit)
+	enabled, enabledErr := sysctl("is-enabled", unit)
+
+	details := map[string]any{
+		"unit":    unit,
+		"active":  active,
+		"enabled": enabled,
+	}
+	if activeErr != nil {
+		details["active_error"] = activeErr.Error()
+	}
+	if enabledErr != nil {
+		details["enabled_error"] = enabledErr.Error()
+	}
+
+	// systemctl binary missing / unusable: both probes empty + err.
+	if active == "" && enabled == "" && (activeErr != nil || enabledErr != nil) {
+		errMsg := "systemctl unavailable"
+		if activeErr != nil {
+			errMsg = activeErr.Error()
+		} else if enabledErr != nil {
+			errMsg = enabledErr.Error()
+		}
+		return warnCheck(name, false,
+			fmt.Sprintf("cannot probe %s via systemctl: %s", unit, errMsg),
+			details)
+	}
+
+	isActive := active == "active"
+	// Treat common "will start / is wired" states as enabled for messaging.
+	isEnabled := enabled == "enabled" ||
+		enabled == "enabled-runtime" ||
+		enabled == "static" ||
+		enabled == "indirect" ||
+		enabled == "generated" ||
+		enabled == "alias"
+	details["is_active"] = isActive
+	details["is_enabled"] = isEnabled
+
+	if isActive {
+		msg := unit + " is active"
+		if enabled != "" {
+			msg += " (enabled=" + enabled + ")"
+		}
+		return infoCheck(name, msg, details)
+	}
+
+	// Not active: warn with active/enabled state (never hard-fail).
+	activeDisp := active
+	if activeDisp == "" {
+		activeDisp = "unknown"
+	}
+	enabledDisp := enabled
+	if enabledDisp == "" {
+		enabledDisp = "unknown"
+	}
+	msg := fmt.Sprintf("%s is not active (active=%s, enabled=%s); start with systemctl start %s or enable --now",
+		unit, activeDisp, enabledDisp, unit)
+	if active == "failed" {
+		msg = fmt.Sprintf("%s is failed (enabled=%s); check journalctl -u %s", unit, enabledDisp, unit)
+	} else if active == "not-found" || enabled == "not-found" {
+		msg = fmt.Sprintf("%s unit not found; install the package or copy packaging/systemd/%s",
+			unit, unit)
+	}
+	return warnCheck(name, false, msg, details)
+}
+
+// checkPidfileLive probes configured pid_file path existence, PID parse, and
+// process liveness. Offline-safe: missing path, unreadable, invalid PID, or
+// dead process are severity warn (never hard-fail). Skipped when Config is
+// nil or pid_file is empty.
+func checkPidfileLive(opts *Options) CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return CheckResult{}
+	}
+	path := strings.TrimSpace(cfg.PIDFile)
+	if path == "" {
+		return CheckResult{}
+	}
+	name := CheckNamePidfileLive
+	details := map[string]any{
+		"path": path,
+	}
+
+	if !opts.pathExists()(path) {
+		return warnCheck(name, false,
+			fmt.Sprintf("pidfile %s not found (serve not running or path wrong)", path),
+			details)
+	}
+	details["exists"] = true
+
+	content, err := opts.readFile()(path)
+	if err != nil {
+		details["error"] = err.Error()
+		return warnCheck(name, false,
+			fmt.Sprintf("pidfile %s unreadable: %v", path, err),
+			details)
+	}
+
+	pidStr := strings.TrimSpace(firstLine(content))
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil || pid <= 0 {
+		details["raw"] = pidStr
+		return warnCheck(name, false,
+			fmt.Sprintf("pidfile %s has invalid pid %q", path, pidStr),
+			details)
+	}
+	details["pid"] = pid
+
+	alive := opts.processAlive()(pid)
+	details["alive"] = alive
+	if !alive {
+		return warnCheck(name, false,
+			fmt.Sprintf("pidfile %s pid %d is not running (stale pidfile?)", path, pid),
+			details)
+	}
+	return infoCheck(name,
+		fmt.Sprintf("pidfile %s pid %d is alive", path, pid),
+		details)
 }
 
 func checkServiceUser(opts *Options) CheckResult {

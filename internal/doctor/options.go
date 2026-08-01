@@ -11,6 +11,7 @@ import (
 
 	"github.com/hilather/mount-wrapper/internal/config"
 	"github.com/hilather/mount-wrapper/internal/control"
+	"github.com/hilather/mount-wrapper/internal/mounter"
 	"github.com/hilather/mount-wrapper/internal/platform"
 )
 
@@ -58,6 +59,17 @@ type RunBinFunc func(bin string, args ...string) (output string, err error)
 // with err=nil so callers can inspect code/message. Nil Options field uses a
 // short-timeout control.Client (doctor live probe).
 type ControlRequestFunc func(socketPath, op string) (resp map[string]any, err error)
+
+// SystemctlFunc runs systemctl with args and returns the primary state line
+// (first non-empty line of stdout/stderr). Implementations should treat
+// non-zero exit as non-fatal when a state string is present (is-active exits
+// 3 for inactive). err is reserved for "cannot run systemctl" (not found /
+// start failure with empty output).
+type SystemctlFunc func(args ...string) (output string, err error)
+
+// ProcessAliveFunc reports whether pid looks alive (signal 0 style).
+// Permission errors should be treated as alive (process exists).
+type ProcessAliveFunc func(pid int) bool
 
 // WriteFileFunc writes content to path with mode (for --fix-systemd).
 type WriteFileFunc func(path string, content []byte, mode os.FileMode) error
@@ -129,6 +141,8 @@ type Options struct {
 	ReadFile       ReadFileFunc
 	RunBin         RunBinFunc
 	ControlRequest ControlRequestFunc
+	Systemctl      SystemctlFunc
+	ProcessAlive   ProcessAliveFunc
 	WriteFile      WriteFileFunc
 	MkdirAll       MkdirAllFunc
 	ReadPID1Comm   func() (string, error)
@@ -209,6 +223,20 @@ func (o *Options) controlRequest() ControlRequestFunc {
 		return o.ControlRequest
 	}
 	return defaultControlRequest
+}
+
+func (o *Options) systemctl() SystemctlFunc {
+	if o != nil && o.Systemctl != nil {
+		return o.Systemctl
+	}
+	return defaultSystemctl
+}
+
+func (o *Options) processAlive() ProcessAliveFunc {
+	if o != nil && o.ProcessAlive != nil {
+		return o.ProcessAlive
+	}
+	return defaultProcessAlive
 }
 
 func (o *Options) writeFile() WriteFileFunc {
@@ -344,6 +372,29 @@ func defaultReadFile(path string) (string, error) {
 func defaultControlRequest(socketPath, op string) (map[string]any, error) {
 	c := control.NewClient(socketPath, defaultControlProbeTimeout)
 	return c.Request(op, nil)
+}
+
+// defaultSystemctl runs systemctl and returns the first output line.
+// Non-zero exit with a state string (is-active inactive) is not an error.
+func defaultSystemctl(args ...string) (string, error) {
+	cmd := exec.Command("systemctl", args...)
+	out, err := cmd.CombinedOutput()
+	s := strings.TrimSpace(string(out))
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	if s != "" {
+		return s, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
+// defaultProcessAlive uses mounter.IsProcessAlive (signal 0; EPERM = alive).
+func defaultProcessAlive(pid int) bool {
+	return mounter.IsProcessAlive(pid)
 }
 
 // runBinWithTimeout bounds --version / --help probes so a hung binary cannot

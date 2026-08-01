@@ -244,7 +244,7 @@ Lifecycle must be `mounted` or `hooks_running` (other statuses → control `BAD_
 | Package | Responsibility |
 |---------|----------------|
 | `internal/service` | Daemon lifecycle: pidfile flock, service dirs, boot remount, control socket, inotify hint, signal stop/reload, `Tick` + `HandleRequest` serialized by `opMu`, status payload via `internal/status`; on reload: re-apply `log_level` (env override), rematerialize scanner sources, restart/stop inotify when `use_inotify` / `source_dirs` change |
-| `internal/doctor` | Offline environment diagnostics: host/WSL/FUSE/unmount tool, `user_allow_other`, Go + ratarmount(-rs) + archiveconverter + 7z bins, service paths/source dirs, index DrvFs layout, free-space, peercred/control socket notes, **`control_socket_live`** (stat + short status dial when `control_socket` set; missing serve / dial fail / auth deny → warn, never hard-fail; ok → info with serve version), **`web_bind_security`** (non-loopback + empty `web_token` → warn), **`windows_visible_parent_ox`** (Linux: mount_root ancestors lack o+x when `windows_visible` → warn + `chmod o+x` hint), **`convert_cache_dir`** / archiveconverter output writability when convert features are on, Darwin **`control_socket_path_length`** (~100-byte sun_path warn), systemd PID1 + drop-in generation, service-user messaging |
+| `internal/doctor` | Offline environment diagnostics: host/WSL/FUSE/unmount tool, `user_allow_other`, Go + ratarmount(-rs) + archiveconverter + 7z bins, service paths/source dirs, index DrvFs layout, free-space, peercred/control socket notes, **`control_socket_live`** (stat + short status dial when `control_socket` set; missing serve / dial fail / auth deny → warn, never hard-fail; ok → info with serve version), **`pidfile_live`** (stat + PID parse + process liveness when `pid_file` set; missing/stale → warn, never hard-fail), **`systemd_unit`** (Linux + systemd PID1: best-effort `systemctl is-active` / `is-enabled` for `mount-wrapper.service`; inactive / unavailable → warn, never hard-fail), **`web_bind_security`** (non-loopback + empty `web_token` → warn), **`windows_visible_parent_ox`** (Linux: mount_root ancestors lack o+x when `windows_visible` → warn + `chmod o+x` hint), **`convert_cache_dir`** / archiveconverter output writability when convert features are on, Darwin **`control_socket_path_length`** (~100-byte sun_path warn), systemd PID1 + drop-in generation, service-user messaging |
 
 **CLI:** `mount-wrapper serve [--config] [--once] [--allow-unauth]` plus socket-backed ops (Phase 7.2), including `reload` and `stop`.
 
@@ -264,15 +264,17 @@ Control op `reload` / SIGHUP schedules `doReload` on the next tick. `config_set`
 
 **JSON shape (`ToMap` / `FormatJSON` / `GET /api/doctor`):** root keys always `ok`, `checks`, `config_path` (JSON `null` when empty), `notes`, `fixes_applied` (arrays, never null). Each check always has `name`, `ok`, `severity` (`info`|`warn`|`error`), `message`, `details` (object, never null). Structural golden: `TestDoctorFormatJSONStructural` (key sets + severity policy + gated names; not full message goldens). OpenAPI `DoctorReport` / `DoctorCheck` and SPA `web/src/lib/types.ts` mirror this.
 
-**Hard fail:** only `severity=error` + `ok=false`. Missing optional tools / FUSE / open non-loopback web bind / missing parent `o+x` for `windows_visible` / convert cache path issues / long Darwin control socket / offline or unreachable control socket (`control_socket_live`) are **warn** (report still `ok: true`).
+**Hard fail:** only `severity=error` + `ok=false`. Missing optional tools / FUSE / open non-loopback web bind / missing parent `o+x` for `windows_visible` / convert cache path issues / long Darwin control socket / offline or unreachable control socket (`control_socket_live`) / missing or stale pidfile (`pidfile_live`) / inactive or unavailable systemd unit (`systemd_unit`) are **warn** (report still `ok: true`).
 
 **Doctor check inventory (Run order):**
 
 | When | Check names |
 |------|-------------|
 | Always (no config required) | `go_version`, `host_platform`, `peercred`, `fuse_device`, `fusermount`, `user_allow_other`, `ratarmount_bin`, `archiveconverter`, `sevenzip_bin`, `mount_backend`, `systemd_pid1`, `service_user` |
+| Linux + systemd is PID 1 | **`systemd_unit`** (`systemctl is-active` / `is-enabled` for `mount-wrapper.service`; injectable; never hard-fail) |
 | Config present | `path.mount_root`, `path.index_dir`, `path.overlay_dir`, `path.control_socket_dir` (if socket set), **`windows_visible_parent_ox`**, `source_dirs` / `source_dirs[i]`, `index_layout`, `disk.*` (mount/index/overlay; deduped), **`web_bind_security`**, **`config`** |
 | Config + non-empty `control_socket` | **`control_socket_live`** (stat path; short `status` dial; auth deny → group hint; ok → version when available) |
+| Config + non-empty `pid_file` | **`pidfile_live`** (stat path; parse PID; process liveness; missing/stale → warn) |
 | Convert on (`convert_7z_nonsolid` or `convert_zip_to_7z`) | **`convert_cache_dir`** |
 | `archiveconverter_enabled` + output dir set | **`path.archiveconverter_output_dir`** |
 | Darwin + config | **`control_socket_path_length`** (~100-byte sun_path warn) |
@@ -322,7 +324,23 @@ config flag.
 | `mount_wrapper_archives{status=…}` | gauge | Counts per lifecycle status (`discovered`…`absent`) |
 | `mount_wrapper_low_disk` | gauge | `0`/`1` from status `low_disk` |
 | `mount_wrapper_last_scan_timestamp_seconds` | gauge | Unix time of last discovery scan (`0` if never) |
+| `mount_wrapper_archive_size_bytes` | gauge | Sum of known archive file sizes |
+| `mount_wrapper_index_size_bytes` | gauge | Sum of known index file sizes |
+| `mount_wrapper_extracted_size_bytes` | gauge | Sum of known logical extracted sizes |
+| `mount_wrapper_space_saved_bytes` | gauge | Sum of `max(0, extracted − index)` |
+| `mount_wrapper_archives_with_extracted_size` | gauge | Count with known extracted size |
+| `mount_wrapper_archives_with_convert_metadata` | gauge | Count with convert source-size metadata |
+| `mount_wrapper_convert_source_size_bytes` | gauge | Optional; only when convert source totals present |
+| `mount_wrapper_convert_size_delta_bytes` | gauge | Optional; only when convert delta totals present |
+| `mount_wrapper_max_convert_duration_seconds` | gauge | Optional; max convert duration when known |
 | `mount_wrapper_info{version=…}` | gauge | Always `1` |
+
+**Size/savings path (default):** scrape requests control `status` with
+`include_sizes` and reads `metrics_summary`. If summary is absent, falls back to
+the `metrics` control op `summary`. **Aggregate gauges only** — no per-archive
+label cardinality. Size providers / index reads can make scrapes slower than
+count-only status; set `api.ServerOptions.PrometheusOmitSizeGauges` for a fast
+count/`low_disk`/scan/`info` scrape (no size gauges).
 
 **Auth:** loopback bind (`127.0.0.1` / `::1` / `localhost`) → scrape without
 token (even if `web_token` is set). Non-loopback bind → same Bearer / `?token=`

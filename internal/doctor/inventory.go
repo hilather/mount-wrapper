@@ -39,6 +39,14 @@ const (
 	// control_socket is non-empty. Probes path existence + short status
 	// dial; missing serve / dial fail / auth deny are warn (never hard-fail).
 	CheckNameControlSocketLive = "control_socket_live"
+	// CheckNameSystemdUnit is emitted on non-Darwin hosts when PID 1 is
+	// systemd. Best-effort systemctl is-active / is-enabled for
+	// mount-wrapper.service; inactive / unavailable → warn (never hard-fail).
+	CheckNameSystemdUnit = "systemd_unit"
+	// CheckNamePidfileLive is emitted when Config is non-nil and pid_file is
+	// non-empty. Stats the path, parses the PID, and probes process liveness;
+	// missing / stale / unreadable → warn (never hard-fail).
+	CheckNamePidfileLive = "pidfile_live"
 	// CheckNameConfig is the trailing schema summary when Config is non-nil.
 	CheckNameConfig = "config"
 	// CheckNameFixSystemd is emitted only when Options.FixSystemd is true.
@@ -50,6 +58,10 @@ const (
 	// macOS is info-only; windows_visible false is info "not required".
 	CheckNameWindowsVisibleParentOX = "windows_visible_parent_ox"
 )
+
+// DefaultSystemdUnit is the packaged unit name probed by checkSystemdUnit.
+const DefaultSystemdUnit = "mount-wrapper.service"
+
 
 // Name prefixes for config-dependent path/disk/source checks (exact suffix
 // depends on keys and free-space dedupe).

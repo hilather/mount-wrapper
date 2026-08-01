@@ -768,6 +768,13 @@ func TestHelpParseTable(t *testing.T) {
 		{[]string{"mount"}, ExitUsage, "PATH"},
 		{[]string{"unmount", "--all", "x"}, ExitUsage, "--all"},
 		{[]string{"purge", "id", "--yes", "--not-a-flag"}, ExitUsage, ""},
+		{[]string{"rescan", "-h"}, ExitOK, "json"},
+		{[]string{"retry", "-h"}, ExitOK, "json"},
+		{[]string{"mount", "-h"}, ExitOK, "json"},
+		{[]string{"unmount", "-h"}, ExitOK, "json"},
+		{[]string{"purge", "-h"}, ExitOK, "json"},
+		{[]string{"hooks", "list", "-h"}, ExitOK, "json"},
+		{[]string{"hooks", "status", "-h"}, ExitOK, "json"},
 	}
 	for _, tc := range cases {
 		t.Run(strings.Join(tc.args, "_"), func(t *testing.T) {
@@ -845,13 +852,13 @@ func TestFormatBytes(t *testing.T) {
 func TestFormatMetricsHumanSummaryAndRows(t *testing.T) {
 	data := map[string]any{
 		"summary": map[string]any{
-			"archive_count":                float64(2),
-			"archives_with_extracted_size": float64(2),
-			"archives_with_convert_metadata": float64(1),
-			"total_archive_size_bytes":     float64(1024),
-			"total_index_size_bytes":       float64(100),
-			"total_extracted_size_bytes":   float64(4096),
-			"total_space_saved_bytes":      float64(3996),
+			"archive_count":                   float64(2),
+			"archives_with_extracted_size":    float64(2),
+			"archives_with_convert_metadata":  float64(1),
+			"total_archive_size_bytes":        float64(1024),
+			"total_index_size_bytes":          float64(100),
+			"total_extracted_size_bytes":      float64(4096),
+			"total_space_saved_bytes":         float64(3996),
 			"total_convert_source_size_bytes": float64(2048),
 			"total_convert_size_delta_bytes":  float64(-1024),
 			"max_convert_duration_seconds":    float64(12.4),
@@ -859,25 +866,25 @@ func TestFormatMetricsHumanSummaryAndRows(t *testing.T) {
 		},
 		"metrics": []any{
 			map[string]any{
-				"archive_id":                 "bbbbbbbb-2222",
-				"archive_basename":           "b.tar",
-				"status":                     "mounted",
-				"archive_size_bytes":         float64(500),
-				"index_size_bytes":           float64(40),
-				"extracted_size_bytes":       float64(2000),
-				"space_saved_bytes":          float64(1960),
+				"archive_id":                   "bbbbbbbb-2222",
+				"archive_basename":             "b.tar",
+				"status":                       "mounted",
+				"archive_size_bytes":           float64(500),
+				"index_size_bytes":             float64(40),
+				"extracted_size_bytes":         float64(2000),
+				"space_saved_bytes":            float64(1960),
 				"space_saved_vs_archive_bytes": float64(1460),
-				"extracted_source":           "index",
+				"extracted_source":             "index",
 			},
 			map[string]any{
-				"archive_id":           "aaaaaaaa-1111",
-				"archive_basename":     "a.tar",
-				"status":               "mounted",
-				"archive_size_bytes":   float64(524),
-				"index_size_bytes":     float64(60),
-				"extracted_size_bytes": float64(2096),
-				"space_saved_bytes":    float64(2036),
-				"extracted_source":     "mount",
+				"archive_id":                "aaaaaaaa-1111",
+				"archive_basename":          "a.tar",
+				"status":                    "mounted",
+				"archive_size_bytes":        float64(524),
+				"index_size_bytes":          float64(60),
+				"extracted_size_bytes":      float64(2096),
+				"space_saved_bytes":         float64(2036),
+				"extracted_source":          "mount",
 				"convert_source_size_bytes": float64(2048),
 				"convert_size_delta_bytes":  float64(-1524),
 				"convert_duration_seconds":  float64(12.4),
@@ -990,13 +997,13 @@ func TestFormatStatusOutputWithSizesAppendix(t *testing.T) {
 			},
 		},
 		"metrics_summary": map[string]any{
-			"archive_count":              float64(1),
-			"archives_with_extracted_size": float64(1),
+			"archive_count":                  float64(1),
+			"archives_with_extracted_size":   float64(1),
 			"archives_with_convert_metadata": float64(0),
-			"total_archive_size_bytes":   float64(1024),
-			"total_index_size_bytes":     float64(10),
-			"total_extracted_size_bytes": float64(5000),
-			"total_space_saved_bytes":    float64(4990),
+			"total_archive_size_bytes":       float64(1024),
+			"total_index_size_bytes":         float64(10),
+			"total_extracted_size_bytes":     float64(5000),
+			"total_space_saved_bytes":        float64(4990),
 		},
 		"low_disk": false,
 	}
@@ -1028,9 +1035,9 @@ func TestFormatStatusOutputWithSizesAppendix(t *testing.T) {
 
 func TestFormatStatusOutputWithoutSizesOmitsAppendix(t *testing.T) {
 	data := map[string]any{
-		"version": "1.0.0",
-		"pid":     float64(1),
-		"counts":  map[string]any{"mounted": float64(0)},
+		"version":  "1.0.0",
+		"pid":      float64(1),
+		"counts":   map[string]any{"mounted": float64(0)},
 		"archives": []any{},
 	}
 	text := formatStatusOutput(data)
@@ -1085,5 +1092,401 @@ func TestResolveConfigPathDefault(t *testing.T) {
 	}
 	if !strings.Contains(darwin, "Application Support") && !strings.Contains(darwin, "mount-wrapper") {
 		t.Fatalf("darwin default unexpected: %s", darwin)
+	}
+}
+
+// startOKDataServer answers op with OKResponse(data). Returns socket + cleanup.
+func startOKDataServer(t *testing.T, op string, data map[string]any) (sock string, cleanup func()) {
+	t.Helper()
+	sock = testutil.ShortUnixSocketPath(t, "cli-"+op+".sock")
+	wantOp := op
+	payload := data
+	srv := control.NewServer(sock, func(req map[string]any) map[string]any {
+		if req["op"] != wantOp {
+			return control.ErrResponse("unexpected op", "ERROR")
+		}
+		return control.OKResponse(payload)
+	}, true)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	stopCh := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				srv.ServeReady()
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cleanup = func() {
+		close(stopCh)
+		wg.Wait()
+		_ = srv.Close()
+	}
+	return sock, cleanup
+}
+
+func TestFormatRescanHuman(t *testing.T) {
+	got := formatRescanHuman(map[string]any{
+		"seen":            float64(10),
+		"inserted":        float64(2),
+		"reappeared":      float64(1),
+		"content_changed": float64(0),
+		"absent":          float64(3),
+		"stable":          float64(8),
+		"duration_ms":     float64(42),
+		"assume_stable":   true,
+		"errors":          []any{"path/x: permission denied"},
+	})
+	for _, want := range []string{
+		"rescan:",
+		"seen=10",
+		"inserted=2",
+		"reappeared=1",
+		"absent=3",
+		"stable=8",
+		"duration_ms=42",
+		"assume_stable=true",
+		"error: path/x: permission denied",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "{") {
+		t.Fatalf("should not be JSON: %q", got)
+	}
+	if !strings.Contains(formatRescanHuman(map[string]any{"error": "boom"}), "rescan failed: boom") {
+		t.Fatal("error field")
+	}
+	if formatRescanHuman(nil) != "rescan: ok\n" {
+		t.Fatalf("nil: %q", formatRescanHuman(nil))
+	}
+}
+
+func TestFormatRetryHuman(t *testing.T) {
+	got := formatRetryHuman(map[string]any{
+		"archive_id":     "arch-1",
+		"status":         "discovered",
+		"mount_attempts": float64(0),
+	})
+	if !strings.Contains(got, "retry archive_id=arch-1") || !strings.Contains(got, "status=discovered") ||
+		!strings.Contains(got, "mount_attempts=0") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFormatMountHuman(t *testing.T) {
+	queued := formatMountHuman(map[string]any{
+		"archive_id": "a1",
+		"status":     "discovered",
+		"queued":     true,
+	})
+	if !strings.Contains(queued, "mount queued") || !strings.Contains(queued, "a1") {
+		t.Fatalf("queued: %q", queued)
+	}
+	started := formatMountHuman(map[string]any{
+		"archive_id": "a1",
+		"status":     "mounting",
+		"pid":        float64(99),
+		"mount_path": "/mnt/a",
+	})
+	for _, want := range []string{"mount started", "status=mounting", "pid=99", "mount_path=/mnt/a"} {
+		if !strings.Contains(started, want) {
+			t.Fatalf("missing %q in %q", want, started)
+		}
+	}
+}
+
+func TestFormatUnmountHuman(t *testing.T) {
+	single := formatUnmountHuman(map[string]any{
+		"archive_id": "x1",
+		"status":     "absent",
+	})
+	if !strings.Contains(single, "unmounted archive_id=x1") || !strings.Contains(single, "status=absent") {
+		t.Fatalf("single: %q", single)
+	}
+	all := formatUnmountHuman(map[string]any{
+		"unmounted": []any{
+			map[string]any{"archive_id": "ok1", "status": "absent"},
+			map[string]any{"archive_id": "bad1", "error": "busy"},
+		},
+	})
+	for _, want := range []string{
+		"unmount --all: 2 archive(s)",
+		"unmounted archive_id=ok1",
+		"error archive_id=bad1: busy",
+	} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("missing %q in %q", want, all)
+		}
+	}
+	empty := formatUnmountHuman(map[string]any{"unmounted": []any{}})
+	if !strings.Contains(empty, "0 archive(s)") || !strings.Contains(empty, "(none unmounted)") {
+		t.Fatalf("empty all: %q", empty)
+	}
+}
+
+func TestFormatPurgeHuman(t *testing.T) {
+	got := formatPurgeHuman(map[string]any{
+		"archive_id":     "p1",
+		"index_deleted":  true,
+		"overlay_action": "quarantine",
+		"mount_cleaned":  false,
+	})
+	for _, want := range []string{
+		"purged archive_id=p1",
+		"index_deleted=true",
+		"overlay_action=quarantine",
+		"mount_cleaned=false",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestFormatHooksListHuman(t *testing.T) {
+	got := formatHooksListHuman(map[string]any{
+		"hooks": []any{
+			map[string]any{"name": "20-second", "path": "/h/20-second"},
+			map[string]any{"name": "10-first", "path": "/h/10-first"},
+		},
+	})
+	if !strings.Contains(got, "hooks (2):") {
+		t.Fatalf("header: %q", got)
+	}
+	// Sorted by name: 10-first before 20-second
+	i10 := strings.Index(got, "10-first")
+	i20 := strings.Index(got, "20-second")
+	if i10 < 0 || i20 < 0 || i10 > i20 {
+		t.Fatalf("sort order: %q", got)
+	}
+	if formatHooksListHuman(map[string]any{"hooks": []any{}}) != "hooks: (none)\n" {
+		t.Fatal("empty list")
+	}
+}
+
+func TestFormatHooksStatusHuman(t *testing.T) {
+	got := formatHooksStatusHuman(map[string]any{
+		"archive_id":   "arch-z",
+		"hooks_status": "success",
+		"hooks": []any{
+			map[string]any{
+				"hook_name":      "notify",
+				"status":         "success",
+				"attempts":       float64(1),
+				"last_exit_code": float64(0),
+			},
+			map[string]any{
+				"hook_name":  "failing",
+				"status":     "failed",
+				"attempts":   float64(3),
+				"last_error": "exit 1",
+			},
+		},
+	})
+	for _, want := range []string{
+		"hooks status archive_id=arch-z",
+		"hooks_status=success",
+		"[success] notify attempts=1 exit=0",
+		"[failed] failing attempts=3 err=exit 1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %q", want, got)
+		}
+	}
+	empty := formatHooksStatusHuman(map[string]any{
+		"archive_id":   "x",
+		"hooks_status": "none",
+		"hooks":        []any{},
+	})
+	if !strings.Contains(empty, "(no hook rows)") {
+		t.Fatalf("empty rows: %q", empty)
+	}
+}
+
+func TestRescanCLIHumanAndJSON(t *testing.T) {
+	payload := map[string]any{
+		"seen": float64(5), "inserted": float64(1), "reappeared": float64(0),
+		"content_changed": float64(0), "absent": float64(0), "stable": float64(4),
+		"duration_ms": float64(12), "assume_stable": true,
+	}
+	sock, cleanup := startOKDataServer(t, "rescan", payload)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "rescan", "--assume-stable", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("human exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, "rescan:") || !strings.Contains(out, "seen=5") || !strings.Contains(out, "assume_stable=true") {
+		t.Fatalf("human: %q", out)
+	}
+	if strings.Contains(out, "{") {
+		t.Fatalf("default should not dump JSON: %q", out)
+	}
+
+	code, out, errBuf = runCLI(t, "rescan", "--json", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("json exit %d stderr=%s", code, errBuf)
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(out), &data); err != nil {
+		t.Fatalf("json parse: %v out=%q", err, out)
+	}
+	if data["seen"] != float64(5) {
+		t.Fatalf("seen=%v", data["seen"])
+	}
+}
+
+func TestRetryCLIHumanAndJSON(t *testing.T) {
+	payload := map[string]any{
+		"archive_id": "id-1", "status": "discovered", "mount_attempts": float64(0),
+	}
+	sock, cleanup := startOKDataServer(t, "retry", payload)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "retry", "--socket", sock, "id-1")
+	if code != ExitOK {
+		t.Fatalf("human exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, "retry archive_id=id-1") || strings.Contains(out, "{") {
+		t.Fatalf("human: %q", out)
+	}
+
+	code, out, errBuf = runCLI(t, "retry", "--json", "--socket", sock, "id-1")
+	if code != ExitOK {
+		t.Fatalf("json exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, `"archive_id"`) {
+		t.Fatalf("json: %q", out)
+	}
+}
+
+func TestMountCLIHumanAndJSON(t *testing.T) {
+	payload := map[string]any{
+		"archive_id": "m1", "status": "indexing", "pid": float64(7), "mount_path": "/m/m1",
+	}
+	sock, cleanup := startOKDataServer(t, "mount", payload)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "mount", "--socket", sock, "/tmp/a.tar")
+	if code != ExitOK {
+		t.Fatalf("human exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, "mount started") || !strings.Contains(out, "m1") || strings.Contains(out, "{") {
+		t.Fatalf("human: %q", out)
+	}
+
+	code, out, errBuf = runCLI(t, "mount", "--json", "--socket", sock, "/tmp/a.tar")
+	if code != ExitOK {
+		t.Fatalf("json exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, `"mount_path"`) {
+		t.Fatalf("json: %q", out)
+	}
+}
+
+func TestUnmountCLIHumanAndJSON(t *testing.T) {
+	payload := map[string]any{
+		"unmounted": []any{
+			map[string]any{"archive_id": "u1", "status": "absent"},
+		},
+	}
+	sock, cleanup := startOKDataServer(t, "unmount", payload)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "unmount", "--all", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("human exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, "unmount --all") || !strings.Contains(out, "u1") || strings.Contains(out, "{") {
+		t.Fatalf("human: %q", out)
+	}
+
+	code, out, errBuf = runCLI(t, "unmount", "--all", "--json", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("json exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, `"unmounted"`) {
+		t.Fatalf("json: %q", out)
+	}
+}
+
+func TestPurgeCLIHumanAndJSON(t *testing.T) {
+	payload := map[string]any{
+		"archive_id": "p1", "index_deleted": true, "overlay_action": "delete", "mount_cleaned": true,
+	}
+	sock, cleanup := startOKDataServer(t, "purge", payload)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "purge", "--yes", "--socket", sock, "p1")
+	if code != ExitOK {
+		t.Fatalf("human exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, "purged archive_id=p1") || strings.Contains(out, "{") {
+		t.Fatalf("human: %q", out)
+	}
+
+	code, out, errBuf = runCLI(t, "purge", "--yes", "--json", "--socket", sock, "p1")
+	if code != ExitOK {
+		t.Fatalf("json exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, `"index_deleted"`) {
+		t.Fatalf("json: %q", out)
+	}
+}
+
+func TestHooksListAndStatusCLIHumanAndJSON(t *testing.T) {
+	listPayload := map[string]any{
+		"hooks": []any{map[string]any{"name": "h1", "path": "/hooks/h1"}},
+	}
+	sock, cleanup := startOKDataServer(t, "hooks_list", listPayload)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "hooks", "list", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("list human exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, "hooks (1):") || !strings.Contains(out, "h1") || strings.Contains(out, "{") {
+		t.Fatalf("list human: %q", out)
+	}
+	code, out, errBuf = runCLI(t, "hooks", "list", "--json", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("list json exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, `"hooks"`) {
+		t.Fatalf("list json: %q", out)
+	}
+
+	statusPayload := map[string]any{
+		"archive_id": "a1", "hooks_status": "pending",
+		"hooks": []any{map[string]any{"hook_name": "h1", "status": "pending", "attempts": float64(0)}},
+	}
+	sock2, cleanup2 := startOKDataServer(t, "hooks_status", statusPayload)
+	defer cleanup2()
+
+	code, out, errBuf = runCLI(t, "hooks", "status", "--socket", sock2, "a1")
+	if code != ExitOK {
+		t.Fatalf("status human exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, "hooks status archive_id=a1") || !strings.Contains(out, "pending") ||
+		strings.Contains(out, "{") {
+		t.Fatalf("status human: %q", out)
+	}
+	code, out, errBuf = runCLI(t, "hooks", "status", "--json", "--socket", sock2, "a1")
+	if code != ExitOK {
+		t.Fatalf("status json exit %d stderr=%s", code, errBuf)
+	}
+	if !strings.Contains(out, `"hooks_status"`) {
+		t.Fatalf("status json: %q", out)
 	}
 }

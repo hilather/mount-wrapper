@@ -9,16 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Prometheus **`GET /metrics`** aggregate size/savings gauges (no per-archive
+  series): `mount_wrapper_archive_size_bytes`, `…_index_size_bytes`,
+  `…_extracted_size_bytes`, `…_space_saved_bytes`,
+  `…_archives_with_extracted_size`, `…_archives_with_convert_metadata`, and
+  optional convert totals. Default scrape uses status `include_sizes`
+  (`metrics_summary`) with metrics-op fallback; may be slower than count-only.
+  Opt out in-process via `api.ServerOptions.PrometheusOmitSizeGauges`.
 - CLI **`metrics`** human multi-line output by default (summary + per-archive
   sizes); **`--json`** for the control payload. Flags unchanged:
   `[ARCHIVE_ID]`, `--no-cache`, `--prefer-mount`.
 - CLI **`status --sizes`** without **`--json`**: human status plus a sizes
   appendix (no longer forces JSON-only). **`--sizes --json`** still dumps full
   status JSON with `metrics_summary` / per-row `metrics`.
+- CLI control ops human default (like **`reload`/`stop`/`metrics`**): **`rescan`**,
+  **`retry`**, **`mount`**, **`unmount`**, **`purge`**, **`hooks list`**,
+  **`hooks status`** print operator success lines/summaries by default;
+  **`--json`** dumps the control payload. (**`hooks rerun`** already had this.)
 - Doctor **`control_socket_live`**: when config has `control_socket`, stat the
   path and send a short control `status` request. Missing sock / dial failure /
   auth denied → **warn** (group `mount-wrapper` hint; never hard-fail); reachable
   → **info** with serve version when available.
+- Doctor **`pidfile_live`**: when config has `pid_file`, stat the path, parse
+  the PID, and probe process liveness (injectable). Missing / unreadable /
+  invalid / stale PID → **warn** (never hard-fail); alive → **info**.
+- Doctor **`systemd_unit`**: on Linux when systemd is PID 1, best-effort
+  `systemctl is-active` / `is-enabled` for `mount-wrapper.service` (injectable).
+  Inactive / failed / not-found / systemctl unavailable → **warn** (never
+  hard-fail); active → **info**.
 
 ### Fixed
 

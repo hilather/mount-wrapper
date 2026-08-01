@@ -15,7 +15,10 @@
 // GET /metrics exposes a small Prometheus text scrape (hand-written exposition,
 // no client_golang dependency). Always registered when the HTTP server is up
 // (web_enabled). Auth: open on loopback bind; on non-loopback bind, same
-// web_token rules as /api/*.
+// web_token rules as /api/*. By default scrapes request status with
+// include_sizes and emit aggregate size/savings gauges from metrics_summary
+// (metrics op fallback); no per-archive series. That path can be slower than
+// count-only status — set ServerOptions.PrometheusOmitSizeGauges to skip.
 //
 // SSE GET /api/events sends an initial snapshot, then delta events
 // (counts, archive, scan, low_disk, optional metrics) when status changes

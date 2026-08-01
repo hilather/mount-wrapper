@@ -38,14 +38,16 @@ make build
 # ./bin/mount-wrapper status --config /path/to/config.yaml          # human
 # ./bin/mount-wrapper status --sizes                                # human + sizes appendix
 # ./bin/mount-wrapper status --sizes --json                         # full JSON with metrics
-# ./bin/mount-wrapper rescan --assume-stable
+# ./bin/mount-wrapper rescan --assume-stable                        # human scan summary
+# ./bin/mount-wrapper rescan --json                                 # control JSON payload
 # ./bin/mount-wrapper metrics                                       # human summary + per-archive
 # ./bin/mount-wrapper metrics --json                                # control JSON payload
-# ./bin/mount-wrapper mount /path/to/archive.tar
-# ./bin/mount-wrapper unmount --all
-# ./bin/mount-wrapper purge ARCHIVE_ID --yes
-# ./bin/mount-wrapper hooks list
-# ./bin/mount-wrapper hooks rerun ARCHIVE_ID --force
+# ./bin/mount-wrapper mount /path/to/archive.tar                    # human: mount started/queued
+# ./bin/mount-wrapper unmount --all                                 # human summary
+# ./bin/mount-wrapper purge ARCHIVE_ID --yes                        # human purge line
+# ./bin/mount-wrapper hooks list                                    # human hook names
+# ./bin/mount-wrapper hooks status ARCHIVE_ID                       # human per-hook rows
+# ./bin/mount-wrapper hooks rerun ARCHIVE_ID --force                # human: hooks ran/skipped
 # ./bin/mount-wrapper reload              # human: reload scheduled
 # ./bin/mount-wrapper reload --json       # machine: {"reload":"scheduled"}
 # ./bin/mount-wrapper stop                # human: stop scheduled
@@ -158,7 +160,7 @@ testdata/              fixtures
 - `internal/api`: localhost REST + SSE for the operator SPA; optional Bearer `web_token`; rate-limits on destructive POSTs (purge / unmount-all / rescan)
 - Hardening notes: [docs/security.md](./docs/security.md); man page sketch `packaging/man/mount-wrapper.1`
 - Embedded in `serve` when `web_enabled: true` (default bind `127.0.0.1:8787`)
-- Endpoints: `/api/health`, `/status`, `/archives`, `/metrics`, `/config`, actions (`rescan`/`unmount`/`retry`/`purge`), `/doctor`, `/wsl-info`, SSE `/api/events`; **Prometheus** `GET /metrics` (open on loopback bind)
+- Endpoints: `/api/health`, `/status`, `/archives`, `/metrics`, `/config`, actions (`rescan`/`unmount`/`retry`/`purge`), `/doctor`, `/wsl-info`, SSE `/api/events`; **Prometheus** `GET /metrics` (open on loopback bind; aggregate size/savings gauges via `include_sizes` summary — no per-archive series)
 - SSE events: initial `snapshot`; deltas `counts` / `archive` / `scan` / `low_disk` / optional `metrics`; periodic full `snapshot` resync; `heartbeat` (see [docs/architecture.md](./docs/architecture.md))
 - Static SPA from `internal/webui` at `/` (client routes fall back to `index.html`)
 - Dev: Vite proxies `/api` → daemon (`make web-dev`); see [docs/dev.md](./docs/dev.md)

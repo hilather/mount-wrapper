@@ -133,12 +133,12 @@ Commands:
   config show|set      Show or update configuration
   status               Service status (requires serve)
   metrics [ARCHIVE_ID] Archive size metrics (requires serve; human default; --json)
-  rescan               Trigger an immediate source scan (requires serve)
-  retry ARCHIVE_ID     Reset mount attempts (requires serve)
-  mount PATH           Request mount of an archive path (requires serve)
-  unmount TARGET|--all Unmount managed archive(s) (requires serve)
-  purge ARCHIVE_ID     Purge state/index/overlay (requires --yes; serve)
-  hooks list|status|rerun  Inspect or re-run first-mount hooks (serve)
+  rescan               Trigger an immediate source scan (serve; human default; --json)
+  retry ARCHIVE_ID     Reset mount attempts (serve; human default; --json)
+  mount PATH           Request mount of an archive path (serve; human default; --json)
+  unmount TARGET|--all Unmount managed archive(s) (serve; human default; --json)
+  purge ARCHIVE_ID     Purge state/index/overlay (requires --yes; serve; --json)
+  hooks list|status|rerun  Inspect or re-run first-mount hooks (serve; human; --json)
   reload               Reload config from disk (SIGHUP equivalent; serve)
   stop                 Request graceful serve shutdown (SIGTERM equivalent; serve)
 
@@ -171,6 +171,19 @@ metrics flags:
   --json               Machine-readable JSON
   --no-cache           Bypass metrics TTL cache
   --prefer-mount       Prefer FUSE mount walk for extracted size
+
+rescan flags:
+  --json               Machine-readable JSON (control scan summary)
+  --assume-stable      Bypass stable-file gate (admin/acceptance only)
+
+retry / mount / unmount / purge flags:
+  --json               Machine-readable JSON (control payload)
+  --all                unmount only: unmount all managed archives
+  --yes                purge only: required confirmation
+
+hooks list|status|rerun flags:
+  --json               Machine-readable JSON (control payload)
+  --force              hooks rerun only: re-run even when terminal success/failed
 
 reload flags:
   --json               Machine-readable JSON (control ack, e.g. {"reload":"scheduled"})
