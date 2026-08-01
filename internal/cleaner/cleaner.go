@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hilather/mount-wrapper/internal/config"
+	"github.com/hilather/mount-wrapper/internal/convert"
 	"github.com/hilather/mount-wrapper/internal/mounter"
 	"github.com/hilather/mount-wrapper/internal/state"
 )
@@ -28,7 +29,8 @@ func (f UnmountFunc) Unmount(archiveID string) error {
 	return f(archiveID)
 }
 
-// LivePathsFunc returns mount paths currently held by a live registry.
+// LivePathsFunc returns paths currently held by a live registry (mount points
+// and, when available, archive/cache paths used as mount sources).
 type LivePathsFunc func() []string
 
 // Cleaner performs grace-period purge and quarantine maintenance.
@@ -258,6 +260,22 @@ func (c *Cleaner) PruneStaleMountDirs() []string {
 	return CleanupStaleMountDirs(c.Config, c.Store, c.IsMount, live)
 }
 
+// PruneNonsolidCache removes leftover outer-cache partials/stale locks and
+// age-prunes orphaned {key}.7z under convert_7z_cache_dir (or default).
+// Age threshold reuses cleanup_after; see PruneNonsolidCache package docs.
+func (c *Cleaner) PruneNonsolidCache() NonsolidCachePruneResult {
+	if c == nil || c.Config == nil {
+		return NonsolidCachePruneResult{}
+	}
+	cacheDir := convert.DefaultNonsolidCacheDir(c.Config)
+	var live []string
+	if c.LivePaths != nil {
+		live = c.LivePaths()
+	}
+	age := time.Duration(c.Config.CleanupAfterSeconds * float64(time.Second))
+	return PruneNonsolidCache(cacheDir, age, c.now(), live)
+}
+
 // CheckDisk returns (lowDisk, freeBytesOrNil). lowDisk is true when free space
 // is below min_free_bytes.
 func (c *Cleaner) CheckDisk() (lowDisk bool, free *int64) {
@@ -283,9 +301,10 @@ func (c *Cleaner) CheckDisk() (lowDisk bool, free *int64) {
 }
 
 // Run performs one cleaner pass: grace purges, quarantine prune, disk check,
-// stale mount dirs. Ratarmount temp prune is available via
-// PruneOrphanRatarmountTemps but is not part of the default pass (operator / serve
-// may call it separately; Python run() also omits it from Cleaner.run).
+// stale mount dirs, outer nonsolid cache hygiene. Ratarmount temp prune is
+// available via PruneOrphanRatarmountTemps but is not part of the default pass
+// (operator / serve may call it separately; Python run() also omits it from
+// Cleaner.run).
 func (c *Cleaner) Run() CleanerRunResult {
 	result := CleanerRunResult{
 		Purged:           []PurgeResult{},
@@ -335,6 +354,19 @@ func (c *Cleaner) Run() CleanerRunResult {
 			}
 		}()
 		result.MountDirsRemoved = c.PruneStaleMountDirs()
+	}()
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("nonsolid cache: %v", r))
+			}
+		}()
+		ns := c.PruneNonsolidCache()
+		result.NonsolidPartialsRemoved = ns.PartialsRemoved
+		result.NonsolidLocksRemoved = ns.LocksRemoved
+		result.NonsolidArchivesRemoved = ns.ArchivesRemoved
+		result.NonsolidCacheBytesFreed = ns.BytesFreed
 	}()
 
 	return result

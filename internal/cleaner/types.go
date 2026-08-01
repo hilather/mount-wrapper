@@ -29,6 +29,11 @@ type CleanerRunResult struct {
 	MountDirsRemoved       []string
 	RatarmountTempsRemoved int
 	RatarmountTempsFreed   int64
+	// Nonsolid cache hygiene (outer convert_7z_cache_dir).
+	NonsolidPartialsRemoved  int
+	NonsolidLocksRemoved     int
+	NonsolidArchivesRemoved  int
+	NonsolidCacheBytesFreed  int64
 	LowDisk                bool
 	FreeBytes              *int64
 	Errors                 []string

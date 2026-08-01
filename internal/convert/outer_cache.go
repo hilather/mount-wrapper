@@ -17,6 +17,14 @@ import (
 // solid→non-solid cache populate via the 7z CLI.
 const MethodOuterNonsolidCLI = "outer-nonsolid-cli"
 
+// NonsolidPartialSuffix is appended to a cache dest for in-flight populate
+// output (`{dest}.nonsolid.partial`). Shared with cleaner hygiene.
+const NonsolidPartialSuffix = ".nonsolid.partial"
+
+// NonsolidPartialWorkSuffix is the extract work directory suffix for outer
+// cache populate (`{dest}.nonsolid.partial.work`).
+const NonsolidPartialWorkSuffix = ".nonsolid.partial.work"
+
 // NonsolidCacheParams holds knobs for EnsureNonsolidCachedCopy.
 type NonsolidCacheParams struct {
 	SevenZipBin   string
@@ -94,6 +102,37 @@ func NonsolidCacheLockPath(dest string) string {
 	return dest + ".lock"
 }
 
+// NonsolidCacheDestFromLockPath returns the sibling `.7z` dest for a `{key}.lock`
+// path (inverse of NonsolidCacheLockPath for content-keyed `.7z` dests).
+// Empty lockPath or non-`.lock` suffix returns "".
+func NonsolidCacheDestFromLockPath(lockPath string) string {
+	lockPath = strings.TrimSpace(lockPath)
+	if lockPath == "" || !strings.HasSuffix(lockPath, ".lock") {
+		return ""
+	}
+	base := strings.TrimSuffix(lockPath, ".lock")
+	if base == "" {
+		return ""
+	}
+	return base + ".7z"
+}
+
+// NonsolidPartialPath returns the in-flight partial output path for dest.
+func NonsolidPartialPath(dest string) string {
+	if dest == "" {
+		return ""
+	}
+	return dest + NonsolidPartialSuffix
+}
+
+// NonsolidPartialWorkPath returns the extract work directory for dest.
+func NonsolidPartialWorkPath(dest string) string {
+	if dest == "" {
+		return ""
+	}
+	return dest + NonsolidPartialWorkSuffix
+}
+
 // nonsolidCacheHit reports whether dest is a usable non-solid, non-encrypted
 // cached copy (size > 0 and 7z l -slt lists non-solid / non-encrypted).
 func nonsolidCacheHit(dest, bin string, list List7zFunc) bool {
@@ -129,12 +168,15 @@ func withNonsolidCacheLock(dest string, fn func() error) error {
 //
 // Behavior:
 //   - nonsolid off / wrong scope / non-.7z → return source unchanged
-//   - encrypted (7z l -slt markers) → clear error (encrypted 7z not supported)
-//   - not solid (CLI Solid != +) → return source (no cache copy needed)
+//   - 7z list fail / empty listing → clear error (fail closed; do not treat as
+//     non-solid and silent-passthrough the solid candidate)
+//   - encrypted (7z l -slt markers, or extract/create stderr) → Encrypted7zMessage
+//   - list succeeds and Solid != + → return source (no cache copy needed)
 //   - solid → extract + `7z a -t7z -ms=off` into cache; return cache path
 //   - cache hit when dest exists and lists as non-solid / non-encrypted
 //   - concurrent populates of the same dest serialize on `{cacheKey}.lock`
 //     (re-check hit inside exclusive flock before free-space + populate)
+//   - post-populate size floor via FlattenMinOKSize; under-floor dest removed
 //
 // Residual vs ratarmountcore: CLI extract+repack only (no stream repack / py7zr
 // folder walk); nested members stay as embedded .7z files (outer solid block
@@ -159,9 +201,18 @@ func EnsureNonsolidCachedCopy(cfg *config.Config, source string, p NonsolidCache
 	list := list7zOf(p.List7z)
 	run := run7zOf(p.Run7z)
 
-	out, _ := list(bin, []string{"l", "-slt", source}, "")
-	if Parse7zListEncrypted(out) {
+	out, listErr := list(bin, []string{"l", "-slt", source}, "")
+	// Prefer encryption markers from listing or list-error text before fail-closed.
+	if Parse7zListEncrypted(out) || (listErr != nil && Parse7zListEncrypted(listErr.Error())) {
 		return "", convertErrorf("outer_cache", "%s: %s", Encrypted7zMessage, source)
+	}
+	// Fail closed: only treat as non-solid when list succeeds with usable text
+	// and Solid != +. Empty or failed list must not silent-passthrough.
+	if listErr != nil {
+		return "", convertErrorf("outer_cache", "7z list failed for %s: %v", source, listErr)
+	}
+	if strings.TrimSpace(out) == "" {
+		return "", convertErrorf("outer_cache", "7z list empty for solid-scope candidate: %s", source)
 	}
 	// Outer cache is for solid outer archives only. Nested-only archives keep
 	// the original path; child env TARMOUNT_7Z_NONSOLID handles nested load.
@@ -200,12 +251,20 @@ func EnsureNonsolidCachedCopy(cfg *config.Config, source string, p NonsolidCache
 
 		started := time.Now()
 		if err := populateOuterNonsolidCache(source, dest, bin, run); err != nil {
-			return err
+			return wrapOuterCacheRunError(err, source)
 		}
 		dstSt, err := os.Stat(dest)
 		if err != nil || !dstSt.Mode().IsRegular() || dstSt.Size() <= 0 {
 			_ = os.Remove(dest)
 			return convertErrorf("outer_cache", "cache populate produced no output: %s", dest)
+		}
+		// Size floor (shared with flatten CLI path). Reject under-floor dest.
+		minOK := FlattenMinOKSize(st.Size())
+		if dstSt.Size() < minOK {
+			_ = os.Remove(dest)
+			return convertErrorf("outer_cache",
+				"cache populate output too small: %d bytes (source=%d, minimum=%d)",
+				dstSt.Size(), st.Size(), minOK)
 		}
 		// Best-effort metadata sidecar next to the cached copy.
 		dur := time.Since(started).Seconds()
@@ -227,11 +286,26 @@ func EnsureNonsolidCachedCopy(cfg *config.Config, source string, p NonsolidCache
 	return outPath, nil
 }
 
+// wrapOuterCacheRunError surfaces Encrypted7zMessage when a 7z extract/create
+// failure's combined stderr/stdout (embedded in the error text by DefaultRun7z)
+// indicates encryption; otherwise returns err unchanged.
+func wrapOuterCacheRunError(err error, source string) error {
+	if err == nil {
+		return nil
+	}
+	if Parse7zListEncrypted(err.Error()) {
+		return convertErrorf("outer_cache", "%s: %s", Encrypted7zMessage, source)
+	}
+	return err
+}
+
 // populateOuterNonsolidCache extracts source and rebuilds a non-solid 7z at dest.
 // Does not expand nested *.7z members (outer solid block only).
+// Cleans leftover *.nonsolid.partial / *.work before work and on return.
 func populateOuterNonsolidCache(source, dest, bin string, run Run7zFunc) error {
-	partial := dest + ".nonsolid.partial"
-	workDir := partial + ".work"
+	partial := NonsolidPartialPath(dest)
+	workDir := NonsolidPartialWorkPath(dest)
+	// Always drop leftovers from a prior crashed populate before starting.
 	_ = os.Remove(partial)
 	_ = os.RemoveAll(workDir)
 	defer func() {

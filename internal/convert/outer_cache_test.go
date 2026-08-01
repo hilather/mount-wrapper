@@ -1,6 +1,9 @@
 package convert_test
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +16,9 @@ import (
 	"github.com/hilather/mount-wrapper/internal/config"
 	"github.com/hilather/mount-wrapper/internal/convert"
 )
+
+// nonsolidCachedPayload is large enough to pass FlattenMinOKSize for small sources.
+var nonsolidCachedPayload = bytes.Repeat([]byte("nonsolid-cached\n"), 20) // 320 bytes
 
 func TestCacheKeyForSource_Stable(t *testing.T) {
 	t.Parallel()
@@ -72,6 +78,16 @@ func TestNonsolidCacheDestPath(t *testing.T) {
 	if convert.NonsolidCacheLockPath(got2) != filepath.Join(cache, "file.lock") {
 		t.Fatalf("fallback lock=%q", convert.NonsolidCacheLockPath(got2))
 	}
+	// Partial / work helpers + lock→dest inverse for cleaner hygiene.
+	if convert.NonsolidPartialPath(got) != got+convert.NonsolidPartialSuffix {
+		t.Fatalf("partial=%q", convert.NonsolidPartialPath(got))
+	}
+	if convert.NonsolidPartialWorkPath(got) != got+convert.NonsolidPartialWorkSuffix {
+		t.Fatalf("work=%q", convert.NonsolidPartialWorkPath(got))
+	}
+	if convert.NonsolidCacheDestFromLockPath(lock) != got {
+		t.Fatalf("dest from lock=%q want %q", convert.NonsolidCacheDestFromLockPath(lock), got)
+	}
 }
 
 // solidPopulateRun is a shared fake 7z runner for outer-cache populate tests.
@@ -114,7 +130,8 @@ func solidPopulateRun(t *testing.T, creates *atomic.Int32, createDelay time.Dura
 			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 				return err
 			}
-			return os.WriteFile(dest, []byte("nonsolid-cached"), 0o644)
+			// Must satisfy FlattenMinOKSize for typical small test sources (floor 200).
+			return os.WriteFile(dest, nonsolidCachedPayload, 0o644)
 		}
 		if len(args) > 0 && args[0] == "x" {
 			for _, a := range args {
@@ -245,6 +262,281 @@ func TestEnsureNonsolidCachedCopy_EncryptedError(t *testing.T) {
 		t.Fatal("expected encrypted error")
 	}
 	if !strings.Contains(err.Error(), convert.Encrypted7zMessage) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestEnsureNonsolidCachedCopy_ListFailClosed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.7z")
+	if err := os.WriteFile(src, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.FromMap(map[string]any{
+		"convert_7z_nonsolid":  true,
+		"convert_7z_scope":     "outer",
+		"convert_7z_cache_dir": filepath.Join(dir, "cache"),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name    string
+		list    convert.List7zFunc
+		wantSub string
+	}{
+		{
+			name: "list error",
+			list: func(string, []string, string) (string, error) {
+				return "", errors.New("7z: cannot open file as archive")
+			},
+			wantSub: "7z list failed",
+		},
+		{
+			name: "empty listing",
+			list: func(string, []string, string) (string, error) {
+				return "  \n\t", nil
+			},
+			wantSub: "7z list empty",
+		},
+		{
+			name: "list error with encryption phrase",
+			list: func(string, []string, string) (string, error) {
+				return "", errors.New("ERROR: Wrong password : a.7z")
+			},
+			wantSub: convert.Encrypted7zMessage,
+		},
+		{
+			name: "partial output plus list error still fails closed",
+			list: func(string, []string, string) (string, error) {
+				// Non-empty garbage must not silent-passthrough when list fails.
+				return "Path = a.7z\n", errors.New("exit status 2")
+			},
+			wantSub: "7z list failed",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var ran bool
+			run := func(string, []string, string) error {
+				ran = true
+				return nil
+			}
+			got, err := convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
+				List7z: tc.list,
+				Run7z:  run,
+			})
+			if err == nil {
+				t.Fatalf("expected error, got path %q", got)
+			}
+			if !strings.Contains(err.Error(), tc.wantSub) {
+				t.Fatalf("err=%v want substring %q", err, tc.wantSub)
+			}
+			if ran {
+				t.Fatal("must not populate on list fail/empty")
+			}
+			if got != "" {
+				t.Fatalf("path should be empty on error, got %q", got)
+			}
+		})
+	}
+}
+
+func TestEnsureNonsolidCachedCopy_SizeFloorRejectsUnderfloorDest(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Source large enough that floor is source/2 (>= 200).
+	srcPayload := bytes.Repeat([]byte("S"), 1000)
+	src := filepath.Join(dir, "solid.7z")
+	if err := os.WriteFile(src, srcPayload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(dir, "cache")
+	cfg, err := config.FromMap(map[string]any{
+		"convert_7z_nonsolid":  true,
+		"convert_7z_scope":     "outer",
+		"convert_7z_cache_dir": cache,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	minOK := convert.FlattenMinOKSize(int64(len(srcPayload)))
+	if minOK != 500 {
+		t.Fatalf("minOK=%d want 500", minOK)
+	}
+
+	list := solidListForCache(src)
+	// Write under-floor partial (tiny) so post-populate size floor rejects dest.
+	run := func(_ string, args []string, _ string) error {
+		if len(args) > 0 && args[0] == "a" {
+			var dest string
+			for _, a := range args {
+				if strings.Contains(a, "nonsolid.partial") || (strings.HasSuffix(a, ".7z") && !strings.HasPrefix(a, "-")) {
+					dest = a
+					if strings.Contains(a, "nonsolid.partial") {
+						break
+					}
+				}
+			}
+			if dest == "" {
+				t.Fatalf("create args=%v", args)
+			}
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(dest, []byte("tiny"), 0o644)
+		}
+		if len(args) > 0 && args[0] == "x" {
+			for _, a := range args {
+				if strings.HasPrefix(a, "-o") {
+					work := strings.TrimPrefix(a, "-o")
+					work = strings.TrimSuffix(work, string(filepath.Separator))
+					if err := os.MkdirAll(work, 0o755); err != nil {
+						return err
+					}
+					return os.WriteFile(filepath.Join(work, "file.txt"), []byte("hi"), 0o644)
+				}
+			}
+		}
+		return nil
+	}
+
+	wantDest := convert.NonsolidCacheDestPath(cache, src)
+	_, err = convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
+		List7z:        list,
+		Run7z:         run,
+		OverheadBytes: 0,
+		MinFreeBytes:  0,
+	})
+	if err == nil {
+		t.Fatal("expected under-floor error")
+	}
+	if !strings.Contains(err.Error(), "too small") {
+		t.Fatalf("err=%v", err)
+	}
+	if _, stErr := os.Stat(wantDest); stErr == nil {
+		t.Fatalf("under-floor dest must be removed: %s", wantDest)
+	}
+}
+
+func TestEnsureNonsolidCachedCopy_CleansLeftoverPartialAndWork(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "solid.7z")
+	if err := os.WriteFile(src, []byte("solid-payload-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(dir, "cache")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.FromMap(map[string]any{
+		"convert_7z_nonsolid":  true,
+		"convert_7z_scope":     "outer",
+		"convert_7z_cache_dir": cache,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := convert.NonsolidCacheDestPath(cache, src)
+	partial := convert.NonsolidPartialPath(dest)
+	work := convert.NonsolidPartialWorkPath(dest)
+	// Simulate leftovers from a prior crashed populate.
+	if err := os.WriteFile(partial, []byte("stale-partial"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(work, "old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "old", "x"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var creates atomic.Int32
+	got, err := convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
+		List7z:        solidListForCache(src),
+		Run7z:         solidPopulateRun(t, &creates, 0),
+		OverheadBytes: 0,
+		MinFreeBytes:  0,
+	})
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if got != dest {
+		t.Fatalf("got %q want %q", got, dest)
+	}
+	if _, err := os.Stat(partial); !os.IsNotExist(err) {
+		t.Fatalf("partial leftover must be cleaned: %v", err)
+	}
+	if _, err := os.Stat(work); !os.IsNotExist(err) {
+		t.Fatalf("work leftover must be cleaned: %v", err)
+	}
+	// Dest must be the new payload, not the stale partial.
+	b, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(b, nonsolidCachedPayload) {
+		t.Fatalf("dest content wrong len=%d err=%v", len(b), err)
+	}
+}
+
+func TestEnsureNonsolidCachedCopy_EncryptedExtractFailure(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "enc.7z")
+	if err := os.WriteFile(src, []byte("solid-looking"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(dir, "cache")
+	cfg, err := config.FromMap(map[string]any{
+		"convert_7z_nonsolid":  true,
+		"convert_7z_scope":     "outer",
+		"convert_7z_cache_dir": cache,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// List says solid (not encrypted) — encryption only surfaces mid-extract.
+	list := solidListForCache(src)
+	run := func(_ string, args []string, _ string) error {
+		if len(args) > 0 && args[0] == "x" {
+			return fmt.Errorf("7z failed: 7z x -y: ERROR: Wrong password : %s", src)
+		}
+		return nil
+	}
+	_, err = convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
+		List7z:        list,
+		Run7z:         run,
+		OverheadBytes: 0,
+		MinFreeBytes:  0,
+	})
+	if err == nil {
+		t.Fatal("expected encrypted extract error")
+	}
+	if !strings.Contains(err.Error(), convert.Encrypted7zMessage) {
+		t.Fatalf("err=%v", err)
+	}
+	// Non-encryption extract failures should pass through.
+	runPlain := func(_ string, args []string, _ string) error {
+		if len(args) > 0 && args[0] == "x" {
+			return errors.New("7z failed: disk full")
+		}
+		return nil
+	}
+	_, err = convert.EnsureNonsolidCachedCopy(cfg, src, convert.NonsolidCacheParams{
+		List7z:        list,
+		Run7z:         runPlain,
+		OverheadBytes: 0,
+		MinFreeBytes:  0,
+	})
+	if err == nil {
+		t.Fatal("expected plain extract error")
+	}
+	if strings.Contains(err.Error(), convert.Encrypted7zMessage) {
+		t.Fatalf("must not mislabel plain error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -431,8 +723,8 @@ func TestEnsureNonsolidCachedCopy_CorruptDestRepopulates(t *testing.T) {
 			return sampleSolidList, nil
 		}
 		// Before repopulate: existing dest still lists solid → miss.
-		// After create writes nonsolid-cached content, treat as non-solid.
-		if b, err := os.ReadFile(path); err == nil && string(b) == "nonsolid-cached" {
+		// After create writes nonsolid payload, treat as non-solid.
+		if b, err := os.ReadFile(path); err == nil && bytes.Equal(b, nonsolidCachedPayload) {
 			return sampleNonSolidList, nil
 		}
 		return sampleSolidList, nil
@@ -455,8 +747,8 @@ func TestEnsureNonsolidCachedCopy_CorruptDestRepopulates(t *testing.T) {
 		t.Fatalf("expected repopulate creates=1 got %d", creates.Load())
 	}
 	b, err := os.ReadFile(dest)
-	if err != nil || string(b) != "nonsolid-cached" {
-		t.Fatalf("dest content=%q err=%v", b, err)
+	if err != nil || !bytes.Equal(b, nonsolidCachedPayload) {
+		t.Fatalf("dest content len=%d err=%v", len(b), err)
 	}
 }
 

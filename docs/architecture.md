@@ -99,7 +99,7 @@ macOS: keep `windows_visible: false` (single-user agent; allow_other not the WSL
 | 7z nonsolid | `convert_7z_scope`: nested/outer/all apply child env; flatten is pre-mount in-place via `RunFlattenConvert` when `FlattenNeededFunc` says true |
 | zip repack | When `convert_zip_to_7z` + nonsolid and zip has embedded archive members → `RunZipRepack` → stored non-solid `.7z` beside source (+ metadata sidecar) |
 | Flatten probe | Default when nonsolid + scope `flatten`: `convert.DefaultFlattenNeeded` → `7z l -slt` heuristics (`Solid=+` or nested member `*.7z`); **false** on uncertainty / missing 7z / encryption markers (`Encrypted=+`, Wrong password, …) |
-| Outer nonsolid cache | Scope `outer`/`all`: mount path calls `EnsureNonsolidCachedCopy` — solid → CLI extract + `a -ms=off` under content-keyed cache dest; exclusive `{cacheKey}.lock` flock serializes concurrent populate; non-solid keeps source; encrypted fails with clear error |
+| Outer nonsolid cache | Scope `outer`/`all`: mount path calls `EnsureNonsolidCachedCopy` — solid → CLI extract + `a -ms=off` under content-keyed cache dest; exclusive `{cacheKey}.lock` flock serializes concurrent populate; non-solid only when `7z l` succeeds and `Solid != +` (list fail/empty fail-closed); post-populate `FlattenMinOKSize` floor; encrypted list/extract → `Encrypted7zMessage`; leftover `*.nonsolid.partial` / `*.work` cleaned before populate. On successful resolve to a cache path (`mountArchive != archivePath`), the mount **claim** `Transition` persists `convert_source_size_bytes` / `convert_duration_seconds` when those store columns are still nil: prefer `convert.ReadConvertMetadata(mountArchive)` (sidecar written on populate); fall back to `Stat(source)` for original size only — **no invented duration** on cache hits without a sidecar |
 
 **Engine convert order** (parity with Python `_run_convert`): archiveconverter (if available / `.7z` / not zip-repack) → zip repack → flatten. Success updates `archive_path` + fingerprint, leaves `converting` → `discovered`, then continues to mount/index. Failure → `index_failed` / `mount_failed` with `last_error`. Outer/all cache populate runs at **mount** start (not the convert job), like Python `resolve_mount_archive_path`.
 
@@ -109,7 +109,7 @@ macOS: keep `windows_visible: false` (single-user agent; allow_other not the WSL
 |-----|--------|
 | Solid/nested probe | Best-effort `7z l -slt` only — not ratarmountcore solid-folder parse; encrypted detect is CLI phrase/`Encrypted=+` only; inject `NeedsFlatten` to override |
 | Flatten depth | Best-effort CLI: extract, walk nested `*.7z`, repack `-ms=off`; encrypted refused clearly; **no stream-flatten** / post-rebuild nested-header check |
-| Outer cache | CLI extract+repack only (no stream-repack); exclusive flock on `{cacheKey}.lock` with re-check hit inside lock; nested `.7z` members not expanded in outer cache (child env still used for nested when scope allows) |
+| Outer cache | CLI extract+repack only (no stream-repack / stream-flatten); exclusive flock on `{cacheKey}.lock` with re-check hit inside lock; fail-closed list + size floor + leftover partial/work cleanup; nested `.7z` members not expanded in outer cache (child env still used for nested when scope allows); store convert columns filled on mount claim from cache sidecar (or source size fallback) so status/SPA stay durable without relying only on live sidecar reads |
 | Real engines in CI | Unit tests use fake 7z scripts / injectable `Run7z` / list output; nested mini + encrypted `*.l-slt.txt` under `testdata/nested7z/` for offline parse; real `7z l` / multi generation skips when 7z missing; no FUSE required for default `make test` |
 
 ### Phase 6.1 — reconcile (library)
@@ -141,9 +141,19 @@ reconciler.Boot()
 
 | Package | Responsibility |
 |---------|----------------|
-| `internal/cleaner` | Grace purge of `absent` rows past `cleanup_after` (`ListAbsentPastGrace` + `PurgeArchive`), overlay policy (`quarantine` / `delete` / `retain`), quarantine age + max-bytes prune, admin immediate purge, stale mount-dir cleanup under `mount_root`, optional ratarmount `/tmp/.tmp*` prune, `min_free_bytes` disk check |
+| `internal/cleaner` | Grace purge of `absent` rows past `cleanup_after` (`ListAbsentPastGrace` + `PurgeArchive`), overlay policy (`quarantine` / `delete` / `retain`), quarantine age + max-bytes prune, admin immediate purge, stale mount-dir cleanup under `mount_root`, outer nonsolid cache hygiene under `convert_7z_cache_dir`, optional ratarmount `/tmp/.tmp*` prune, `min_free_bytes` disk check |
 
-**Path safety:** index/overlay/mount deletes and quarantine moves are refused unless the path resolves under `index_dir`, `overlay_dir`, or `mount_root` respectively. Paths outside roots are left on disk; DB row may still be purged so rediscovery is not blocked.
+**Path safety:** index/overlay/mount deletes and quarantine moves are refused unless the path resolves under `index_dir`, `overlay_dir`, or `mount_root` respectively. Nonsolid cache deletes are refused unless under the resolved cache root (`convert_7z_cache_dir` or default). Paths outside roots are left on disk; DB row may still be purged so rediscovery is not blocked.
+
+**Outer nonsolid cache hygiene** (`PruneNonsolidCache`, part of `Run`): under `DefaultNonsolidCacheDir` only (direct children).
+
+| Action | Policy |
+|--------|--------|
+| Leftover partials | Always remove `*.nonsolid.partial` and `*.nonsolid.partial.work` (crashed populate residue) |
+| Stale locks | Remove `*.lock` only when sibling `*.7z` is missing; skip if exclusive flock is held (live populate) |
+| Age prune | Orphaned `*.7z` with mtime older than **`cleanup_after`** (reused; no separate key), plus sibling `*.tarmount-convert.json` and `.lock`; skip paths listed in `LivePaths` (serve includes live mount dirs **and** `Request.ArchivePath`, so outer-cache mount sources are protected) |
+
+Age is mtime-based (not tied to source archive presence). Cache keys are content-hashed, so entries become “orphan” when unused long enough — same grace window as absent-row purge. Next mount of a pruned key re-runs `EnsureNonsolidCachedCopy`.
 
 **Reappear interaction:** scanner `Reappear` clears `removed_at` and keeps overlay/index paths. Cleaner grace purge only sees still-`absent` rows with `removed_at` past grace — it does not re-mark absent or fight the scanner. Admin `PurgeArchive` is explicit.
 
@@ -165,7 +175,7 @@ reconciler.Boot()
 
 **Implemented:** pure formulas + FS/SQLite index sum + mount walk fallback; unit tests with map fakes and minimal synthetic indexes.
 
-**Wired:** control `metrics` op via `MetricsCollector` + store `ArchiveSource` adapter in service. Production `New` sets `Collector.Meta` to `ConvertSidecarMeta{Config}` (`convert.ReadConvertMetadata` on `archive_path`, then outer nonsolid cache dest when configured); store convert columns still win when both are set (`ComputeArchiveMetrics` / `ResolveConvertFields`). CLI metrics surface still optional; status `include_sizes`, control `metrics`, HTTP/SPA consume the collector.
+**Wired:** control `metrics` op via `MetricsCollector` + store `ArchiveSource` adapter in service. Production `New` sets `Collector.Meta` to `ConvertSidecarMeta{Config}` (`convert.ReadConvertMetadata` on `archive_path`, then outer nonsolid cache dest when configured); store convert columns still win when both are set (`ComputeArchiveMetrics` / `ResolveConvertFields`). Outer/all mount claim also copies convert size/duration into the store when nil (see outer nonsolid cache row above) so SPA/status do not depend solely on sidecar presence. CLI metrics surface still optional; status `include_sizes`, control `metrics`, HTTP/SPA consume the collector.
 
 ### Phase 6.5 — status payload (SPA fuel)
 

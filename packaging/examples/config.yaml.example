@@ -37,6 +37,8 @@ write_overlay: true
 # windows_visible requires user_allow_other in /etc/fuse.conf (create-user.sh).
 windows_visible: true
 overlay_cleanup: quarantine
+# Absent-row grace purge and outer nonsolid cache age prune (orphaned *.7z under
+# convert_7z_cache_dir / default cache). Leftover *.nonsolid.partial always cleaned.
 cleanup_after: 24h
 
 # Embedded operator dashboard (no separate web unit; D4).

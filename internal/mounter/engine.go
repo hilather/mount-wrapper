@@ -48,9 +48,12 @@ type Engine struct {
 	ConvertOpts convert.ResolveOptions
 	// NeedsFlatten optional 7z structure probe; nil → no flatten convert.
 	NeedsFlatten convert.FlattenNeededFunc
-	// Run7z optional 7z process runner for zip repack / flatten; nil uses
-	// convert.DefaultRun7z (real exec). Tests inject fakes / temp scripts.
+	// Run7z optional 7z process runner for zip repack / flatten / outer cache;
+	// nil uses convert.DefaultRun7z (real exec). Tests inject fakes / temp scripts.
 	Run7z convert.Run7zFunc
+	// List7z optional 7z list runner for outer cache solid/encrypted probes;
+	// nil uses convert.DefaultList7z. Tests inject fixed listings.
+	List7z convert.List7zFunc
 
 	mu                    sync.Mutex
 	convertJobs           map[string]*convertJob
@@ -384,6 +387,9 @@ func (e *Engine) beginMountProcess(
 		if e.Run7z != nil {
 			p.Run7z = e.Run7z
 		}
+		if e.List7z != nil {
+			p.List7z = e.List7z
+		}
 		resolved, err := convert.EnsureNonsolidCachedCopy(e.Config, archivePath, p)
 		if err != nil {
 			outerCacheErr = err
@@ -407,6 +413,15 @@ func (e *Engine) beginMountProcess(
 		pathFields["overlay_path"] = req.OverlayPath
 	} else {
 		pathFields["overlay_path"] = nil
+	}
+	// Persist outer-cache convert stats on the mount claim when Ensure resolved
+	// to a cache dest (store columns for status/SPA durability). Prefer the
+	// sidecar next to mountArchive; fall back to source Stat for size only.
+	// Do not invent duration without a sidecar (cache hits without metadata).
+	if outerCacheErr == nil && mountArchive != archivePath {
+		for k, v := range outerCacheConvertFields(rec, archivePath, mountArchive) {
+			pathFields[k] = v
+		}
 	}
 
 	var err error
@@ -525,6 +540,37 @@ func (e *Engine) failStart(rec *state.ArchiveRecord, indexPhase bool, reason str
 		slog.Warn("failStart transition", "archive_id", rec.ArchiveID, "err", err)
 	}
 	return mounterErrorf("%s", reason)
+}
+
+// outerCacheConvertFields builds optional Transition fields when mount uses an
+// outer nonsolid cache dest (mountArchive != sourcePath). Only fills keys where
+// rec currently has nil store values. Prefers convert.ReadConvertMetadata on
+// the cache path; falls back to Stat(sourcePath) for convert_source_size_bytes
+// only. Never invents convert_duration_seconds without a sidecar (e.g. cache
+// hit from a copy written without metadata).
+func outerCacheConvertFields(rec *state.ArchiveRecord, sourcePath, mountArchive string) map[string]any {
+	if rec == nil || mountArchive == "" || mountArchive == sourcePath {
+		return nil
+	}
+	if rec.ConvertSourceSizeBytes != nil && rec.ConvertDurationSeconds != nil {
+		return nil
+	}
+	fields := make(map[string]any, 2)
+	meta := convert.ReadConvertMetadata(mountArchive)
+	if rec.ConvertSourceSizeBytes == nil {
+		if meta != nil {
+			fields["convert_source_size_bytes"] = meta.OriginalSizeBytes
+		} else if st, err := os.Stat(sourcePath); err == nil && st.Mode().IsRegular() {
+			fields["convert_source_size_bytes"] = st.Size()
+		}
+	}
+	if rec.ConvertDurationSeconds == nil && meta != nil && meta.ConvertDurationSeconds != nil {
+		fields["convert_duration_seconds"] = *meta.ConvertDurationSeconds
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
 }
 
 // CheckChild polls one live child.

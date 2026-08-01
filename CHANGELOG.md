@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Outer nonsolid cache hygiene (cleaner):** each cleaner `Run` pass under
+  `convert_7z_cache_dir` / `DefaultNonsolidCacheDir` always strips leftover
+  `*.nonsolid.partial` and `*.nonsolid.partial.work`, removes stale `*.lock`
+  when the sibling `*.7z` is missing (skip if flock held), and age-prunes
+  orphaned `*.7z` (+ `*.tarmount-convert.json` / `.lock`) older than
+  **`cleanup_after`** (reused; no new config key). Deletes only under the
+  cache root; optional `LivePaths` skip for age prune.
+- **Outer cache convert stats on mount claim:** when `beginMountProcess`
+  successfully uses `EnsureNonsolidCachedCopy` and the mount path differs from
+  the store source, the claim `Transition` writes `convert_source_size_bytes` /
+  `convert_duration_seconds` if those columns are still nil — prefer the
+  sidecar next to the cache dest; fall back to source `Stat` for size only
+  (no invented duration on cache hit without sidecar). Complements convert-job
+  store fields and live `ConvertSidecarMeta` reads for durable SPA/status.
 - **Outer nonsolid cache flock:** `EnsureNonsolidCachedCopy` takes a blocking
   exclusive flock on `{cacheKey}.lock` around re-check hit + free-space gate +
   populate (Python `ensure_nonsolid_cached_copy` parity), so concurrent mounts
@@ -27,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Outer nonsolid cache edge hardening:** `EnsureNonsolidCachedCopy` fails
+  closed on `7z l` error/empty (no silent non-solid passthrough), rejects
+  under-floor populate output via `FlattenMinOKSize` (removes bad dest),
+  cleans leftover `*.nonsolid.partial` / `*.work` before populate, and
+  surfaces `Encrypted7zMessage` when extract/create stderr indicates
+  encryption. Stream-flatten / full solid-folder parse still deferred.
 - **macOS CI:** control/service unit tests bind Unix sockets under a short
   `/tmp` path on Darwin so `sun_path` (~104 bytes) is not exceeded by long
   GitHub Actions `t.TempDir()` paths (`internal/testutil.ShortUnixSocketPath`).

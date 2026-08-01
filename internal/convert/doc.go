@@ -23,8 +23,14 @@
 //     stream-flatten path or post-rebuild nested-header validation.
 //   - Outer nonsolid cache: EnsureNonsolidCachedCopy (CLI extract + a -ms=off)
 //     for solid outer/all; exclusive flock on `{cacheKey}.lock` around re-check
-//     + populate; path prediction via ResolveMountArchivePath /
-//     NonsolidCacheDestPath. No stream-repack; nested members not expanded in
-//     outer cache (child env still handles nested when scope allows).
+//     + populate; fail-closed on 7z list error/empty (no silent non-solid
+//     passthrough); post-populate FlattenMinOKSize floor (under-floor dest
+//     removed); extract/create stderr encryption → Encrypted7zMessage;
+//     leftover *.nonsolid.partial / *.work cleaned before populate.
+//     Path helpers (NonsolidPartialPath / LockPath / DestFromLockPath) are
+//     shared with cleaner.PruneNonsolidCache hygiene under the cache dir.
+//     Path prediction via ResolveMountArchivePath / NonsolidCacheDestPath.
+//     No stream-repack / stream-flatten; nested members not expanded in outer
+//     cache (child env still handles nested when scope allows).
 //   - Doctor availability reporting is separate (internal/doctor).
 package convert

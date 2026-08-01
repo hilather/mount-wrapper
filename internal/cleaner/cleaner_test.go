@@ -759,6 +759,219 @@ func TestCheckDiskLow(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Outer nonsolid cache hygiene
+// ---------------------------------------------------------------------------
+
+func TestPruneNonsolidCachePartials(t *testing.T) {
+	tmp := t.TempDir()
+	cache := filepath.Join(tmp, "ns-cache")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	partial := filepath.Join(cache, "abc.7z.nonsolid.partial")
+	if err := os.WriteFile(partial, []byte("partial-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(cache, "abc.7z.nonsolid.partial.work")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "x"), []byte("w"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Keep a young .7z so we only exercise partial cleanup here.
+	young := filepath.Join(cache, "abc.7z")
+	if err := os.WriteFile(young, []byte("cache"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := cleaner.PruneNonsolidCache(cache, 24*time.Hour, time.Now().UTC(), nil)
+	if res.PartialsRemoved < 2 {
+		t.Fatalf("partials removed=%d want >=2: %+v", res.PartialsRemoved, res)
+	}
+	if fileExists(partial) {
+		t.Fatal("partial should be gone")
+	}
+	if dirExists(work) {
+		t.Fatal("work dir should be gone")
+	}
+	if !fileExists(young) {
+		t.Fatal("young .7z must remain")
+	}
+}
+
+func TestPruneNonsolidCacheYoungKeptOldOrphanPruned(t *testing.T) {
+	tmp := t.TempDir()
+	cache := filepath.Join(tmp, "ns-cache")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	young := filepath.Join(cache, "young.7z")
+	if err := os.WriteFile(young, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(cache, "oldkey.7z")
+	if err := os.WriteFile(old, []byte("old-archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldMeta := old + ".tarmount-convert.json"
+	if err := os.WriteFile(oldMeta, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldLock := filepath.Join(cache, "oldkey.lock")
+	if err := os.WriteFile(oldLock, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTS := time.Now().UTC().Add(-48 * time.Hour)
+	for _, p := range []string{old, oldMeta, oldLock} {
+		if err := os.Chtimes(p, oldTS, oldTS); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	now := time.Now().UTC()
+	res := cleaner.PruneNonsolidCache(cache, 24*time.Hour, now, nil)
+	if res.ArchivesRemoved != 1 {
+		t.Fatalf("archives removed=%d want 1: %+v", res.ArchivesRemoved, res)
+	}
+	if fileExists(old) {
+		t.Fatal("old orphan .7z should be pruned")
+	}
+	if fileExists(oldMeta) {
+		t.Fatal("sidecar should be pruned with orphan")
+	}
+	if fileExists(oldLock) {
+		t.Fatal("lock should be pruned with orphan")
+	}
+	if !fileExists(young) {
+		t.Fatal("young .7z must remain")
+	}
+	if res.BytesFreed < int64(len("old-archive")) {
+		t.Fatalf("bytes freed=%d", res.BytesFreed)
+	}
+}
+
+func TestPruneNonsolidCacheStaleLockWithout7z(t *testing.T) {
+	tmp := t.TempDir()
+	cache := filepath.Join(tmp, "ns-cache")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Lock with no sibling .7z → stale.
+	staleLock := filepath.Join(cache, "deadbeef.lock")
+	if err := os.WriteFile(staleLock, []byte("L"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Lock with sibling .7z → keep.
+	keep7z := filepath.Join(cache, "alive.7z")
+	if err := os.WriteFile(keep7z, []byte("k"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	keepLock := filepath.Join(cache, "alive.lock")
+	if err := os.WriteFile(keepLock, []byte("L"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := cleaner.PruneNonsolidCache(cache, 24*time.Hour, time.Now().UTC(), nil)
+	if res.LocksRemoved < 1 {
+		t.Fatalf("expected stale lock removed: %+v", res)
+	}
+	if fileExists(staleLock) {
+		t.Fatal("stale lock should be gone")
+	}
+	if !fileExists(keepLock) || !fileExists(keep7z) {
+		t.Fatal("live pair must remain")
+	}
+}
+
+func TestPruneNonsolidCachePathOutsideRefused(t *testing.T) {
+	tmp := t.TempDir()
+	cache := filepath.Join(tmp, "ns-cache")
+	outside := filepath.Join(tmp, "outside")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// File that lives outside the cache root — PruneNonsolidCache only lists
+	// direct children of cacheDir, so outside is never a candidate.
+	outsider := filepath.Join(outside, "escape.7z")
+	if err := os.WriteFile(outsider, []byte("do-not-delete"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTS := time.Now().UTC().Add(-72 * time.Hour)
+	if err := os.Chtimes(outsider, oldTS, oldTS); err != nil {
+		t.Fatal(err)
+	}
+
+	// Empty cacheDir string / missing dir are no-ops.
+	resEmpty := cleaner.PruneNonsolidCache("", 1*time.Hour, time.Now().UTC(), nil)
+	if resEmpty.ArchivesRemoved != 0 || resEmpty.PartialsRemoved != 0 {
+		t.Fatalf("empty cacheDir must no-op: %+v", resEmpty)
+	}
+	resMissing := cleaner.PruneNonsolidCache(filepath.Join(tmp, "no-such"), 1*time.Hour, time.Now().UTC(), nil)
+	if resMissing.ArchivesRemoved != 0 {
+		t.Fatalf("missing dir must no-op: %+v", resMissing)
+	}
+
+	// Pruning cache must not touch outside.
+	_ = cleaner.PruneNonsolidCache(cache, 1*time.Hour, time.Now().UTC(), nil)
+	if !fileExists(outsider) {
+		t.Fatal("path outside cache root must not be deleted")
+	}
+}
+
+func TestPruneNonsolidCacheLivePathSkipped(t *testing.T) {
+	tmp := t.TempDir()
+	cache := filepath.Join(tmp, "ns-cache")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	live := filepath.Join(cache, "inuse.7z")
+	if err := os.WriteFile(live, []byte("mounted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTS := time.Now().UTC().Add(-72 * time.Hour)
+	if err := os.Chtimes(live, oldTS, oldTS); err != nil {
+		t.Fatal(err)
+	}
+	res := cleaner.PruneNonsolidCache(cache, 1*time.Hour, time.Now().UTC(), []string{live})
+	if res.ArchivesRemoved != 0 {
+		t.Fatalf("live path must not age-prune: %+v", res)
+	}
+	if !fileExists(live) {
+		t.Fatal("live .7z must remain")
+	}
+}
+
+func TestPruneNonsolidCacheWiredInRun(t *testing.T) {
+	tmp := t.TempDir()
+	cache := filepath.Join(tmp, "ns-cache")
+	c := cfg(t, tmp, map[string]any{
+		"cleanup_after":       "1h",
+		"convert_7z_cache_dir": cache,
+	})
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmp, "overlays"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	partial := filepath.Join(cache, "x.7z.nonsolid.partial")
+	if err := os.WriteFile(partial, []byte("p"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := cleaner.New(c, openStore(t)).Run()
+	if result.NonsolidPartialsRemoved < 1 {
+		t.Fatalf("Run should prune nonsolid partials: %+v", result)
+	}
+	if fileExists(partial) {
+		t.Fatal("partial should be gone after Run")
+	}
+}
+
 func dirExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()

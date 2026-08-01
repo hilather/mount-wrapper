@@ -482,3 +482,334 @@ func TestEngine_ZipRepackConvertFailure(t *testing.T) {
 	}
 }
 
+// Minimal 7z l -slt listings for outer-cache engine tests (same shape as convert package).
+const engineSampleSolidList = `
+--
+Path = solid.7z
+Type = 7z
+Solid = +
+Blocks = 1
+----------
+Path = a.txt
+Size = 10
+Encrypted = -
+`
+
+const engineSampleNonSolidList = `
+--
+Path = cache.7z
+Type = 7z
+Solid = -
+Blocks = 1
+----------
+Path = a.txt
+Size = 10
+Encrypted = -
+`
+
+func engineOuterSolidList(src string) convert.List7zFunc {
+	return func(_ string, args []string, _ string) (string, error) {
+		path := ""
+		if len(args) > 0 {
+			path = args[len(args)-1]
+		}
+		if path != src {
+			if st, err := os.Stat(path); err == nil && st.Size() > 0 {
+				return engineSampleNonSolidList, nil
+			}
+		}
+		return engineSampleSolidList, nil
+	}
+}
+
+func engineOuterPopulateRun(t *testing.T) convert.Run7zFunc {
+	t.Helper()
+	// Partial output must meet FlattenMinOKSize (~half of source); write 4KiB.
+	payload := []byte(strings.Repeat("N", 4096))
+	return func(_ string, args []string, _ string) error {
+		if len(args) > 0 && args[0] == "x" {
+			for _, a := range args {
+				if strings.HasPrefix(a, "-o") {
+					work := strings.TrimPrefix(a, "-o")
+					work = strings.TrimSuffix(work, string(filepath.Separator))
+					if err := os.MkdirAll(work, 0o755); err != nil {
+						return err
+					}
+					return os.WriteFile(filepath.Join(work, "file.txt"), []byte("hi"), 0o644)
+				}
+			}
+		}
+		if len(args) > 0 && args[0] == "a" {
+			for _, a := range args {
+				if strings.HasSuffix(a, ".partial") || strings.Contains(a, "nonsolid.partial") {
+					if err := os.MkdirAll(filepath.Dir(a), 0o755); err != nil {
+						return err
+					}
+					return os.WriteFile(a, payload, 0o644)
+				}
+			}
+		}
+		return nil
+	}
+}
+
+func engineStartSleep(t *testing.T) mounter.StartProcessFunc {
+	t.Helper()
+	return func(req mounter.MountRequest, opts mounter.CmdOptions, mustExist bool) (*exec.Cmd, error) {
+		if err := mounter.PreparePaths(req); err != nil {
+			return nil, err
+		}
+		if req.IndexOnly {
+			if err := os.WriteFile(req.IndexPath, []byte("idx"), 0o644); err != nil {
+				return nil, err
+			}
+		}
+		cmd := exec.Command("sleep", "30")
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		return cmd, nil
+	}
+}
+
+// TestBeginMount_OuterCachePersistsConvertStatsOnClaim populates outer nonsolid
+// cache then claims mount/index work with convert_source_size_bytes and
+// convert_duration_seconds from the cache sidecar.
+func TestBeginMount_OuterCachePersistsConvertStatsOnClaim(t *testing.T) {
+	cfg, store, tmp := testEngineConfig(t)
+	cfg.Convert7zNonsolid = true
+	cfg.Convert7zScope = config.Convert7zScopeOuter
+	cfg.Convert7zOverheadBytes = 0
+	cfg.MinFreeBytes = 0
+	cfg.Convert7zBin = "7z"
+	cfg.Convert7zCacheDir = filepath.Join(tmp, "nonsolid-cache")
+
+	restore := convert.SetFreeBytesFunc(func(string) (int64, bool) {
+		return 1 << 40, true
+	})
+	t.Cleanup(restore)
+
+	srcBytes := []byte(strings.Repeat("S", 2048))
+	archive := filepath.Join(tmp, "solid-outer.7z")
+	if err := os.WriteFile(archive, srcBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := insertArchive(t, store, archive)
+
+	eng := mounter.NewEngine(cfg, store)
+	eng.Run7z = engineOuterPopulateRun(t)
+	eng.List7z = engineOuterSolidList(archive)
+	eng.IsMount = func(string) bool { return false }
+	eng.StartProcess = engineStartSleep(t)
+
+	first := true
+	managed, err := eng.BeginMount(rec, &first)
+	if err != nil {
+		t.Fatalf("BeginMount: %v", err)
+	}
+	if managed == nil {
+		t.Fatal("expected managed mount after outer cache")
+	}
+	if managed.Request.ArchivePath == archive {
+		t.Fatalf("expected cache mount path, got source %q", managed.Request.ArchivePath)
+	}
+	if convert.ReadConvertMetadata(managed.Request.ArchivePath) == nil {
+		t.Fatal("expected convert sidecar next to cache dest")
+	}
+
+	fresh, err := store.GetArchive(rec.ArchiveID)
+	if err != nil || fresh == nil {
+		t.Fatalf("GetArchive: %v", err)
+	}
+	if fresh.ConvertSourceSizeBytes == nil || *fresh.ConvertSourceSizeBytes != int64(len(srcBytes)) {
+		t.Fatalf("convert_source_size_bytes=%v want %d", fresh.ConvertSourceSizeBytes, len(srcBytes))
+	}
+	if fresh.ConvertDurationSeconds == nil {
+		t.Fatal("expected convert_duration_seconds from sidecar after populate")
+	}
+	if *fresh.ConvertDurationSeconds < 0 {
+		t.Fatalf("duration=%v", *fresh.ConvertDurationSeconds)
+	}
+	// Store archive_path stays the source; only mount request uses cache.
+	if fresh.ArchivePath != archive {
+		t.Fatalf("store archive_path=%q want source", fresh.ArchivePath)
+	}
+	_, _ = eng.Unmount(rec.ArchiveID, false)
+}
+
+// TestBeginMount_OuterCacheHitWithoutSidecarFallsBackSourceSizeOnly: cache hit
+// with no sidecar sets convert_source_size_bytes from Stat(source) and leaves
+// convert_duration_seconds nil (do not invent duration).
+func TestBeginMount_OuterCacheHitWithoutSidecarFallsBackSourceSizeOnly(t *testing.T) {
+	cfg, store, tmp := testEngineConfig(t)
+	cfg.Convert7zNonsolid = true
+	cfg.Convert7zScope = config.Convert7zScopeOuter
+	cfg.Convert7zOverheadBytes = 0
+	cfg.MinFreeBytes = 0
+	cfg.Convert7zBin = "7z"
+	cfg.Convert7zCacheDir = filepath.Join(tmp, "nonsolid-cache")
+
+	srcBytes := []byte(strings.Repeat("S", 1500))
+	archive := filepath.Join(tmp, "solid-hit.7z")
+	if err := os.WriteFile(archive, srcBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-seed cache dest so Ensure hits without populate (no sidecar written).
+	dest := convert.NonsolidCacheDestPath(cfg.Convert7zCacheDir, archive)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("nonsolid-cached"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := insertArchive(t, store, archive)
+	eng := mounter.NewEngine(cfg, store)
+	// Run7z should not be needed for hit; fail if called.
+	eng.Run7z = func(string, []string, string) error {
+		t.Fatal("Run7z should not run on cache hit")
+		return nil
+	}
+	eng.List7z = engineOuterSolidList(archive)
+	eng.IsMount = func(string) bool { return false }
+	eng.StartProcess = engineStartSleep(t)
+
+	first := true
+	managed, err := eng.BeginMount(rec, &first)
+	if err != nil {
+		t.Fatalf("BeginMount: %v", err)
+	}
+	if managed == nil || managed.Request.ArchivePath != dest {
+		t.Fatalf("managed=%v path=%v want cache dest", managed != nil, managed)
+	}
+	if convert.ReadConvertMetadata(dest) != nil {
+		t.Fatal("test setup must not have sidecar")
+	}
+
+	fresh, err := store.GetArchive(rec.ArchiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ConvertSourceSizeBytes == nil || *fresh.ConvertSourceSizeBytes != int64(len(srcBytes)) {
+		t.Fatalf("convert_source_size_bytes=%v want %d", fresh.ConvertSourceSizeBytes, len(srcBytes))
+	}
+	if fresh.ConvertDurationSeconds != nil {
+		t.Fatalf("duration should stay nil without sidecar, got %v", *fresh.ConvertDurationSeconds)
+	}
+	_, _ = eng.Unmount(rec.ArchiveID, false)
+}
+
+// TestBeginMount_OuterCacheDoesNotOverwriteExistingConvertFields keeps store
+// convert columns when they are already set (claim only fills nil fields).
+func TestBeginMount_OuterCacheDoesNotOverwriteExistingConvertFields(t *testing.T) {
+	cfg, store, tmp := testEngineConfig(t)
+	cfg.Convert7zNonsolid = true
+	cfg.Convert7zScope = config.Convert7zScopeAll
+	cfg.Convert7zOverheadBytes = 0
+	cfg.MinFreeBytes = 0
+	cfg.Convert7zBin = "7z"
+	cfg.Convert7zCacheDir = filepath.Join(tmp, "nonsolid-cache")
+
+	restore := convert.SetFreeBytesFunc(func(string) (int64, bool) {
+		return 1 << 40, true
+	})
+	t.Cleanup(restore)
+
+	archive := filepath.Join(tmp, "solid-keep.7z")
+	if err := os.WriteFile(archive, []byte(strings.Repeat("S", 800)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := insertArchive(t, store, archive)
+
+	wantSrc := int64(99999)
+	wantDur := 12.5
+	updated, err := store.Transition(rec.ArchiveID, state.StatusDiscovered, state.StatusDiscovered, map[string]any{
+		"convert_source_size_bytes": wantSrc,
+		"convert_duration_seconds":  wantDur,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec = updated
+
+	eng := mounter.NewEngine(cfg, store)
+	eng.Run7z = engineOuterPopulateRun(t)
+	eng.List7z = engineOuterSolidList(archive)
+	eng.IsMount = func(string) bool { return false }
+	eng.StartProcess = engineStartSleep(t)
+
+	first := true
+	if _, err := eng.BeginMount(rec, &first); err != nil {
+		t.Fatalf("BeginMount: %v", err)
+	}
+
+	fresh, err := store.GetArchive(rec.ArchiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ConvertSourceSizeBytes == nil || *fresh.ConvertSourceSizeBytes != wantSrc {
+		t.Fatalf("source size overwritten: %v", fresh.ConvertSourceSizeBytes)
+	}
+	if fresh.ConvertDurationSeconds == nil || *fresh.ConvertDurationSeconds != wantDur {
+		t.Fatalf("duration overwritten: %v", fresh.ConvertDurationSeconds)
+	}
+	_, _ = eng.Unmount(rec.ArchiveID, false)
+}
+
+// TestBeginMount_OuterCacheHitWithSidecarUsesMetadata prefers sidecar size and
+// duration on cache hit when present.
+func TestBeginMount_OuterCacheHitWithSidecarUsesMetadata(t *testing.T) {
+	cfg, store, tmp := testEngineConfig(t)
+	cfg.Convert7zNonsolid = true
+	cfg.Convert7zScope = config.Convert7zScopeOuter
+	cfg.Convert7zOverheadBytes = 0
+	cfg.MinFreeBytes = 0
+	cfg.Convert7zBin = "7z"
+	cfg.Convert7zCacheDir = filepath.Join(tmp, "nonsolid-cache")
+
+	srcBytes := []byte(strings.Repeat("S", 1111))
+	archive := filepath.Join(tmp, "solid-meta.7z")
+	if err := os.WriteFile(archive, srcBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := convert.NonsolidCacheDestPath(cfg.Convert7zCacheDir, archive)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("nonsolid-cached"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dur := 3.25
+	meta := convert.BuildConvertMetadata(7777, 14, convert.MethodOuterNonsolidCLI, &dur)
+	if _, err := convert.WriteConvertMetadata(dest, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := insertArchive(t, store, archive)
+	eng := mounter.NewEngine(cfg, store)
+	eng.Run7z = func(string, []string, string) error {
+		t.Fatal("Run7z should not run on cache hit")
+		return nil
+	}
+	eng.List7z = engineOuterSolidList(archive)
+	eng.IsMount = func(string) bool { return false }
+	eng.StartProcess = engineStartSleep(t)
+
+	first := true
+	if _, err := eng.BeginMount(rec, &first); err != nil {
+		t.Fatalf("BeginMount: %v", err)
+	}
+
+	fresh, err := store.GetArchive(rec.ArchiveID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ConvertSourceSizeBytes == nil || *fresh.ConvertSourceSizeBytes != 7777 {
+		t.Fatalf("convert_source_size_bytes=%v want 7777 from sidecar", fresh.ConvertSourceSizeBytes)
+	}
+	if fresh.ConvertDurationSeconds == nil || *fresh.ConvertDurationSeconds != 3.25 {
+		t.Fatalf("convert_duration_seconds=%v want 3.25", fresh.ConvertDurationSeconds)
+	}
+	_, _ = eng.Unmount(rec.ArchiveID, false)
+}
+

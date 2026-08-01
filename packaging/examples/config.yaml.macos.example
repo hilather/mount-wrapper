@@ -46,6 +46,8 @@ write_overlay: true
 # macOS desktop default: do not force allow_other-style visibility.
 windows_visible: false
 overlay_cleanup: quarantine
+# Absent-row grace purge and outer nonsolid cache age prune (orphaned *.7z under
+# convert_7z_cache_dir / default cache). Leftover *.nonsolid.partial always cleaned.
 cleanup_after: 24h
 
 # Embedded operator dashboard (same process as serve).

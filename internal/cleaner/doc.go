@@ -31,10 +31,21 @@
 // a rediscovered archive if invoked by id. Cleaner does not fight the scanner:
 // it never re-marks absent or re-touches reappeared rows.
 //
+// # Outer nonsolid cache hygiene
+//
+// Cleaner.PruneNonsolidCache (part of Run) maintains convert_7z_cache_dir
+// (or DefaultNonsolidCacheDir): always strip leftover *.nonsolid.partial and
+// *.nonsolid.partial.work; remove stale *.lock when the sibling *.7z is gone
+// (skip when flock is held); age-prune orphaned *.7z (and
+// *.tarmount-convert.json / .lock siblings) older than cleanup_after.
+// No separate config key — reuses cleanup_after. Deletes only under the
+// resolved cache root; LivePaths entries are skipped for age prune.
+//
 // # Path safety
 //
 // Filesystem deletes/moves are refused unless the target resolves under the
-// configured root (index_dir, overlay_dir, mount_root, or overlay_dir/.quarantine).
+// configured root (index_dir, overlay_dir, mount_root, overlay_dir/.quarantine,
+// or convert_7z_cache_dir / default nonsolid cache).
 // Paths outside those roots are left on disk; purge may still remove the DB row.
 //
 // This package is a library; the serve loop / control plane wire it in later.

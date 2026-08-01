@@ -215,7 +215,9 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] Encrypted detect (best-effort): `Parse7zListEncrypted` / `RefuseIfEncrypted7z` from `7z l -slt` + stderr phrases; probe returns false; runners surface `encrypted 7z not supported`
 - [x] Outer nonsolid cache populate: `EnsureNonsolidCachedCopy` (CLI extract + `-ms=off`) + content-keyed dest; engine mount path wires for scope outer/all; `ResolveMountArchivePath` remains path prediction
 - [x] Outer nonsolid cache exclusive flock: `{cacheKey}.lock` + re-check hit inside lock before free-space + populate (Python `ensure_nonsolid_cached_copy` parity)
-- [ ] **Residual:** no full ratarmountcore solid/folder parser; no stream-flatten / py7zr folder walk; outer cache is CLI-only (no stream-repack); real FUSE CI deferred; full engine convert still needs `7z` on PATH
+- [x] Outer cache convert stats on mount claim: when Ensure resolves to cache dest, fill nil `convert_source_size_bytes` / `convert_duration_seconds` from cache sidecar (Stat source size fallback; no invented duration without sidecar)
+- [x] Outer nonsolid cache edge hardening (no stream-flatten): fail-closed on `7z l` error/empty; post-populate `FlattenMinOKSize` floor (remove under-floor dest); clean leftover `*.nonsolid.partial` / `*.work` before populate; extract/create encryption stderr → `Encrypted7zMessage`
+- [ ] **Residual:** no full ratarmountcore solid/folder parser; no stream-flatten / py7zr folder walk; outer cache is CLI-only (no stream-repack); real FUSE CI deferred; full engine convert still needs `7z` on PATH; cache hits without sidecar still lack duration until a repopulate writes metadata
 
 ### 5.3 ZIP → non-solid 7z repack
 
@@ -260,6 +262,7 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] Quarantine TTL + max bytes prune — `PruneQuarantine`
 - [x] Admin purge immediate — `PurgeArchive` (control plane still wires confirm/require_yes later)
 - [x] Reappear before grace: clear `removed_at`, keep overlay — scanner `Reappear`; cleaner only targets still-`absent` past grace (documented in `doc.go`)
+- [x] Outer nonsolid cache hygiene — `PruneNonsolidCache` in `Run`: always partials/work; stale locks when `.7z` missing (flock skip if busy); age-prune orphaned `{key}.7z` + sidecar using **`cleanup_after`** (no separate key); path-safe under `convert_7z_cache_dir`
 
 ### 6.3 Hooks
 

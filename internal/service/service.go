@@ -161,8 +161,16 @@ func New(cfg *config.Config, opts *Options) (*Service, error) {
 	cl.LivePaths = func() []string {
 		var out []string
 		for _, m := range eng.Live.Snapshot() {
-			if m != nil && m.Request.MountPath != "" {
+			if m == nil {
+				continue
+			}
+			// Mount dirs (stale mount cleanup) and archive/cache paths
+			// (outer nonsolid age prune must not drop a live source).
+			if m.Request.MountPath != "" {
 				out = append(out, m.Request.MountPath)
+			}
+			if m.Request.ArchivePath != "" {
+				out = append(out, m.Request.ArchivePath)
 			}
 		}
 		return out

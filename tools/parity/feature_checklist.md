@@ -31,7 +31,7 @@ _Last reviewed: 2026-08-01 (post v0.1.1 packaging truth-up)._
 | Area | Status | Notes |
 |------|--------|-------|
 | Convert: archiveconverter | **done** | Engine `PollConvert` / async jobs |
-| Convert: built-in 7z nonsolid / flatten | **partial** | Predicates + runners + CLI encrypted detect + outer cache populate; no stream-flatten / full solid-folder parse |
+| Convert: built-in 7z nonsolid / flatten | **partial** | Predicates + runners + CLI encrypted detect + outer cache populate (fail-closed list, size floor, flock); no stream-flatten / full solid-folder parse |
 | Convert: zip→7z repack | **partial** | Library + runners; verify under real archives |
 | Doctor | **done** | Offline CLI + `GET /api/doctor` |
 | WSL UNC hint | **done** | API + SPA |
