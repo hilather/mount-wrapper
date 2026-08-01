@@ -395,6 +395,7 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
   - [x] `GET /api/metrics`
   - [x] `GET /api/config` / `POST /api/config` (`config|patch`, `apply`, dry-run via apply:false)
   - [x] `POST /api/rescan` / `unmount` / `retry` / `purge`
+  - [x] `GET /api/hooks` (list / status) + `POST /api/hooks` (`hooks_run`, `force?`)
   - [x] `GET /api/doctor` (in-process; no socket required)
   - [x] `GET /api/wsl-info` (UNC hint from `WSL_DISTRO_NAME`)
 - [x] **SSE stream** `GET /api/events` (D8 preferred; WebSocket only if needed):
@@ -454,7 +455,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 - [x] Windows UNC mount hint when WSL (`/api/wsl-info`)
 - [x] Confirm destructive actions (purge, unmount all, overlay_cleanup=delete elsewhere)
 - [x] Optional: row expand / raw JSON details (upstream has “Show raw JSON”)
-- [x] Optional: per-archive hooks detail (`hooks status`) drawer (`GET /api/hooks?archive_id=`, SPA drawer)
+- [x] Optional: per-archive hooks detail (`hooks status`) drawer (`GET /api/hooks?archive_id=`, SPA drawer; **Re-run** / **Force re-run** via `POST /api/hooks`)
 
 ### 10.3 Settings page
 
@@ -739,7 +740,7 @@ Mirror upstream `Config` + public snapshot. Mark each key implemented in Go + ex
 - [x] SSE connection lifecycle UI
 - [x] Store-driven re-render without full table wipe
 - [x] Pending/disabled actions during requests
-- [x] Optional hooks detail drawer (`GET /api/hooks?archive_id=`, focus trap / Escape)
+- [x] Optional hooks detail drawer (`GET /api/hooks?archive_id=`, focus trap / Escape; Re-run / Force re-run)
 - [~] Optional typed API client — **done as hand-written** `web/src/lib/api-types.ts` re-export + `types.ts` / `api.ts` (D11); **not** OpenAPI codegen (residual — keep open)
 - [x] Optional Playwright E2E smoke — mocked API shell (`Archives` heading + connection badge) + Settings groups / Validate dry-run / Apply (`web/e2e/settings.spec.ts`); vitest still covers format/SSE/hooks helpers
 

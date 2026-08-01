@@ -11,6 +11,7 @@ import type {
   DoctorReport,
   HealthPayload,
   HooksListResponse,
+  HooksRunResponse,
   HooksStatusResponse,
   RescanResponse,
   WSLInfo,
@@ -130,6 +131,20 @@ export function getHooksStatus(archiveId: string): Promise<HooksStatusResponse> 
 /** Discovered hooks.d scripts (control op hooks_list). */
 export function getHooksList(): Promise<HooksListResponse> {
   return fetchJson<HooksListResponse>('/api/hooks')
+}
+
+/** Run / re-run first-mount hooks (control op hooks_run). */
+export function postHooksRun(
+  archiveId: string,
+  opts?: { force?: boolean },
+): Promise<HooksRunResponse> {
+  return fetchJson<HooksRunResponse>('/api/hooks', {
+    method: 'POST',
+    body: JSON.stringify({
+      archive_id: archiveId,
+      force: !!opts?.force,
+    }),
+  })
 }
 
 /** URL for EventSource; appends ?token= when configured (EventSource cannot set headers). */

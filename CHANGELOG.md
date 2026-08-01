@@ -9,17 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- CLI **`stop`**: control op `stop` for graceful serve shutdown (SIGTERM
+  equivalent). Default stdout `stop scheduled`; **`--json`** prints the control
+  ack (e.g. `{"stop":"scheduled"}`). Flags: `--config` / `--socket`.
 - CLI **`reload --json`**: machine-readable control ack (e.g. `{"reload":"scheduled"}`);
   default remains the human line `reload scheduled`.
 - Control op **`hooks_run`** (`archive_id`, optional `force`) + CLI
   **`hooks rerun ARCHIVE_ID [--force] [--json]`** to re-run first-mount hooks
   under `opMu` (eligibility matches `RunForArchive` / `ShouldRunHooks`;
   `--force` bypasses terminal success/failed).
+- HTTP **`POST /api/hooks`** `{archive_id, force?}` → control `hooks_run`; SPA
+  Hooks drawer **Re-run** / **Force re-run** (confirm on force) with toast +
+  refresh. OpenAPI `HooksRunRequest` / `HooksRunResponse`.
 
 ### Changed
 
 - SPA connection badge labels: **`live (SSE)`** when SSE is open, **`poll (SSE down)`**
   when poll-only; clearer tooltips and `aria-live="polite"` on the badge.
+
+### Fixed
+
+- Service `ControlActive` / `InotifyActive` read `s.control` / `s.inotify` under
+  `opMu` (same lock `Shutdown` uses when nilling them); race test concurrent
+  with `Shutdown` under `-race`.
 
 ## [0.1.4] - 2026-08-01
 

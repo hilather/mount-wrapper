@@ -218,15 +218,15 @@ Lifecycle must be `mounted` or `hooks_running` (other statuses → control `BAD_
 
 **Ops (via `HandleRequest`):** `status` (`include_sizes?`), `metrics`, `config_get`, `config_set`, `rescan`, `retry`, `mount`, `unmount`, `purge`, `hooks_list`, `hooks_status`, `hooks_run` (`archive_id`, `force?`), `reload`, `stop`.
 
-**Concurrency (`opMu`):** `Tick`, external `HandleRequest` (HTTP / in-process), `ConfigSnapshot`, and most of `Shutdown` share a dedicated op mutex so Config / engine / scanner rematerialization cannot race concurrent control ops or teardown. `Tick` holds `opMu` for the whole cycle, including `ServeReady`. Control connections therefore call `handleRequestLocked` (already under `opMu`) — registering full `HandleRequest` as the control Handler would deadlock on re-lock. `s.mu` remains a short flag/state lock (`stop`, `reloadRequested`, scan timestamps, `lowDisk`).
+**Concurrency (`opMu`):** `Tick`, external `HandleRequest` (HTTP / in-process), `ConfigSnapshot`, `ControlActive` / `InotifyActive`, and most of `Shutdown` share a dedicated op mutex so Config / engine / scanner rematerialization cannot race concurrent control ops or teardown. `Tick` holds `opMu` for the whole cycle, including `ServeReady`. Control connections therefore call `handleRequestLocked` (already under `opMu`) — registering full `HandleRequest` as the control Handler would deadlock on re-lock. `s.mu` remains a short flag/state lock (`stop`, `reloadRequested`, scan timestamps, `lowDisk`, `web` pointer for `WebAddr`).
 
 **Lock order (daemon):**
 
 | Step | Lock | Notes |
 |------|------|--------|
-| `Stop` / `RequestReload` / `RequestRescan` / scan timestamps | `s.mu` only | Never take `opMu` while holding `s.mu` in reverse order for long work |
-| `Tick` / `HandleRequest` / `ConfigSnapshot` | `opMu` (then brief `s.mu` inside) | Control path uses `handleRequestLocked` (no re-lock) |
-| `Shutdown` | (1) `Stop` via `s.mu` (2) **HTTP `Close` without `opMu`** (3) `opMu` for control / inotify / unmount / store / pidfile | HTTP handlers call `HandleRequest` / `ConfigSnapshot` and need `opMu`; holding `opMu` across `web.Close` deadlocks. Control op `stop` only sets the flag under `opMu` — `Run` exits then defers `Shutdown` (does not re-enter `Shutdown` while holding `opMu`). |
+| `Stop` / `RequestReload` / `RequestRescan` / scan timestamps / `WebAddr` (`s.web`) | `s.mu` only | Never take `opMu` while holding `s.mu` in reverse order for long work |
+| `Tick` / `HandleRequest` / `ConfigSnapshot` / `ControlActive` / `InotifyActive` | `opMu` (then brief `s.mu` inside for flags) | Control path uses `handleRequestLocked` (no re-lock). `s.control` / `s.inotify` are nil'd under `opMu` — follow those pointers only while holding `opMu` |
+| `Shutdown` | (1) `Stop` via `s.mu` (2) **HTTP `Close` without `opMu`** (swap `s.web` under `s.mu`) (3) `opMu` for control / inotify / unmount / store / pidfile | HTTP handlers call `HandleRequest` / `ConfigSnapshot` and need `opMu`; holding `opMu` across `web.Close` deadlocks. Control op `stop` only sets the flag under `opMu` — `Run` exits then defers `Shutdown` (does not re-enter `Shutdown` while holding `opMu`). |
 
 **Config readers:** `APIBackend.Config()` returns `Service.ConfigSnapshot()` — a deep `config.Clone` under `opMu` — so health / doctor / wsl-info do not race `doReload` / `config_set` mutating the live `*Config` in place.
 
@@ -237,7 +237,7 @@ Lifecycle must be `mounted` or `hooks_running` (other statuses → control `BAD_
 | `internal/service` | Daemon lifecycle: pidfile flock, service dirs, boot remount, control socket, inotify hint, signal stop/reload, `Tick` + `HandleRequest` serialized by `opMu`, status payload via `internal/status`; on reload: re-apply `log_level` (env override), rematerialize scanner sources, restart/stop inotify when `use_inotify` / `source_dirs` change |
 | `internal/doctor` | Offline environment diagnostics: host/WSL/FUSE/unmount tool, `user_allow_other`, Go + ratarmount(-rs) + archiveconverter + 7z bins, service paths/source dirs, index DrvFs layout, free-space, peercred/control socket notes, **`web_bind_security`** (non-loopback + empty `web_token` → warn), **`windows_visible_parent_ox`** (Linux: mount_root ancestors lack o+x when `windows_visible` → warn + `chmod o+x` hint), **`convert_cache_dir`** / archiveconverter output writability when convert features are on, Darwin **`control_socket_path_length`** (~100-byte sun_path warn), systemd PID1 + drop-in generation, service-user messaging |
 
-**CLI:** `mount-wrapper serve [--config] [--once] [--allow-unauth]` plus socket-backed ops (Phase 7.2), including `reload`.
+**CLI:** `mount-wrapper serve [--config] [--once] [--allow-unauth]` plus socket-backed ops (Phase 7.2), including `reload` and `stop`.
 
 #### Hot reload vs restart (serve)
 
@@ -294,6 +294,7 @@ Control op `reload` / SIGHUP schedules `doReload` on the next tick. `config_set`
 | GET/POST | `/api/config` | get snapshot; set `config`/`patch` + `apply` |
 | POST | `/api/rescan`, `/unmount`, `/retry`, `/purge` | control ops; purge / unmount-all / rescan rate-limited |
 | GET | `/api/hooks` | no `archive_id` → control `hooks_list`; `?archive_id=` → `hooks_status` |
+| POST | `/api/hooks` | body `{archive_id, force?}` → control `hooks_run` (not rate-limited) |
 | GET | `/api/doctor` | in-process `doctor.Run` |
 | GET | `/api/wsl-info` | UNC hint from `WSL_DISTRO_NAME` |
 | GET | `/api/events` | SSE deltas (see below) |

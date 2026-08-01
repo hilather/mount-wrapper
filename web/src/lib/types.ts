@@ -245,6 +245,27 @@ export interface HooksListResponse {
   hooks?: Array<{ name?: string; path?: string }>
 }
 
+/** Per-hook result row from POST /api/hooks (control hooks_run). */
+export interface HooksRunResultRow {
+  hook_name?: string
+  status?: string
+  attempts?: number
+  exit_code?: number | null
+  error?: string
+  timed_out?: boolean
+  duration_ms?: number
+}
+
+/** Response for POST /api/hooks (control hooks_run). */
+export interface HooksRunResponse {
+  archive_id: string
+  ran: boolean
+  hooks_status?: string
+  force?: boolean
+  skipped_reason?: string
+  results?: HooksRunResultRow[]
+}
+
 export type SortKey =
   | 'name'
   | 'status'

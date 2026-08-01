@@ -731,6 +731,60 @@ func TestConcurrentHandleRequestAndShutdown(t *testing.T) {
 	svc.Shutdown()
 }
 
+// TestConcurrentControlActiveAndShutdown races ControlActive / InotifyActive
+// with Shutdown under -race. Both helpers must read s.control / s.inotify under
+// opMu (Shutdown nils those fields under opMu, not only s.mu).
+func TestConcurrentControlActiveAndShutdown(t *testing.T) {
+	svc, _ := testService(t)
+	sock := testutil.ShortUnixSocketPath(t, "ctrl-act.sock")
+	svc.Config.ControlSocket = sock
+	svc.AllowAllAuth = true
+	// Prefer inotify on when the platform can open a watcher (Linux non-DrvFs).
+	svc.Config.UseInotify = true
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.ControlActive() {
+		t.Fatal("control socket should be active after Start")
+	}
+
+	const N = 200
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < N; i++ {
+			_ = svc.ControlActive()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < N; i++ {
+			_ = svc.InotifyActive()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		time.Sleep(2 * time.Millisecond)
+		svc.Shutdown()
+	}()
+	close(start)
+	wg.Wait()
+
+	if svc.ControlActive() {
+		t.Fatal("control should be inactive after Shutdown")
+	}
+	if svc.InotifyActive() {
+		t.Fatal("inotify should be inactive after Shutdown")
+	}
+	// Second Shutdown (also exercised by t.Cleanup) must be idempotent.
+	svc.Shutdown()
+}
+
 // TestConcurrentConfigReloadAndConfigSnapshot races doReload (via config_set /
 // scheduled reload+Tick) with ConfigSnapshot / APIBackend.Config readers under
 // -race. Snapshots must not share mutable slices with the live config.

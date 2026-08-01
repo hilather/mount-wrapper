@@ -95,8 +95,10 @@ Exercise the post–v0.1.2 operator polish before filing issues:
 | Surface | How to check |
 |---------|----------------|
 | **CLI `reload`** | With serve running: `mount-wrapper reload --config …` → prints `reload scheduled` (exit 0). With `--json` → parseable control ack `{"reload":"scheduled"}`. Or `kill -HUP $(pidof mount-wrapper)`. |
+| **CLI `stop`** | With serve running: `mount-wrapper stop --config …` → prints `stop scheduled` (exit 0); serve exits and runs Shutdown. With `--json` → `{"stop":"scheduled"}`. Or `kill -TERM $(pidof mount-wrapper)`. |
 | **`log_level` hot-reload** | Set `log_level: DEBUG` in config YAML, `reload`, confirm slog verbosity changes without process restart. Env `MOUNT_WRAPPER_LOG_LEVEL` still overrides while set. |
 | **CLI `hooks rerun`** | On a **mounted** archive with terminal `hooks_status=success`: `mount-wrapper hooks rerun ARCHIVE_ID` → human `hooks skipped …` (exit 0). Then `… --force` (or `--json`) → `hooks ran … hooks_status=success` (or JSON `ran:true`). Failed status without `hook_rerun_on_failure` also skips unless `--force`. |
+| **SPA hooks force re-run** | Open Archives → row **Hooks** drawer. **Re-run** on terminal success → toast `Hooks skipped` (no force). **Force re-run** → confirm → toast `Hooks ran` (or API error). Same as `POST /api/hooks` `{archive_id, force}`. |
 | **SSE deltas** | Web UI open with badge **`live (SSE)`**: change one archive status (rescan / unmount single row) and confirm Archives table patches that row without a full wipe/flash; badge stays `live (SSE)`. Stop/block `/api/events` briefly and confirm badge moves to **`reconnecting`** / **`poll (SSE down)`** while data still refreshes via poll. |
 | **Nested skip (remount if known)** | Mount an outer archive that triggers nested automount skips. Confirm chip/summary on **mounted** status. If the archive is already known/mounted, **unmount + remount** (or restart serve with boot remount) and confirm skip advisory still appears after remount/hooks success. |
 

@@ -173,6 +173,21 @@ Default stdout is the human line
 .B \-\-json
 prints the control ack as machine-readable JSON (for example
 .BR {"reload":"scheduled"} ).
+.TP
+.B stop
+Request graceful
+.B serve
+shutdown (control
+.B stop
+op / SIGTERM equivalent). Sets the stop flag; the serve loop exits and runs
+.BR Shutdown
+(unmounts, closes sockets). Requires a running
+.BR serve .
+Default stdout is the human line
+.BR "stop scheduled" ;
+.B \-\-json
+prints the control ack as machine-readable JSON (for example
+.BR {"stop":"scheduled"} ).
 .SH COMMON OPTIONS
 .TP
 .BR \-c ", " \-\-config " " \fIPATH\fR

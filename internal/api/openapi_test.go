@@ -99,6 +99,8 @@ func TestOpenAPIDocument(t *testing.T) {
 		"DoctorCheck",
 		"HooksListResponse",
 		"HooksStatusResponse",
+		"HooksRunRequest",
+		"HooksRunResponse",
 		"HookRow",
 		"WSLInfo",
 		"Counts",

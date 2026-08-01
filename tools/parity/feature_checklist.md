@@ -37,7 +37,7 @@ _Last reviewed: 2026-08-01 (post v0.1.1 packaging truth-up)._
 | WSL UNC hint | **done** | API + SPA |
 | Rocky 8 install path | **done** | Documented + rocky CI smoke; optional musl path (`build-musl` / `package-musl`); release attaches `*_musl.tar.gz` (D7) |
 | macOS macFUSE | **partial** | Platform code + docs; friend-test residual |
-| SPA hooks detail drawer | **done** | `HooksDrawer` + `GET /api/hooks` |
+| SPA hooks detail drawer | **done** | `HooksDrawer` + `GET /api/hooks` + `POST /api/hooks` re-run/force |
 | Real FUSE integration tests | **deferred** | Unit suite offline; optional build-tag later |
 | Prometheus metrics | **done** | `GET /metrics` text exposition; loopback open scrape |
 | Dual install with Python package | **n/a** | Soft replace (D13); see migration guide |

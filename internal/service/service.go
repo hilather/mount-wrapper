@@ -61,9 +61,11 @@ type Service struct {
 	Clock func() float64
 
 	// opMu serializes Tick, external HandleRequest (HTTP / direct callers),
-	// ConfigSnapshot, and Shutdown teardown (after HTTP close). Control-plane
-	// ServeReady runs only under Tick while opMu is held, so the control
-	// Handler is handleRequestLocked (no re-lock) to avoid deadlock.
+	// ConfigSnapshot, ControlActive / InotifyActive, and Shutdown teardown
+	// (after HTTP close). Control-plane ServeReady runs only under Tick while
+	// opMu is held, so the control Handler is handleRequestLocked (no re-lock)
+	// to avoid deadlock. s.control and s.inotify are nil'd under opMu — readers
+	// must take opMu (not only s.mu) before following those pointers.
 	opMu sync.Mutex
 
 	mu                sync.Mutex
@@ -509,8 +511,15 @@ func (s *Service) syncInotify() {
 }
 
 // InotifyActive reports whether an inotify watcher is currently open (tests).
+// Reads s.inotify under opMu so concurrent Shutdown / doReload syncInotify
+// cannot race the pointer nil or Close.
 func (s *Service) InotifyActive() bool {
-	if s == nil || s.inotify == nil {
+	if s == nil {
+		return false
+	}
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	if s.inotify == nil {
 		return false
 	}
 	return s.inotify.Active()
@@ -600,8 +609,14 @@ func (s *Service) ConfigSnapshot() *config.Config {
 }
 
 // ControlActive reports whether the Unix control socket is listening.
+// Reads s.control under opMu so concurrent Shutdown cannot race the nil write.
 func (s *Service) ControlActive() bool {
-	if s == nil || s.control == nil {
+	if s == nil {
+		return false
+	}
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	if s.control == nil {
 		return false
 	}
 	return s.control.Active()

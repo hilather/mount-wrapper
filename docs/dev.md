@@ -45,6 +45,9 @@ make build
 # ./bin/mount-wrapper reload --config …           # human: reload scheduled
 # ./bin/mount-wrapper reload --config … --json    # machine: {"reload":"scheduled"}
 # or SIGHUP; applies log_level + hot keys
+# ./bin/mount-wrapper stop --config …             # human: stop scheduled (graceful shutdown)
+# ./bin/mount-wrapper stop --config … --json      # machine: {"stop":"scheduled"}
+# or SIGTERM; serve exits and runs Shutdown
 
 # Serve one tick (loads config, opens state DB, scan/reconcile/work once, exits)
 # Use a writable debug config with source_dirs / state_db under /tmp or a project path.
@@ -88,7 +91,8 @@ make build
        (`web/e2e/smoke.spec.ts`)
      - Archives table + actions: non-empty mounted/`mount_failed` rows; Retry /
        Unmount / Purge / Rescan / Unmount-all POSTs + confirm + toasts;
-       nested automount skip chip + subtitle / enriched failed `last_error`
+       nested automount skip chip + subtitle / enriched failed `last_error`;
+       Hooks drawer Re-run / Force re-run → `POST /api/hooks`
        (`web/e2e/archives.spec.ts`)
      - Doctor panel: `GET /api/doctor` → check names (`web/e2e/doctor.spec.ts`)
      - Settings: `GET`/`POST /api/config` → Sources/Paths groups, Validate dry-run,

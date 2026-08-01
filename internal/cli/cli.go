@@ -62,6 +62,8 @@ func RunWithIO(args []string, info BuildInfo, stdout, stderr io.Writer) int {
 		return runHooks(args[1:], stdout, stderr)
 	case "reload":
 		return runReload(args[1:], stdout, stderr)
+	case "stop":
+		return runStop(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
 		printUsage(stderr)
@@ -138,6 +140,7 @@ Commands:
   purge ARCHIVE_ID     Purge state/index/overlay (requires --yes; serve)
   hooks list|status|rerun  Inspect or re-run first-mount hooks (serve)
   reload               Reload config from disk (SIGHUP equivalent; serve)
+  stop                 Request graceful serve shutdown (SIGTERM equivalent; serve)
 
 Common flags:
   --config, -c PATH    Config YAML (default: %s)
@@ -166,6 +169,9 @@ status flags:
 
 reload flags:
   --json               Machine-readable JSON (control ack, e.g. {"reload":"scheduled"})
+
+stop flags:
+  --json               Machine-readable JSON (control ack, e.g. {"stop":"scheduled"})
 
 Socket-backed commands require a running "mount-wrapper serve".
 Offline without serve: version, help, doctor, config show --local, config set --dry-run.

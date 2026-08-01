@@ -143,4 +143,54 @@ test.describe('Archives table + actions (mocked API)', () => {
     await expect(failedRow.locator('.path-sub')).toHaveText(MOCK_FAILED_WITH_NESTED_SKIP_ERROR.last_error)
     await expect(failedRow.locator('.path-sub')).toContainText(/skipped 1 nested mount/)
   })
+
+  test('Hooks drawer re-run and force re-run POST /api/hooks', async ({ page }) => {
+    const posts: ActionPostCall[] = []
+    await mockShellApi(page, {
+      archives: MOCK_ARCHIVE_ROWS,
+      onAction: (call) => posts.push(call),
+    })
+    await page.goto('/')
+
+    const mountedRow = page.locator('table.archives tbody tr').filter({
+      hasText: MOCK_MOUNTED_ARCHIVE.archive_basename,
+    })
+    await expect(mountedRow).toBeVisible()
+    await mountedRow.getByRole('button', { name: /Open hooks detail/i }).click()
+
+    const drawer = page.locator('.hooks-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer.getByRole('heading', { name: /Hooks ·/ })).toBeVisible()
+    await expect(drawer.getByText('notify.sh')).toBeVisible()
+
+    // Plain re-run → force false; mock skips terminal success.
+    // Accessible name is aria-label (exact match avoids "Force re-run…").
+    await drawer
+      .getByRole('button', { name: 'Re-run hooks for this archive', exact: true })
+      .click()
+    await expect
+      .poll(() => posts.some((p) => p.path === '/api/hooks' && p.body.force === false))
+      .toBe(true)
+    const plain = posts.find((p) => p.path === '/api/hooks' && p.body.force === false)
+    expect(plain?.body).toEqual({
+      archive_id: MOCK_MOUNTED_ARCHIVE.archive_id,
+      force: false,
+    })
+    await expect(page.locator('.toast-stack')).toContainText(/Hooks skipped/i)
+
+    // Force re-run requires confirm.
+    acceptNextDialog(page)
+    await drawer
+      .getByRole('button', { name: 'Force re-run hooks for this archive', exact: true })
+      .click()
+    await expect
+      .poll(() => posts.some((p) => p.path === '/api/hooks' && p.body.force === true))
+      .toBe(true)
+    const forced = posts.find((p) => p.path === '/api/hooks' && p.body.force === true)
+    expect(forced?.body).toEqual({
+      archive_id: MOCK_MOUNTED_ARCHIVE.archive_id,
+      force: true,
+    })
+    await expect(page.locator('.toast-stack')).toContainText(/Hooks ran/i)
+  })
 })

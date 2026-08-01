@@ -305,6 +305,39 @@ func runReload(args []string, stdout, stderr io.Writer) int {
 	return ExitOK
 }
 
+func runStop(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("stop", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var configFlag, socketFlag string
+	addConfigSocketFlags(fs, &configFlag, &socketFlag)
+	jsonOut := fs.Bool("json", false, "machine-readable JSON output")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return ExitOK
+		}
+		return ExitUsage
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "unexpected arguments: %s\n", strings.Join(fs.Args(), " "))
+		return ExitUsage
+	}
+	data, code := requestOK(configFlag, socketFlag, "stop", nil, stderr)
+	if code != ExitOK {
+		return code
+	}
+	if *jsonOut {
+		// Control ack is {"stop":"scheduled"}; dump as machine-readable JSON.
+		if err := printJSON(stdout, data); err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return ExitError
+		}
+		return ExitOK
+	}
+	// Default: human line for operators (other ops dump useful JSON payloads).
+	fmt.Fprintln(stdout, "stop scheduled")
+	return ExitOK
+}
+
 func runHooks(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: mount-wrapper hooks <list|status|rerun> …")

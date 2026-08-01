@@ -29,6 +29,9 @@ unmount
 purge
 hooks list
 hooks status
+hooks rerun
+reload
+stop
 EOF
 
 # Prefer live --help if binary exists (catches drift).
@@ -95,6 +98,9 @@ fi
       doctor) note="offline; \`--json\` \`--fix-systemd\`" ;;
       "config show"|"config set") note="local or via serve for apply" ;;
       status|metrics|rescan|retry|mount|unmount|purge|"hooks list"|"hooks status") note="requires running serve (control socket)" ;;
+      "hooks rerun") note="requires running serve; control \`hooks_run\` (\`--force\`, \`--json\`)" ;;
+      reload) note="requires running serve (control socket); SIGHUP equivalent; \`--json\` for control ack" ;;
+      stop) note="requires running serve (control socket); SIGTERM equivalent; \`--json\` for control ack" ;;
       version|help) note="offline" ;;
     esac
     echo "| \`$c\` | $note |"

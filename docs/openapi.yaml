@@ -338,6 +338,34 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+    post:
+      tags: [hooks]
+      summary: Run or force re-run first-mount hooks
+      description: |
+        Control op `hooks_run`. Body requires `archive_id`; optional `force`
+        bypasses terminal success/failed eligibility (same matrix as CLI
+        `hooks rerun --force`). Archive lifecycle must be `mounted` or
+        `hooks_running`. Not rate-limited (operator re-run).
+      security: [{ bearerAuth: [] }, {}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HooksRunRequest"
+      responses:
+        "200":
+          description: Run result (ran or skipped)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HooksRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
 
   /api/doctor:
     get:
@@ -879,6 +907,44 @@ components:
             properties:
               name: { type: string }
               path: { type: string }
+            additionalProperties: true
+      additionalProperties: true
+
+    HooksRunRequest:
+      type: object
+      required: [archive_id]
+      properties:
+        archive_id: { type: string }
+        force:
+          type: boolean
+          default: false
+          description: Bypass terminal success/failed eligibility
+      additionalProperties: true
+
+    HooksRunResponse:
+      type: object
+      required: [archive_id, ran]
+      properties:
+        archive_id: { type: string }
+        ran: { type: boolean }
+        hooks_status: { type: string }
+        force: { type: boolean }
+        skipped_reason:
+          type: string
+          description: Present when ran=false (e.g. terminal success without force)
+        results:
+          type: array
+          description: Per-hook outcomes when a cycle executed
+          items:
+            type: object
+            properties:
+              hook_name: { type: string }
+              status: { type: string }
+              attempts: { type: integer }
+              exit_code: { type: integer, nullable: true }
+              error: { type: string }
+              timed_out: { type: boolean }
+              duration_ms: { type: integer }
             additionalProperties: true
       additionalProperties: true
 

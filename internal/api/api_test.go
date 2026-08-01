@@ -116,6 +116,39 @@ func (f *fakeBackend) HandleRequest(req map[string]any) map[string]any {
 				},
 			},
 		}}
+	case "hooks_run":
+		id, _ := req["archive_id"].(string)
+		if id == "" {
+			return map[string]any{"ok": false, "error": "archive_id required", "code": "BAD_REQUEST"}
+		}
+		if id == "missing" {
+			return map[string]any{"ok": false, "error": "archive not found", "code": "NOT_FOUND"}
+		}
+		force, _ := req["force"].(bool)
+		// Terminal success without force → skipped (mirrors RunForArchive eligibility).
+		if id == "already-done" && !force {
+			return map[string]any{"ok": true, "data": map[string]any{
+				"archive_id":     id,
+				"ran":            false,
+				"hooks_status":   "success",
+				"force":          false,
+				"skipped_reason": "hooks_status is success",
+			}}
+		}
+		return map[string]any{"ok": true, "data": map[string]any{
+			"archive_id":   id,
+			"ran":          true,
+			"hooks_status": "success",
+			"force":        force,
+			"results": []any{
+				map[string]any{
+					"hook_name": "notify.sh",
+					"status":    "success",
+					"attempts":  1,
+					"exit_code": 0,
+				},
+			},
+		}}
 	default:
 		return map[string]any{"ok": false, "error": "unknown op", "code": "BAD_REQUEST"}
 	}
@@ -443,14 +476,19 @@ func TestHooksListAndStatus(t *testing.T) {
 		t.Fatalf("missing archive status=%d want 404", res3.StatusCode)
 	}
 
-	// Method not allowed
-	res4, err := http.Post(ts.URL+"/api/hooks?archive_id=x", "application/json", strings.NewReader(`{}`))
+	// Method not allowed (PUT)
+	reqPut, err := http.NewRequest(http.MethodPut, ts.URL+"/api/hooks", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqPut.Header.Set("Content-Type", "application/json")
+	res4, err := http.DefaultClient.Do(reqPut)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer res4.Body.Close()
 	if res4.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("POST hooks status=%d want 405", res4.StatusCode)
+		t.Fatalf("PUT hooks status=%d want 405", res4.StatusCode)
 	}
 
 	be.mu.Lock()
@@ -464,6 +502,118 @@ func TestHooksListAndStatus(t *testing.T) {
 	}
 	if !wantOps["hooks_list"] || !wantOps["hooks_status"] {
 		t.Fatalf("expected hooks_list and hooks_status ops, got %v", ops)
+	}
+}
+
+func TestHooksRunPOST(t *testing.T) {
+	be := &fakeBackend{version: "v"}
+	srv := newTestServer(t, "", be)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	// Missing archive_id → 400
+	res, err := http.Post(ts.URL+"/api/hooks", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty body status=%d want 400", res.StatusCode)
+	}
+
+	// Run without force (eligible archive)
+	res2, err := http.Post(ts.URL+"/api/hooks", "application/json",
+		strings.NewReader(`{"archive_id":"abc123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("hooks run status=%d", res2.StatusCode)
+	}
+	var runBody map[string]any
+	if err := json.NewDecoder(res2.Body).Decode(&runBody); err != nil {
+		t.Fatal(err)
+	}
+	if runBody["archive_id"] != "abc123" {
+		t.Fatalf("archive_id=%v", runBody["archive_id"])
+	}
+	if runBody["ran"] != true {
+		t.Fatalf("ran=%v want true", runBody["ran"])
+	}
+	if runBody["force"] != false {
+		t.Fatalf("force=%v want false", runBody["force"])
+	}
+	if runBody["hooks_status"] != "success" {
+		t.Fatalf("hooks_status=%v", runBody["hooks_status"])
+	}
+
+	// Terminal success without force → skipped
+	res3, err := http.Post(ts.URL+"/api/hooks", "application/json",
+		strings.NewReader(`{"archive_id":"already-done"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res3.Body.Close()
+	if res3.StatusCode != http.StatusOK {
+		t.Fatalf("skip status=%d", res3.StatusCode)
+	}
+	var skipBody map[string]any
+	if err := json.NewDecoder(res3.Body).Decode(&skipBody); err != nil {
+		t.Fatal(err)
+	}
+	if skipBody["ran"] != false {
+		t.Fatalf("ran=%v want false", skipBody["ran"])
+	}
+	if skipBody["skipped_reason"] == nil || skipBody["skipped_reason"] == "" {
+		t.Fatalf("skipped_reason missing: %v", skipBody)
+	}
+
+	// Force re-run on terminal success
+	res4, err := http.Post(ts.URL+"/api/hooks", "application/json",
+		strings.NewReader(`{"archive_id":"already-done","force":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res4.Body.Close()
+	if res4.StatusCode != http.StatusOK {
+		t.Fatalf("force run status=%d", res4.StatusCode)
+	}
+	var forceBody map[string]any
+	if err := json.NewDecoder(res4.Body).Decode(&forceBody); err != nil {
+		t.Fatal(err)
+	}
+	if forceBody["ran"] != true {
+		t.Fatalf("force ran=%v want true", forceBody["ran"])
+	}
+	if forceBody["force"] != true {
+		t.Fatalf("force=%v want true", forceBody["force"])
+	}
+
+	// Missing archive → 404
+	res5, err := http.Post(ts.URL+"/api/hooks", "application/json",
+		strings.NewReader(`{"archive_id":"missing"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res5.Body.Close()
+	if res5.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing archive status=%d want 404", res5.StatusCode)
+	}
+
+	be.mu.Lock()
+	ops := append([]string(nil), be.ops...)
+	be.mu.Unlock()
+	// empty body fails before HandleRequest; four posts call hooks_run
+	// (abc123, already-done skip, already-done force, missing).
+	hooksRunCount := 0
+	for _, op := range ops {
+		if op == "hooks_run" {
+			hooksRunCount++
+		}
+	}
+	if hooksRunCount < 4 {
+		t.Fatalf("expected >=4 hooks_run ops, got %d ops=%v", hooksRunCount, ops)
 	}
 }
 

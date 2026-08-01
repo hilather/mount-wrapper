@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { getHooksStatus } from '../lib/api'
+  import { getHooksStatus, postHooksRun } from '../lib/api'
   import {
     formatHookRowSummary,
     getFocusableElements,
     hookStatusTone,
     sortHookRows,
   } from '../lib/hooks'
-  import type { HooksStatusResponse } from '../lib/types'
+  import { app } from '../lib/stores/app.svelte'
+  import type { HooksRunResponse, HooksStatusResponse } from '../lib/types'
 
   interface Props {
     /** Archive id to load; null/empty closes. */
@@ -30,6 +31,9 @@
     archiveName ? `Hooks · ${archiveName}` : archiveId ? `Hooks · ${archiveId}` : 'Hooks',
   )
   const rows = $derived(sortHookRows(data?.hooks))
+  const runPending = $derived(
+    !!(archiveId && (app.isPending(`hooks_run:${archiveId}`) || app.isPending(`hooks_run_force:${archiveId}`))),
+  )
 
   $effect(() => {
     if (!open || !archiveId) {
@@ -109,6 +113,48 @@
     }
   }
 
+  function toastHooksRun(result: HooksRunResponse) {
+    const id = result.archive_id
+    const status = result.hooks_status ?? '?'
+    const forceNote = result.force ? ' · force' : ''
+    if (result.ran) {
+      app.toast('ok', `Hooks ran · ${id} · hooks_status=${status}${forceNote}`)
+    } else {
+      const reason = result.skipped_reason ? ` (${result.skipped_reason})` : ''
+      app.toast('warn', `Hooks skipped · ${id} · hooks_status=${status}${forceNote}${reason}`)
+    }
+  }
+
+  async function onRerun(force: boolean) {
+    if (!archiveId) return
+    if (force) {
+      if (
+        !window.confirm(
+          `Force re-run hooks for "${archiveName || archiveId}"?\n\n` +
+            'Bypasses terminal success/failed eligibility. Per-hook rows already ' +
+            'success/skipped may still be skipped (resume semantics).',
+        )
+      ) {
+        return
+      }
+    }
+    const key = force ? `hooks_run_force:${archiveId}` : `hooks_run:${archiveId}`
+    if (app.isPending(key) || app.isPending(`hooks_run:${archiveId}`) || app.isPending(`hooks_run_force:${archiveId}`)) {
+      return
+    }
+    app.setPending(key, true)
+    try {
+      const result = await postHooksRun(archiveId, { force })
+      toastHooksRun(result)
+      await load(archiveId)
+      await app.refreshArchives({ quiet: true })
+    } catch (e) {
+      app.toast('err', `Hooks re-run failed: ${(e as Error).message || e}`)
+    } finally {
+      app.setPending(key, false)
+    }
+  }
+
   function close() {
     onclose?.()
   }
@@ -139,7 +185,27 @@
           <button
             type="button"
             class="secondary tiny"
-            disabled={loading || !archiveId}
+            disabled={loading || runPending || !archiveId}
+            onclick={() => archiveId && void onRerun(false)}
+            aria-label="Re-run hooks for this archive"
+            title="Run hooks if eligible (skips terminal success without force)"
+          >
+            Re-run
+          </button>
+          <button
+            type="button"
+            class="secondary tiny"
+            disabled={loading || runPending || !archiveId}
+            onclick={() => archiveId && void onRerun(true)}
+            aria-label="Force re-run hooks for this archive"
+            title="Force re-run (bypass terminal success/failed eligibility)"
+          >
+            Force re-run
+          </button>
+          <button
+            type="button"
+            class="secondary tiny"
+            disabled={loading || runPending || !archiveId}
             onclick={() => archiveId && load(archiveId)}
             aria-label="Refresh hooks status"
           >

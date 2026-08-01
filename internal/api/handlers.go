@@ -311,23 +311,42 @@ func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHooks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed", "code": "BAD_REQUEST"})
-		return
-	}
-	// Per-archive hooks status (control op hooks_status). Optional list of
-	// discovered hooks.d scripts when archive_id is omitted (hooks_list).
-	id := strings.TrimSpace(r.URL.Query().Get("archive_id"))
-	if id == "" {
-		status, body := unwrapControl(s.backend.HandleRequest(map[string]any{"op": "hooks_list"}))
+	switch r.Method {
+	case http.MethodGet:
+		// Per-archive hooks status (control op hooks_status). Optional list of
+		// discovered hooks.d scripts when archive_id is omitted (hooks_list).
+		id := strings.TrimSpace(r.URL.Query().Get("archive_id"))
+		if id == "" {
+			status, body := unwrapControl(s.backend.HandleRequest(map[string]any{"op": "hooks_list"}))
+			writeJSON(w, status, body)
+			return
+		}
+		status, body := unwrapControl(s.backend.HandleRequest(map[string]any{
+			"op":         "hooks_status",
+			"archive_id": id,
+		}))
 		writeJSON(w, status, body)
-		return
+	case http.MethodPost:
+		// Run / re-run first-mount hooks (control op hooks_run).
+		body, code, errMsg := readJSONObject(w, r, 2_000_000)
+		if code != 0 {
+			writeJSON(w, code, map[string]any{"error": errMsg, "code": "BAD_REQUEST"})
+			return
+		}
+		id := asString(body["archive_id"])
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "archive_id required", "code": "BAD_REQUEST"})
+			return
+		}
+		status, out := unwrapControl(s.backend.HandleRequest(map[string]any{
+			"op":         "hooks_run",
+			"archive_id": id,
+			"force":      asBool(body["force"], false),
+		}))
+		writeJSON(w, status, out)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed", "code": "BAD_REQUEST"})
 	}
-	status, body := unwrapControl(s.backend.HandleRequest(map[string]any{
-		"op":         "hooks_status",
-		"archive_id": id,
-	}))
-	writeJSON(w, status, body)
 }
 
 func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {

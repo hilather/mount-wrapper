@@ -337,6 +337,72 @@ export async function mockShellApi(page: Page, opts?: ShellApiOptions) {
     await json(route, doctor)
   })
 
+  // GET /api/hooks — list or per-archive status; POST — hooks_run.
+  await page.route('**/api/hooks**', async (route) => {
+    const method = route.request().method()
+    if (method === 'GET') {
+      const url = new URL(route.request().url())
+      const archiveId = url.searchParams.get('archive_id')
+      if (!archiveId) {
+        await json(route, {
+          hooks: [{ name: 'notify.sh', path: '/tmp/mount-wrapper/hooks.d/notify.sh' }],
+        })
+        return
+      }
+      await json(route, {
+        archive_id: archiveId,
+        hooks_status: 'success',
+        hooks: [
+          {
+            hook_name: 'notify.sh',
+            status: 'success',
+            attempts: 1,
+            last_exit_code: 0,
+            last_error: null,
+          },
+        ],
+      })
+      return
+    }
+    if (method === 'POST') {
+      const body = parsePostBody(route)
+      opts?.onAction?.({ path: '/api/hooks', body })
+      const archiveId = String(body.archive_id || '')
+      const force = !!body.force
+      if (!archiveId) {
+        await json(route, { error: 'archive_id required', code: 'BAD_REQUEST' }, 400)
+        return
+      }
+      // Default mock: force always runs; plain re-run on terminal success skips.
+      if (!force) {
+        await json(route, {
+          archive_id: archiveId,
+          ran: false,
+          hooks_status: 'success',
+          force: false,
+          skipped_reason: 'hooks_status is success',
+        })
+        return
+      }
+      await json(route, {
+        archive_id: archiveId,
+        ran: true,
+        hooks_status: 'success',
+        force: true,
+        results: [
+          {
+            hook_name: 'notify.sh',
+            status: 'success',
+            attempts: 1,
+            exit_code: 0,
+          },
+        ],
+      })
+      return
+    }
+    await route.fallback()
+  })
+
   // Action POSTs used by Archives toolbar / row actions.
   const actionPaths = ['/api/rescan', '/api/unmount', '/api/retry', '/api/purge'] as const
   for (const path of actionPaths) {

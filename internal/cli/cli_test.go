@@ -74,7 +74,7 @@ func TestHelp(t *testing.T) {
 	}
 	for _, cmd := range []string{
 		"serve", "doctor", "config", "status", "metrics", "rescan",
-		"retry", "mount", "unmount", "purge", "hooks", "reload", "version",
+		"retry", "mount", "unmount", "purge", "hooks", "reload", "stop", "version",
 	} {
 		if !strings.Contains(out, cmd) {
 			t.Fatalf("help should list %q: %q", cmd, out)
@@ -446,6 +446,19 @@ func TestReloadPermissionDenied(t *testing.T) {
 	}
 }
 
+func TestStopPermissionDenied(t *testing.T) {
+	sock, cleanup := startAuthDenyControlServer(t)
+	defer cleanup()
+
+	code, _, errBuf := runCLI(t, "stop", "--socket", sock)
+	if code != ExitPermission {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitPermission, code, errBuf)
+	}
+	if !strings.Contains(errBuf, "error:") {
+		t.Fatalf("expected error message, got %q", errBuf)
+	}
+}
+
 func TestStatusServiceUnavailable(t *testing.T) {
 	cfgPath := writeTempConfig(t, "")
 	code, _, errBuf := runCLI(t, "status", "--config", cfgPath)
@@ -485,29 +498,41 @@ func TestReloadServiceUnavailable(t *testing.T) {
 	}
 }
 
-// startReloadOKServer runs a control server that answers op=reload with the
-// standard scheduled ack. Returns socket path and a cleanup func.
-func startReloadOKServer(t *testing.T) (sock string, cleanup func()) {
+func TestStopServiceUnavailable(t *testing.T) {
+	cfgPath := writeTempConfig(t, "")
+	code, _, errBuf := runCLI(t, "stop", "--config", cfgPath)
+	if code != ExitServiceUnavailable {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitServiceUnavailable, code, errBuf)
+	}
+	if !strings.Contains(errBuf, "error:") {
+		t.Fatalf("expected error message, got %q", errBuf)
+	}
+}
+
+// startScheduledOKServer runs a control server that answers the given op with
+// {"<op>":"scheduled"}. Returns socket path and a cleanup func.
+func startScheduledOKServer(t *testing.T, op string) (sock string, cleanup func()) {
 	t.Helper()
-	sock = testutil.ShortUnixSocketPath(t, "cli-reload.sock")
+	sock = testutil.ShortUnixSocketPath(t, "cli-"+op+".sock")
+	wantOp := op
 	srv := control.NewServer(sock, func(req map[string]any) map[string]any {
-		if req["op"] != "reload" {
+		if req["op"] != wantOp {
 			return control.ErrResponse("unexpected op", "ERROR")
 		}
-		return control.OKResponse(map[string]any{"reload": "scheduled"})
+		return control.OKResponse(map[string]any{wantOp: "scheduled"})
 	}, true)
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
 	}
 
-	stop := make(chan struct{})
+	stopCh := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for {
 			select {
-			case <-stop:
+			case <-stopCh:
 				return
 			default:
 				srv.ServeReady()
@@ -519,11 +544,21 @@ func startReloadOKServer(t *testing.T) (sock string, cleanup func()) {
 	time.Sleep(20 * time.Millisecond)
 
 	cleanup = func() {
-		close(stop)
+		close(stopCh)
 		wg.Wait()
 		_ = srv.Close()
 	}
 	return sock, cleanup
+}
+
+// startReloadOKServer runs a control server that answers op=reload with the
+// standard scheduled ack. Returns socket path and a cleanup func.
+func startReloadOKServer(t *testing.T) (sock string, cleanup func()) {
+	return startScheduledOKServer(t, "reload")
+}
+
+func startStopOKServer(t *testing.T) (sock string, cleanup func()) {
+	return startScheduledOKServer(t, "stop")
 }
 
 func TestReloadSuccessHumanMessage(t *testing.T) {
@@ -539,6 +574,22 @@ func TestReloadSuccessHumanMessage(t *testing.T) {
 	}
 	if strings.Contains(out, "{") {
 		t.Fatalf("reload should not dump JSON ack by default: %q", out)
+	}
+}
+
+func TestStopSuccessHumanMessage(t *testing.T) {
+	sock, cleanup := startStopOKServer(t)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "stop", "--socket", sock)
+	if code != ExitOK {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitOK, code, errBuf)
+	}
+	if !strings.Contains(out, "stop scheduled") {
+		t.Fatalf("expected human success line, got %q", out)
+	}
+	if strings.Contains(out, "{") {
+		t.Fatalf("stop should not dump JSON ack by default: %q", out)
 	}
 }
 
@@ -649,6 +700,26 @@ func TestReloadSuccessJSON(t *testing.T) {
 	}
 }
 
+func TestStopSuccessJSON(t *testing.T) {
+	sock, cleanup := startStopOKServer(t)
+	defer cleanup()
+
+	code, out, errBuf := runCLI(t, "stop", "--socket", sock, "--json")
+	if code != ExitOK {
+		t.Fatalf("want exit %d, got %d stderr=%s", ExitOK, code, errBuf)
+	}
+	if strings.Contains(out, "stop scheduled\n") && !strings.Contains(out, "{") {
+		t.Fatalf("expected JSON, got human line: %q", out)
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(out), &data); err != nil {
+		t.Fatalf("stdout not parseable JSON: %v out=%q", err, out)
+	}
+	if data["stop"] != "scheduled" {
+		t.Fatalf("want stop=scheduled, got %v", data)
+	}
+}
+
 func TestUnmountUsage(t *testing.T) {
 	code, _, errBuf := runCLI(t, "unmount")
 	if code != ExitUsage {
@@ -688,6 +759,10 @@ func TestHelpParseTable(t *testing.T) {
 		{[]string{"reload", "--help"}, ExitOK, "socket"},
 		{[]string{"reload", "extra-arg"}, ExitUsage, "unexpected"},
 		{[]string{"reload", "--not-a-flag"}, ExitUsage, ""},
+		{[]string{"stop", "-h"}, ExitOK, "json"},
+		{[]string{"stop", "--help"}, ExitOK, "socket"},
+		{[]string{"stop", "extra-arg"}, ExitUsage, "unexpected"},
+		{[]string{"stop", "--not-a-flag"}, ExitUsage, ""},
 		{[]string{"retry"}, ExitUsage, "ARCHIVE_ID"},
 		{[]string{"mount"}, ExitUsage, "PATH"},
 		{[]string{"unmount", "--all", "x"}, ExitUsage, "--all"},

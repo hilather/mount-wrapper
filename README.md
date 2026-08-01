@@ -45,6 +45,8 @@ make build
 # ./bin/mount-wrapper hooks rerun ARCHIVE_ID --force
 # ./bin/mount-wrapper reload              # human: reload scheduled
 # ./bin/mount-wrapper reload --json       # machine: {"reload":"scheduled"}
+# ./bin/mount-wrapper stop                # human: stop scheduled
+# ./bin/mount-wrapper stop --json         # machine: {"stop":"scheduled"}
 
 # SPA (HMR; proxies /api → :8787 when daemon is up)
 make web-install
@@ -139,7 +141,7 @@ testdata/              fixtures
 
 - `internal/service`: `Start` / `Run` / `Tick` / `Shutdown`, pidfile flock, SIGTERM/SIGINT/SIGHUP, boot remount, scan/reconcile/clean/progress/work/hooks; `NotifyChange` for SSE push wake
 - Control socket bound at start when `control_socket` set; each tick calls `ServeReady`; handler is `HandleRequest`
-- CLI (Phase 7.2): full operator surface — offline `doctor`, `config show --local`, `config set` (dry-run / offline write; socket when serve up); socket-backed `status`, `metrics`, `rescan`, `retry`, `mount`, `unmount`, `purge`, `hooks`, `reload`; `serve`; platform default config path (Linux `/etc/…`, macOS Application Support)
+- CLI (Phase 7.2): full operator surface — offline `doctor`, `config show --local`, `config set` (dry-run / offline write; socket when serve up); socket-backed `status`, `metrics`, `rescan`, `retry`, `mount`, `unmount`, `purge`, `hooks`, `reload`, `stop`; `serve`; platform default config path (Linux `/etc/…`, macOS Application Support)
 - Reload: `log_level` → slog (`MOUNT_WRAPPER_LOG_LEVEL` env override); inotify re-sync on `use_inotify`/`source_dirs`; `web_enabled`/`web_token`/`web_host`/`web_port` require process restart
 - Socket client: `control.Client` (JSON-lines) used by CLI socket-backed commands
 
@@ -162,7 +164,7 @@ testdata/              fixtures
 
 - Svelte 5 + TypeScript + Vite under [`web/`](./web/)
 - **Archives:** overview pills, savings bar, parity table (status/progress, convert metrics, space saved), filter/sort, row actions (copy/retry/unmount/purge/hooks), Rescan / Unmount all / Doctor, WSL UNC hint
-- **Hooks drawer:** per-archive hooks status via `GET /api/hooks?archive_id=` (name/status/attempts/exit); focus trap + Escape
+- **Hooks drawer:** per-archive hooks status via `GET /api/hooks?archive_id=` (name/status/attempts/exit); **Re-run** / **Force re-run** via `POST /api/hooks`; focus trap + Escape
 - **Settings:** grouped public config form, Validate (dry-run) / Apply, hot-reload vs restart-required banners
 - **Live:** SSE client (`/api/events`) with exponential backoff + 15s poll fallback; connection badge (`live (SSE)` / `poll (SSE down)`)
 - Auth: `window.__MOUNT_WRAPPER_TOKEN__` (injected by Go) → `Authorization: Bearer` (SSE uses `?token=`)

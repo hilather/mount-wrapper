@@ -93,7 +93,7 @@ cost; that is expected and not a cutover blocker.
 |---------|----------------|
 | Status JSON | Counts incl. `converting`, progress `elapsed_s` / `progress_label`, `indexing_archives`, `low_disk`, optional sizes |
 | Metrics | Per-archive + summary; convert source size / duration / delta |
-| HTTP API | `/api/health`, status, archives, metrics, config, hooks, rescan/unmount/retry/purge, doctor, wsl-info; Prometheus `GET /metrics` |
+| HTTP API | `/api/health`, status, archives, metrics, config, hooks (GET list/status + POST run), rescan/unmount/retry/purge, doctor, wsl-info; Prometheus `GET /metrics` |
 | SSE | `snapshot` / `counts` / `archive` / `scan` / `low_disk` / `metrics` / `heartbeat` + poll fallback |
 | SPA (Appendix E) | Overview pills, savings, full metrics columns, filter/sort, row actions, hooks drawer, doctor, theme, UNC, toasts, SSE badge, settings schema |
 
