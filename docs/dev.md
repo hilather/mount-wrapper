@@ -135,7 +135,7 @@ See [parity.md](./parity.md) and [migration.md](./migration.md).
 | `internal/api` | HTTP API + SSE + SPA static — unit-tested |
 | `internal/webui` | `embed.FS` of SPA `dist/` |
 | `web/` | Svelte 5 + Vite source |
-| `packaging/` | systemd, launchd, examples, create-user, WSL samples, nfpm sketch |
+| `packaging/` | systemd, launchd, examples, create-user, WSL samples, nfpm (local + goreleaser) |
 | `testdata/` | Fixtures |
 | `docs/` | architecture, dev, install, macOS |
 | `AGENTS.md` | Mandatory agent policy (docs + tests + review) |

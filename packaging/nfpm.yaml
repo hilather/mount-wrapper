@@ -1,12 +1,12 @@
-# nfpm sketch for .deb / .rpm (alternative to goreleaser nfpms).
-# Not wired into CI. Local smoke (after installing nfpm + building the binary):
+# Standalone nfpm for .deb / .rpm (local alternative to goreleaser nfpms).
+# Tag releases use .goreleaser.yaml (same scripts.postinstall). Local smoke:
 #
 #   make build
 #   VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p deb
 #   VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p rpm
 #
-# postinstall should create user/dirs (create-user.sh) — only run as root on
-# real package install, never from unit tests.
+# postinstall runs create-user.sh (user/dirs/user_allow_other) as root on real
+# package install — never invoke from unit tests.
 
 name: mount-wrapper
 arch: amd64
@@ -68,8 +68,8 @@ contents:
     file_info:
       mode: 0644
 
-# scripts:
-#   postinstall: ./packaging/scripts/nfpm-postinstall.sh
+scripts:
+  postinstall: ./packaging/scripts/nfpm-postinstall.sh
 
 overrides:
   deb:

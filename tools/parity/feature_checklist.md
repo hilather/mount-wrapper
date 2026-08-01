@@ -10,21 +10,21 @@ Maps the upstream README feature table (and closely related product surfaces) to
 | **deferred** | Intentionally later / out of scope for cutover |
 | **n/a** | Design choice removes the surface |
 
-_Last reviewed: 2026-07-31 (Phase 12)._
+_Last reviewed: 2026-08-01 (post v0.1.1 packaging truth-up)._
 
 ## README feature rows
 
 | Area | Upstream (tarmount-wsl) | mount-wrapper | Status | Notes |
 |------|-------------------------|---------------|--------|-------|
 | **Discovery** | Poll source dirs; optional inotify; stable-file gate | `internal/scanner` + serve tick | **done** | DrvFs-friendly poll; inotify Linux-only hint |
-| **Mounting** | ratarmount FUSE + overlay, recursive, `allow_other` | `internal/mounter` Engine; default backend **rust** | **done** | Engines external (not vendored venv) |
+| **Mounting** | ratarmount FUSE + overlay, recursive, `allow_other` | `internal/mounter` Engine; default backend **rust** | **done** | Engines external (not vendored venv); **ratarmount-rs only** (D14) |
 | **Lifecycle** | SQLite state, boot remount, reconcile, deferred cleanup, overlay policy | state + reconcile + cleaner | **done** | Same logical schema 001–006; **new DB path** (D5) |
 | **Hooks** | First-mount `hooks.d`, retries, hard-fail | `internal/hooks` + serve after first mount | **done** | Env **`MOUNT_WRAPPER_*` only** (D3) |
 | **Control plane** | Unix socket API for CLI/web | `internal/control` + `Service.HandleRequest` | **done** | **New protocol only** (D6); op names familiar |
 | **Metrics** | Archive/index/extracted sizes, space saved | `internal/metrics` + status/API | **done** | Convert duration/size fields included |
 | **Config** | YAML validate; hot vs restart; live apply | `internal/config` + CLI/API | **done** | Path defaults under `/…/mount-wrapper` |
 | **Web UI** | Localhost dashboard (vanilla) | Embedded Svelte 5 SPA + SSE | **done** | No sidecar web unit (D4) |
-| **Packaging** | `.deb`, private ratarmount venv, systemd, doctor | systemd/launchd/nfpm sketches; doctor | **partial** | No vendored Python venv; full deb/rpm CI publish residual |
+| **Packaging** | `.deb`, private ratarmount venv, systemd, doctor | deb/rpm + systemd/launchd; doctor | **done** | No vendored Python venv; publish on `v*` (`release.yml`); residual: no Homebrew tap / no config.yaml auto-seed |
 
 ## Extended product surfaces (not always in README table)
 

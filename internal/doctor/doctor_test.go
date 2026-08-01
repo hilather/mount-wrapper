@@ -617,6 +617,15 @@ func TestDarwinMessaging(t *testing.T) {
 	if !sd.OK || !strings.Contains(sd.Message, "macOS") {
 		t.Fatalf("systemd_pid1: %+v", sd)
 	}
+	if strings.Contains(sd.Message, "--foreground") {
+		t.Fatalf("systemd_pid1 must not mention --foreground (serve has none): %s", sd.Message)
+	}
+	if !strings.Contains(sd.Message, "launchd") {
+		t.Fatalf("systemd_pid1 should mention launchd: %s", sd.Message)
+	}
+	if launchd, _ := sd.Details["launchd"].(bool); !launchd {
+		t.Fatalf("systemd_pid1 details.launchd: %+v", sd.Details)
+	}
 	ua := checkByName(r, "user_allow_other")
 	if !ua.OK || !strings.Contains(ua.Message, "macOS") {
 		t.Fatalf("user_allow_other: %+v", ua)

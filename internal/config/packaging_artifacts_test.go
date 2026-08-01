@@ -73,6 +73,7 @@ func TestPackagingArtifacts(t *testing.T) {
 				"SHA256SUMS",
 				"linux",
 				"darwin",
+				"postinstall: packaging/scripts/nfpm-postinstall.sh",
 			},
 		},
 		{
@@ -80,6 +81,14 @@ func TestPackagingArtifacts(t *testing.T) {
 			contains: []string{
 				"mount-wrapper",
 				"packaging/systemd/mount-wrapper.service",
+				"postinstall: ./packaging/scripts/nfpm-postinstall.sh",
+			},
+		},
+		{
+			rel: "packaging/scripts/nfpm-postinstall.sh",
+			contains: []string{
+				"create-user.sh",
+				"daemon-reload",
 			},
 		},
 		{

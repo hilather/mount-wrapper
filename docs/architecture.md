@@ -287,7 +287,7 @@ Defaults (overridable via `api.ServerOptions`): refresh **2s**, heartbeat **15s*
 | Rocky | Prefer `CGO_ENABLED=0` pure-Go (release default); optional Alpine musl/static via `make build-musl` / `package-musl` + CI `musl-static-smoke` + release `*_musl.tar.gz` (D7) |
 | Release | `.goreleaser.yaml` + `release.yml` + `SHA256SUMS`; optional musl attach; Makefile ldflags → `main.version`/`commit`/`date` |
 
-Operator docs: [install.md](./install.md), [macos.md](./macos.md), [migration.md](./migration.md), [parity.md](./parity.md). Artifacts under `packaging/`. Full deb/rpm CI publish is residual.
+Operator docs: [install.md](./install.md), [macos.md](./macos.md), [migration.md](./migration.md), [parity.md](./parity.md). Artifacts under `packaging/`. Deb/rpm (+ optional musl tarballs) publish on `v*` tags via `release.yml`.
 
 ### Phase 12 — parity inventories
 

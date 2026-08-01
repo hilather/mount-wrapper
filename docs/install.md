@@ -312,11 +312,22 @@ Cross-compile arm64 without QEMU: `ARCHS=arm64 ./scripts/build-musl.sh`
 (run smoke only for host arch). Tarball layout: `mount-wrapper` binary +
 `LICENSE` / `README.md` / `install.md` / `MUSL.txt`.
 
-### nfpm (deb/rpm sketch)
+### nfpm (deb/rpm)
 
-[`packaging/nfpm.yaml`](../packaging/nfpm.yaml) packages the binary + unit +
-examples. **Not** full postinst CI yet; run `create-user.sh` after install
-until postinstall scripts are finalized.
+Tag releases build `.deb` / `.rpm` via **GoReleaser** nfpms (`.goreleaser.yaml`)
+with `scripts.postinstall` → `packaging/scripts/nfpm-postinstall.sh` (runs
+`create-user.sh` + `systemctl daemon-reload` when present).
+
+Standalone local packages use the same postinstall:
+
+```bash
+make build
+VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p deb
+```
+
+[`packaging/nfpm.yaml`](../packaging/nfpm.yaml) ships the binary, unit, man page,
+examples, and `create-user.sh`. **Residual:** packages do not auto-seed
+`/etc/mount-wrapper/config.yaml` (copy from the shipped example after install).
 
 ### SHA256SUMS
 
@@ -331,8 +342,8 @@ sha256sum -c SHA256SUMS
 
 ## Residual (not done in this polish)
 
-- Automated CI publish of Homebrew formula (deb/rpm + musl tarballs publish on `v*` via release.yml)  
-- Full nfpm/goreleaser postinst (user, `user_allow_other`, conffiles)  
+- Automated CI publish of Homebrew formula (deb/rpm + musl tarballs already publish on `v*` via `release.yml`)  
+- Auto-seed of `/etc/mount-wrapper/config.yaml` conffile on first install  
 - macOS CI with **macFUSE** (default CI is unit + binary smoke only; see [dev.md](./dev.md))  
 - Notarized macOS app / automatic macFUSE install  
 

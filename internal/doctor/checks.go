@@ -460,10 +460,12 @@ func checkMountBackend(opts *Options) CheckResult {
 func checkSystemd(opts *Options) CheckResult {
 	plat := opts.platform()
 	if platform.IsDarwin(plat) {
+		// serve has no --foreground flag (process is always foreground).
+		// launchd example lives under packaging/launchd/ (see docs/macos.md).
 		return infoCheck("systemd_pid1",
-			"macOS: systemd not used; run `mount-wrapper serve --foreground` "+
-				"(launchd packaging is future work — docs/macos.md)",
-			map[string]any{"platform": "darwin", "is_systemd": false},
+			"macOS: systemd not used; run as your login user with "+
+				"`mount-wrapper serve` (launchd example: packaging/launchd/; docs/macos.md)",
+			map[string]any{"platform": "darwin", "is_systemd": false, "launchd": true},
 		)
 	}
 	comm, err := opts.readPID1()()

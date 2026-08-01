@@ -483,17 +483,17 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 
 - [x] systemd unit: `User=mount-wrapper` `Group=mount-wrapper` (D9 decided), RuntimeDirectory, DeviceAllow fuse, hardening baseline (`TimeoutStopSec=300`, `ProtectSystem=strict`, `EnvironmentFile=-/etc/mount-wrapper/env`)
 - [x] Optional web: embedded only (D4); **no** sidecar web unit
-- [~] `.deb` packaging (dh or nfpm/goreleaser) — `packaging/nfpm.yaml` + goreleaser nfpms sketch; **not** CI publish
-- [~] postinst: user/group, dirs, `user_allow_other` when possible — `packaging/scripts/create-user.sh` (operators); nfpm postinstall hook residual
-- [x] ship example config, hooks sample, wsl.conf snippet (`packaging/examples/*`, `packaging/wsl.conf.snippet`); man page residual
+- [x] `.deb` packaging via goreleaser nfpms + standalone `packaging/nfpm.yaml`; **published on `v*`** (`release.yml`)
+- [x] postinst: user/group, dirs, `user_allow_other` when possible — `create-user.sh` + `nfpm-postinstall.sh` (goreleaser + standalone nfpm); residual: no auto-seed of `/etc/mount-wrapper/config.yaml` conffile
+- [x] ship example config, hooks sample, wsl.conf snippet (`packaging/examples/*`, `packaging/wsl.conf.snippet`); man page in package
 - [x] ship `windows-task-scheduler.xml.example` (WSL boot without relying only on docs)
-- [x] Document engine install (ratarmount-rs / archiveconverter / fuse3); optional Recommends in nfpm sketch
+- [x] Document engine install (ratarmount-rs / archiveconverter / fuse3); optional Recommends in nfpm
 - [x] **Do not** require vendoring Python ratarmount in Go package
 
 ### 11.2 Rocky 8
 
 - [x] Build against glibc 2.28 **or** musl static binary — release default `CGO_ENABLED=0`; optional `make build-musl` / `package-musl` + CI `musl-static-smoke`; release.yml attaches `*_linux_*_musl.tar.gz` after GoReleaser (D7; not a second goreleaser build id)
-- [~] `.rpm` via nfpm/goreleaser — sketch only
+- [x] `.rpm` via goreleaser nfpms (+ standalone nfpm); published on `v*`
 - [x] systemd unit parity (same unit file)
 - [x] Document fuse3 / ratarmount-rs install on Rocky (`docs/install.md`)
 - [x] CI job or container smoke on rocky:8 — `.github/workflows/smoke.yml` + `scripts/smoke-rocky8.sh`

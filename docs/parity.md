@@ -73,7 +73,9 @@ rot. Prefer fixing code over changing this list without evidence.
 | **Rocky 8 binary smoke** | done in CI | `smoke.yml` builds CGO=0 binary on Ubuntu, runs `scripts/smoke-rocky8.sh` in `rockylinux:8` |
 | **macOS unit + binary smoke** | done in CI | `ci.yml` → `macos-unit-smoke` on `macos-latest`: `go test ./...`, CGO=0 build, `scripts/smoke-binary.sh`; **no macFUSE** (real mount remains local/manual) |
 | **Musl/static path (D7)** | done | `make build-musl` / `package-musl`; CI `musl-static-smoke`; `release.yml` attaches `*_linux_*_musl.tar.gz` after GoReleaser (primary matrix stays `CGO_ENABLED=0`) |
-| **Full deb/rpm CI publish** | done on tags | `release.yml` publishes deb/rpm/tarballs on `v*` (+ optional musl tarballs) |
+| **Full deb/rpm CI publish** | done on tags | `release.yml` publishes deb/rpm/tarballs on `v*` (+ optional musl tarballs); postinstall creates user/dirs |
+| **Config.yaml package seed** | residual | Packages ship example only; no auto-seed of `/etc/mount-wrapper/config.yaml` |
+| **Homebrew tap** | residual | Formula sketch under `packaging/homebrew/`; no automated tap publish |
 | **Playwright SPA smoke** | optional / local | Landed: `web/e2e` mocked `/api/*` Archives shell + Settings validate/apply; `RUN_E2E=1` / optional CI job |
 | **OpenAPI / generated SPA client** | optional residual | Hand-written TS (`api-types.ts` + `types.ts`, D11); OpenAPI later (keep open) |
 | **Windows parent `o+x` traverse notes** | docs/ops | Platform quirk; document/operate as needed |
@@ -96,7 +98,8 @@ cost; that is expected and not a cutover blocker.
 | SPA (Appendix E) | Overview pills, savings, full metrics columns, filter/sort, row actions, hooks drawer, doctor, theme, UNC, toasts, SSE badge, settings schema |
 
 Regenerate config key inventory after adding public YAML keys so SPA
-`settings-schema.ts` and Appendix D stay aligned.
+`settings-schema.ts` and Appendix D stay aligned. Automated guard:
+`go test ./internal/config/ -run SettingsSchemaMatchesPublicKeys`.
 
 ---
 
