@@ -76,6 +76,7 @@ internal/api/          HTTP API + SSE + SPA static (web_enabled)
 internal/cli/          Operator CLI (offline + socket-backed commands)
 internal/status/       Rich status payload + human formatter
 internal/webui/        embed.FS of SPA dist/
+internal/testutil/     Shared test helpers (short Unix socket paths on macOS)
 web/                   Svelte 5 + Vite source
 packaging/             systemd, launchd, examples, create-user, WSL samples
 docs/                  architecture, dev, install, macOS, migration, parity, security

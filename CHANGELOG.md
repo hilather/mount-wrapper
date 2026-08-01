@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **macOS CI:** control/service unit tests bind Unix sockets under a short
+  `/tmp` path on Darwin so `sun_path` (~104 bytes) is not exceeded by long
+  GitHub Actions `t.TempDir()` paths (`internal/testutil.ShortUnixSocketPath`).
+
 ## [0.1.1] - 2026-08-01
 
 ### Changed

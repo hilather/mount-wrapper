@@ -12,6 +12,7 @@ import (
 	"github.com/hilather/mount-wrapper/internal/mounter"
 	"github.com/hilather/mount-wrapper/internal/service"
 	"github.com/hilather/mount-wrapper/internal/state"
+	"github.com/hilather/mount-wrapper/internal/testutil"
 )
 
 func testService(t *testing.T) (*service.Service, string) {
@@ -254,8 +255,9 @@ func TestHandleRequestStatusRescanStop(t *testing.T) {
 }
 
 func TestControlSocketRoundtrip(t *testing.T) {
-	svc, tmp := testService(t)
-	sock := filepath.Join(tmp, "run", "control.sock")
+	svc, _ := testService(t)
+	// Short path: macOS sun_path ~104 bytes; t.TempDir under /var/folders is often too long.
+	sock := testutil.ShortUnixSocketPath(t, "control.sock")
 	svc.Config.ControlSocket = sock
 	// Allow unauth so peercred group membership is not required in CI.
 	svc.AllowAllAuth = true

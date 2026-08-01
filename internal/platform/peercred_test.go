@@ -128,9 +128,13 @@ func TestPeerCredentialsRejectsNonUnix(t *testing.T) {
 
 // socketpair creates a connected Unix socket pair as net.Conn values.
 func socketpair() ([2]net.Conn, error) {
-	// net.Pipe is not a *UnixConn. Use socketpair via ListenUnixgram-style
-	// local dial: temporary abstract/path socket.
-	dir, err := os.MkdirTemp("", "mw-peercred-*")
+	// net.Pipe is not a *UnixConn. Use a temporary path socket + accept/dial.
+	// Prefer /tmp on darwin: default TempDir under /var/folders can exceed sun_path.
+	base := ""
+	if runtime.GOOS == "darwin" {
+		base = "/tmp"
+	}
+	dir, err := os.MkdirTemp(base, "mw-peercred-")
 	if err != nil {
 		return [2]net.Conn{}, err
 	}

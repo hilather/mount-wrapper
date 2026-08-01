@@ -11,11 +11,11 @@ import (
 
 	"github.com/hilather/mount-wrapper/internal/control"
 	"github.com/hilather/mount-wrapper/internal/platform"
+	"github.com/hilather/mount-wrapper/internal/testutil"
 )
 
 func TestServerClientRoundtrip(t *testing.T) {
-	tmp := t.TempDir()
-	sock := filepath.Join(tmp, "control.sock")
+	sock := testutil.ShortUnixSocketPath(t, "control.sock")
 
 	handler := func(req map[string]any) map[string]any {
 		return control.OKResponse(map[string]any{
@@ -89,8 +89,7 @@ func TestClientUnavailable(t *testing.T) {
 }
 
 func TestStaleSocketCleanup(t *testing.T) {
-	tmp := t.TempDir()
-	sock := filepath.Join(tmp, "control.sock")
+	sock := testutil.ShortUnixSocketPath(t, "control.sock")
 	// Leave a stale file (not a live socket).
 	if err := os.WriteFile(sock, []byte("stale"), 0o644); err != nil {
 		t.Fatal(err)
@@ -126,8 +125,7 @@ func TestStaleSocketCleanup(t *testing.T) {
 }
 
 func TestServerAuthDeny(t *testing.T) {
-	tmp := t.TempDir()
-	sock := filepath.Join(tmp, "control.sock")
+	sock := testutil.ShortUnixSocketPath(t, "control.sock")
 	falseVal := false
 	srv := control.NewServer(sock, func(map[string]any) map[string]any {
 		return control.OKResponse(map[string]any{"secret": true})
@@ -166,8 +164,7 @@ func TestServerAuthDeny(t *testing.T) {
 }
 
 func TestServerUnsupportedVersion(t *testing.T) {
-	tmp := t.TempDir()
-	sock := filepath.Join(tmp, "control.sock")
+	sock := testutil.ShortUnixSocketPath(t, "control.sock")
 	srv := control.NewServer(sock, func(map[string]any) map[string]any {
 		return control.OKResponse(nil)
 	}, true)

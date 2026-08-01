@@ -60,6 +60,10 @@ socket under a short path such as:
 Avoid deep nested Application Support paths for the socket. If bind fails with
 “filename too long” / invalid argument, shorten `control_socket`.
 
+Unit tests that bind real Unix sockets use
+`internal/testutil.ShortUnixSocketPath` (short `/tmp` dir on Darwin) so
+CI under long `/var/folders/...` temp paths stays green.
+
 ---
 
 ## launchd user agent

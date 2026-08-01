@@ -215,6 +215,7 @@ Prefer table-driven Go tests. FUSE/real-engine tests: build tags or skip when
 | `internal/service` | Serve loop |
 | `internal/api` | HTTP + SSE |
 | `internal/webui` | `embed.FS` of SPA dist |
+| `internal/testutil` | Shared test helpers (e.g. short Unix sockets on macOS) |
 | `web/` | Svelte 5 SPA source |
 | `packaging/` | systemd, launchd, examples, create-user, WSL/nfpm sketches |
 | `docs/` | Architecture, dev, install, migration, parity, security notes |
