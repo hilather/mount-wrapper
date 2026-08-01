@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Doctor security / convert / Darwin path checks:**
+  - `web_bind_security` — when `web_enabled` and `web_host` is non-loopback with
+    empty `web_token`, **warn** (not hard-fail); loopback may omit the token.
+  - `convert_cache_dir` — when `convert_7z_nonsolid` or `convert_zip_to_7z` is
+    on, probe resolved `convert_7z_cache_dir` / default nonsolid cache exists or
+    parent writable; skip when both convert flags are off. When
+    `archiveconverter_enabled`, also probe `path.archiveconverter_output_dir`.
+  - `control_socket_path_length` (Darwin only) — **warn** if `control_socket`
+    path length exceeds 100 bytes (sun_path ~104). See `docs/security.md`,
+    `docs/macos.md`, `docs/architecture.md`.
+- **Homebrew formula ship-ready sketch:** `packaging/homebrew/mount-wrapper.rb.example`
+  tracks version **0.1.1**, GoReleaser darwin amd64+arm64 tarball URLs,
+  ratarmount-rs-only caveats (no Python ratarmount), macFUSE, Application
+  Support config path, and short control socket under Caches. Helper
+  `scripts/update-homebrew-formula.sh` rewrites `version` + `sha256` from
+  `SHA256SUMS` (or args). Tap publish remains residual; local
+  `brew install --formula` after digest fill-in is supported (not run in CI).
+- **SPA Playwright e2e:** archives table (mounted + `mount_failed`), Retry/Unmount/
+  Purge/Rescan/Unmount-all POST body asserts + confirm/toasts, Doctor panel
+  check names (`web/e2e/archives.spec.ts`, `doctor.spec.ts`; extended
+  `mockShellApi`). Still gated by `RUN_E2E=1`.
 - **Outer nonsolid cache hygiene (cleaner):** each cleaner `Run` pass under
   `convert_7z_cache_dir` / `DefaultNonsolidCacheDir` always strips leftover
   `*.nonsolid.partial` and `*.nonsolid.partial.work`, removes stale `*.lock`

@@ -1,15 +1,19 @@
 # Homebrew formula *sketch* for mount-wrapper (not published to a tap yet).
 #
-# Install from a local copy (still example until a real tap + release checksums):
+# Ship-ready for local `brew install --formula` once version + sha256 match a
+# GitHub Release. Automated tap publish remains residual (see docs/parity.md).
+#
+# Install from a local copy:
 #
 #   cp packaging/homebrew/mount-wrapper.rb.example /tmp/mount-wrapper.rb
-#   # set version + sha256 for your platform below
+#   # set version + sha256 (or run scripts/update-homebrew-formula.sh)
 #   brew install --formula /tmp/mount-wrapper.rb
 #
 # Or rename in-tree (Homebrew requires a .rb path, not .example):
 #
 #   cp packaging/homebrew/mount-wrapper.rb.example packaging/homebrew/mount-wrapper.rb
-#   # edit version / sha256
+#   VERSION=0.1.1 SHA256SUMS=dist/SHA256SUMS OUT=packaging/homebrew/mount-wrapper.rb \
+#     ./scripts/update-homebrew-formula.sh
 #   brew install --formula ./packaging/homebrew/mount-wrapper.rb
 #
 # Future tap:
@@ -17,22 +21,27 @@
 #
 # Engines and FUSE are NOT bundled:
 #   brew install --cask macfuse   # system extension approval required
-#   # ratarmount-rs: upstream release or cargo install
+#   # ratarmount-rs only (mount_backend: rust) — cargo install or upstream release
 #   # optional: archiveconverter, p7zip
 #
-# Release tarball name (GoReleaser archives.name_template):
-#   mount-wrapper_#{version}_darwin_#{arch}.tar.gz
-#   arch = arm64 (Apple Silicon) | amd64 (Intel)
+# Release tarball names (GoReleaser archives.name_template):
+#   mount-wrapper_#{version}_darwin_arm64.tar.gz   # Apple Silicon
+#   mount-wrapper_#{version}_darwin_amd64.tar.gz   # Intel
+#
+# Fill sha256 from release SHA256SUMS (or):
+#   ./scripts/update-homebrew-formula.sh 0.1.1 path/to/SHA256SUMS
 #
 # After install, seed config under Application Support (see caveats).
 
 class MountWrapper < Formula
-  desc "Archive auto-mounter orchestrator (ratarmount / ratarmount-rs)"
+  desc "Archive auto-mounter orchestrator (ratarmount-rs / macFUSE)"
   homepage "https://github.com/hilather/mount-wrapper"
-  version "0.1.0"
+  # Keep in sync with the latest GitHub Release tag (no leading "v").
+  # Placeholders below are rewritten by scripts/update-homebrew-formula.sh.
+  version "0.1.1"
   license "MIT"
 
-  # Binary install from GitHub Releases (preferred once checksums are known).
+  # Binary install from GitHub Releases (GoReleaser darwin archives).
   # Replace sha256 placeholders with values from the release SHA256SUMS file.
   on_macos do
     on_arm do
@@ -73,8 +82,8 @@ class MountWrapper < Formula
     cache_run = "#{Dir.home}/Library/Caches/mount-wrapper/run"
     <<~EOS
       macFUSE must be installed and allowed in System Settings → Privacy & Security
-      (system extension prompts). Engines are external — install ratarmount-rs
-      (recommended, mount_backend: rust) or Python ratarmount on PATH.
+      (system extension prompts). Engines are external — install ratarmount-rs on
+      PATH (mount_backend: rust only; Python ratarmount is not supported).
 
       Suggested layout (login user; no system mount-wrapper user on macOS):
 
@@ -82,7 +91,7 @@ class MountWrapper < Formula
         mkdir -p "#{cache_run}" "#{Dir.home}/Library/Logs/mount-wrapper"
         cp "#{pkgshare}/config.yaml.macos.example" \\
           "#{config_dir}/config.yaml"
-        # edit source_dirs; keep control_socket under Caches (path length ~104 bytes)
+        # edit source_dirs; keep control_socket under Caches (sun_path ~104 bytes)
 
       Config path:  #{config_dir}/config.yaml
       Control sock: #{cache_run}/control.sock

@@ -77,6 +77,98 @@ export const MOCK_RESTART_REQUIRED_KEYS = [
   'ratarmount_bin',
 ]
 
+/** Sample archive rows for table / action e2e (mounted + mount_failed). */
+export const MOCK_MOUNTED_ARCHIVE = {
+  archive_id: 'arc-mounted-1',
+  archive_path: '/tmp/archives/demo-mounted.tar.gz',
+  archive_basename: 'demo-mounted.tar.gz',
+  source_dir: '/tmp/archives',
+  status: 'mounted',
+  hooks_status: 'done',
+  mount_path: '/tmp/mount-wrapper/mounts/arc-mounted-1',
+  index_path: '/tmp/mount-wrapper/indexes/arc-mounted-1.sqlite',
+  mount_retryable: false,
+  size_bytes: 1_048_576,
+  metrics: {
+    archive_id: 'arc-mounted-1',
+    archive_size_bytes: 1_048_576,
+    index_size_bytes: 65_536,
+    extracted_size_bytes: 4_194_304,
+    space_saved_bytes: 4_128_768,
+    space_saved_vs_archive_bytes: 3_080_192,
+  },
+}
+
+export const MOCK_FAILED_ARCHIVE = {
+  archive_id: 'arc-failed-1',
+  archive_path: '/tmp/archives/demo-failed.7z',
+  archive_basename: 'demo-failed.7z',
+  source_dir: '/tmp/archives',
+  status: 'mount_failed',
+  hooks_status: 'none',
+  mount_path: null,
+  index_path: '/tmp/mount-wrapper/indexes/arc-failed-1.sqlite',
+  mount_retryable: true,
+  last_error: 'engine exit 1: fuse mount failed',
+  size_bytes: 2_097_152,
+  metrics: {
+    archive_id: 'arc-failed-1',
+    archive_size_bytes: 2_097_152,
+    index_size_bytes: 32_768,
+    extracted_size_bytes: null,
+    space_saved_bytes: null,
+  },
+}
+
+export const MOCK_ARCHIVE_ROWS = [MOCK_MOUNTED_ARCHIVE, MOCK_FAILED_ARCHIVE]
+
+/** Doctor report with named checks for panel assertions. */
+export const MOCK_DOCTOR_REPORT = {
+  ok: true,
+  config_path: '/tmp/e2e/config.yaml',
+  notes: [] as string[],
+  fixes_applied: [] as string[],
+  checks: [
+    {
+      ok: true,
+      severity: 'info',
+      name: 'fuse_device',
+      message: '/dev/fuse is present and accessible',
+      details: {},
+    },
+    {
+      ok: true,
+      severity: 'info',
+      name: 'ratarmount_rs',
+      message: 'ratarmount-rs found on PATH',
+      details: {},
+    },
+    {
+      ok: false,
+      severity: 'warn',
+      name: 'disk_free_index',
+      message: 'index_dir free space below warn threshold',
+      details: {},
+    },
+  ],
+}
+
+export type ActionPostCall = {
+  /** Pathname without host, e.g. `/api/retry`. */
+  path: string
+  body: Record<string, unknown>
+}
+
+export type ShellApiOptions = {
+  /** When set, GET /api/archives and /api/status return these rows (default empty). */
+  archives?: typeof MOCK_ARCHIVE_ROWS
+  counts?: Record<string, number>
+  summary?: Record<string, number>
+  doctor?: typeof MOCK_DOCTOR_REPORT
+  /** Invoked for POST /api/{rescan,unmount,retry,purge} with parsed JSON body. */
+  onAction?: (call: ActionPostCall) => void
+}
+
 async function json(route: Route, body: unknown, status = 200) {
   await route.fulfill({
     status,
@@ -85,11 +177,60 @@ async function json(route: Route, body: unknown, status = 200) {
   })
 }
 
+function parsePostBody(route: Route): Record<string, unknown> {
+  try {
+    return JSON.parse(route.request().postData() || '{}') as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+function buildArchivesPayload(
+  archives: typeof MOCK_ARCHIVE_ROWS,
+  counts?: Record<string, number>,
+  summary?: Record<string, number>,
+) {
+  const mounted = archives.filter((a) => a.status === 'mounted').length
+  const mountFailed = archives.filter((a) => a.status === 'mount_failed').length
+  return {
+    archives,
+    counts: {
+      mounted,
+      discovered: archives.length,
+      mount_failed: mountFailed,
+      indexing: 0,
+      mounting: 0,
+      converting: 0,
+      hooks_running: 0,
+      index_failed: 0,
+      absent: 0,
+      ...counts,
+    },
+    summary: {
+      archive_count: archives.length,
+      total_archive_size_bytes: archives.reduce(
+        (n, a) => n + (Number(a.metrics?.archive_size_bytes) || a.size_bytes || 0),
+        0,
+      ),
+      total_space_saved_bytes: archives.reduce(
+        (n, a) => n + (Number(a.metrics?.space_saved_bytes) || 0),
+        0,
+      ),
+      ...summary,
+    },
+    version: 'e2e-test',
+  }
+}
+
 /**
  * Mock control-plane JSON used by the SPA shell on first load (no real daemon).
- * Covers health, status, archives, wsl-info, and SSE events.
+ * Covers health, status, archives, wsl-info, SSE, doctor, and action POSTs.
  */
-export async function mockShellApi(page: Page) {
+export async function mockShellApi(page: Page, opts?: ShellApiOptions) {
+  const archives = opts?.archives ?? []
+  const payload = buildArchivesPayload(archives, opts?.counts, opts?.summary)
+  const doctor = opts?.doctor ?? MOCK_DOCTOR_REPORT
+
   await page.route('**/api/health', async (route) => {
     await json(route, {
       ok: true,
@@ -102,27 +243,23 @@ export async function mockShellApi(page: Page) {
   await page.route('**/api/status', async (route) => {
     await json(route, {
       ok: true,
-      archives: [],
-      counts: { mounted: 0, discovered: 0 },
+      archives: payload.archives,
+      counts: payload.counts,
       version: 'e2e-test',
     })
   })
 
   await page.route('**/api/archives', async (route) => {
-    await json(route, {
-      archives: [],
-      counts: { mounted: 0, discovered: 0 },
-      summary: {
-        archive_count: 0,
-        total_archive_size_bytes: 0,
-        total_space_saved_bytes: 0,
-      },
-      version: 'e2e-test',
-    })
+    await json(route, payload)
   })
 
   await page.route('**/api/wsl-info', async (route) => {
-    await json(route, { mount_root: '/mnt/wsl', hint: 'e2e mock' })
+    await json(route, {
+      mount_root: '/mnt/wsl',
+      distro_name: 'e2e-distro',
+      unc_mounts: '\\\\wsl.localhost\\e2e-distro\\mnt\\wsl',
+      hint: 'e2e mock',
+    })
   })
 
   // SSE will error/reconnect with a short body; poll path still drives the UI.
@@ -137,6 +274,58 @@ export async function mockShellApi(page: Page) {
       body: 'event: heartbeat\ndata: {}\n\n',
     })
   })
+
+  await page.route('**/api/doctor', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback()
+      return
+    }
+    await json(route, doctor)
+  })
+
+  // Action POSTs used by Archives toolbar / row actions.
+  const actionPaths = ['/api/rescan', '/api/unmount', '/api/retry', '/api/purge'] as const
+  for (const path of actionPaths) {
+    await page.route(`**${path}`, async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.fallback()
+        return
+      }
+      const body = parsePostBody(route)
+      opts?.onAction?.({ path, body })
+
+      if (path === '/api/rescan') {
+        await json(route, { seen: 2, inserted: 0, stable: 2, assume_stable: !!body.assume_stable })
+        return
+      }
+      if (path === '/api/retry') {
+        await json(route, { status: 'queued', archive_id: body.archive_id })
+        return
+      }
+      if (path === '/api/unmount') {
+        await json(route, {
+          status: 'ok',
+          all: !!body.all,
+          archive_id: body.archive_id,
+        })
+        return
+      }
+      if (path === '/api/purge') {
+        // Real API requires yes:true; mirror that so missing confirm body fails the test path.
+        if (body.yes !== true) {
+          await json(route, { error: 'yes confirmation required', code: 'YES_REQUIRED' }, 400)
+          return
+        }
+        await json(route, {
+          status: 'purged',
+          archive_id: body.archive_id,
+          overlay_action: 'kept',
+        })
+        return
+      }
+      await route.fallback()
+    })
+  }
 }
 
 export type ConfigPostCall = {
@@ -207,5 +396,12 @@ export async function mockConfigApi(
     }
 
     await route.fallback()
+  })
+}
+
+/** Accept the next window.confirm / alert dialog (purge, unmount, rescan assume-stable). */
+export function acceptNextDialog(page: Page) {
+  page.once('dialog', (dialog) => {
+    void dialog.accept()
   })
 }

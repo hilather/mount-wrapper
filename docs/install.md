@@ -232,28 +232,40 @@ paths can fail `bind`.
 ### Homebrew formula sketch
 
 Example formula: [`packaging/homebrew/mount-wrapper.rb.example`](../packaging/homebrew/mount-wrapper.rb.example)
-(not a published tap). Prefer **release tarballs**:
+(not a published tap; **local `brew install --formula` is supported** after digests
+are filled). Prefer **release tarballs** (GoReleaser):
 
 ```text
-https://github.com/hilather/mount-wrapper/releases/download/vVERSION/mount-wrapper_VERSION_darwin_ARCH.tar.gz
+https://github.com/hilather/mount-wrapper/releases/download/v0.1.1/mount-wrapper_0.1.1_darwin_arm64.tar.gz
+https://github.com/hilather/mount-wrapper/releases/download/v0.1.1/mount-wrapper_0.1.1_darwin_amd64.tar.gz
 ```
 
-(`ARCH` = `arm64` or `amd64`, matching GoReleaser.)
+(`arm64` = Apple Silicon, `amd64` = Intel; version in the sketch tracks **0.1.1**
+until the next release bump.)
+
+Fill both platform `sha256` values from `SHA256SUMS` with the helper script:
 
 ```bash
-cp packaging/homebrew/mount-wrapper.rb.example packaging/homebrew/mount-wrapper.rb
-# edit version + sha256 from SHA256SUMS for your Mac
+# After make release-snapshot (or download SHA256SUMS from a GitHub Release):
+VERSION=0.1.1 SHA256SUMS=dist/SHA256SUMS \
+  OUT=packaging/homebrew/mount-wrapper.rb \
+  ./scripts/update-homebrew-formula.sh
+
 brew install --formula ./packaging/homebrew/mount-wrapper.rb
-brew info mount-wrapper   # caveats: macFUSE + Application Support config path
+brew info mount-wrapper   # caveats: macFUSE + Application Support + short control socket
 ```
 
-Formula `caveats` cover macFUSE System Settings approval, external engines, and
-config under `~/Library/Application Support/mount-wrapper/`. Keep
-`control_socket` under `~/Library/Caches/mount-wrapper/run/` (path length).
+Or copy the example and replace `REPLACE_ME_DARWIN_ARM64` /
+`REPLACE_ME_DARWIN_AMD64` by hand. CI does **not** run `brew install`.
 
-Future: `brew install hilather/tap/mount-wrapper` once a tap exists.
+Formula `caveats` cover macFUSE System Settings approval, **ratarmount-rs only**
+(no Python ratarmount), config under `~/Library/Application Support/mount-wrapper/`,
+and `control_socket` under `~/Library/Caches/mount-wrapper/run/` (path length).
 
-See [macos.md](./macos.md).
+Residual: automated **tap** publish (`brew install hilather/tap/mount-wrapper`).
+The formula sketch itself is ship-ready for manual formula install.
+
+See [macos.md](./macos.md) and [release.md](./release.md).
 
 ---
 
@@ -347,7 +359,7 @@ sha256sum -c SHA256SUMS
 
 ## Residual (not done in this polish)
 
-- Automated CI publish of Homebrew formula (deb/rpm + musl tarballs already publish on `v*` via `release.yml`)  
+- Automated Homebrew **tap** publish (formula sketch + `scripts/update-homebrew-formula.sh` are usable locally; deb/rpm + musl tarballs already publish on `v*` via `release.yml`)  
 - macOS CI with **macFUSE** (default CI is unit + binary smoke only; see [dev.md](./dev.md))  
 - Notarized macOS app / automatic macFUSE install  
 
@@ -359,7 +371,7 @@ sha256sum -c SHA256SUMS
 packaging/
   systemd/mount-wrapper.service
   launchd/com.hilather.mount-wrapper.plist.example
-  homebrew/mount-wrapper.rb.example
+  homebrew/mount-wrapper.rb.example   # local brew --formula after SHA fill-in
   examples/config.yaml.example
   examples/config.yaml.macos.example
   examples/config.debug.yaml.example
@@ -371,5 +383,6 @@ packaging/
   wsl.conf.snippet
   windows-task-scheduler.xml.example
   nfpm.yaml
+scripts/update-homebrew-formula.sh    # VERSION + SHA256SUMS → formula digests
 .goreleaser.yaml
 ```

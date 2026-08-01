@@ -178,7 +178,7 @@ testdata/              fixtures
 | create-user / dirs | [`packaging/scripts/create-user.sh`](./packaging/scripts/create-user.sh) |
 | Linux example config | [`packaging/examples/config.yaml.example`](./packaging/examples/config.yaml.example) |
 | macOS example + launchd | [`packaging/examples/config.yaml.macos.example`](./packaging/examples/config.yaml.macos.example), [`packaging/launchd/`](./packaging/launchd/) |
-| Homebrew formula sketch | [`packaging/homebrew/mount-wrapper.rb.example`](./packaging/homebrew/mount-wrapper.rb.example) (release tarball; not a tap) |
+| Homebrew formula sketch | [`packaging/homebrew/mount-wrapper.rb.example`](./packaging/homebrew/mount-wrapper.rb.example) + [`scripts/update-homebrew-formula.sh`](./scripts/update-homebrew-formula.sh) (local `brew --formula`; tap residual) |
 | WSL | [`packaging/wsl.conf.snippet`](./packaging/wsl.conf.snippet), [`packaging/windows-task-scheduler.xml.example`](./packaging/windows-task-scheduler.xml.example) |
 | goreleaser / nfpm | [`.goreleaser.yaml`](./.goreleaser.yaml), [`packaging/nfpm.yaml`](./packaging/nfpm.yaml); publish: [`.github/workflows/release.yml`](./.github/workflows/release.yml) |
 | Optional musl/static (D7) | `make build-musl` / `make package-musl` → `*_linux_*_musl.tar.gz`; CI `musl-static-smoke` + release attach |

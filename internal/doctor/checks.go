@@ -2,16 +2,23 @@ package doctor
 
 import (
 	"fmt"
+	"net"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/hilather/mount-wrapper/internal/config"
+	"github.com/hilather/mount-wrapper/internal/convert"
 	"github.com/hilather/mount-wrapper/internal/mounter"
 	"github.com/hilather/mount-wrapper/internal/paths"
 	"github.com/hilather/mount-wrapper/internal/platform"
 )
+
+// darwinSunPathWarnLen is the path-length threshold for control_socket on
+// macOS. sockaddr_un / sun_path is ~104 bytes including the trailing NUL;
+// warn slightly earlier so operators shorten paths before bind fails.
+const darwinSunPathWarnLen = 100
 
 func checkGoVersion(opts *Options) CheckResult {
 	ver := opts.goVersion()
@@ -733,7 +740,142 @@ func checkConfig(opts *Options) CheckResult {
 	)
 }
 
+// checkWebBindSecurity warns when the HTTP UI would listen on a non-loopback
+// host with an empty web_token (open API). Loopback binds may omit the token.
+// Severity is always warn (never hard-fail). Skipped when config is nil.
+func checkWebBindSecurity(opts *Options) CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return CheckResult{}
+	}
+	host := strings.TrimSpace(cfg.WebHost)
+	tokenSet := strings.TrimSpace(cfg.WebToken) != ""
+	enabled := cfg.WebEnabled
+	loopback := isLoopbackHost(host)
+	details := map[string]any{
+		"web_enabled":   enabled,
+		"web_host":      host,
+		"web_token_set": tokenSet,
+		"loopback":      loopback,
+	}
+	if !enabled {
+		return infoCheck("web_bind_security",
+			"web disabled (web_enabled: false); bind security not applicable",
+			details)
+	}
+	displayHost := host
+	if displayHost == "" {
+		displayHost = "127.0.0.1"
+	}
+	if loopback {
+		msg := fmt.Sprintf("web bind %s is loopback; web_token optional", displayHost)
+		if tokenSet {
+			msg = fmt.Sprintf("web bind %s is loopback with web_token set", displayHost)
+		}
+		return infoCheck("web_bind_security", msg, details)
+	}
+	if !tokenSet {
+		return warnCheck("web_bind_security", false,
+			fmt.Sprintf("web_host %q is not loopback and web_token is empty — "+
+				"API/dashboard are open to any client that can reach the bind address; "+
+				"set web_token or bind loopback (see docs/security.md)", displayHost),
+			details)
+	}
+	return infoCheck("web_bind_security",
+		fmt.Sprintf("web bind %s is non-loopback with web_token set", displayHost),
+		details)
+}
+
+// checkConvertDirs probes convert cache / archiveconverter output directories
+// when those features are enabled. Returns nil when nothing is enabled.
+func checkConvertDirs(opts *Options) []CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return nil
+	}
+	var out []CheckResult
+	convertOn := cfg.Convert7zNonsolid || cfg.ConvertZipTo7z
+	if convertOn {
+		cache := convert.DefaultNonsolidCacheDir(cfg)
+		// Label matches config key; check name is the public doctor id.
+		c := checkOnePath(opts, "convert_cache_dir", "convert_7z_cache_dir", cache)
+		if c.Details == nil {
+			c.Details = map[string]any{}
+		}
+		c.Details["convert_7z_nonsolid"] = cfg.Convert7zNonsolid
+		c.Details["convert_zip_to_7z"] = cfg.ConvertZipTo7z
+		c.Details["resolved_cache_dir"] = cache
+		out = append(out, c)
+	}
+	if cfg.ArchiveconverterEnabled {
+		outDir := strings.TrimSpace(cfg.ArchiveconverterOutputDir)
+		if outDir != "" {
+			c := checkOnePath(opts, "path.archiveconverter_output_dir", "archiveconverter_output_dir", outDir)
+			if c.Details == nil {
+				c.Details = map[string]any{}
+			}
+			c.Details["archiveconverter_enabled"] = true
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// checkControlSocketPathLength warns on Darwin when control_socket is long
+// enough to risk sun_path overflow (~104 bytes). No-op on other platforms
+// or when config/socket is empty.
+func checkControlSocketPathLength(opts *Options) CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return CheckResult{}
+	}
+	plat := opts.platform()
+	if !platform.IsDarwin(plat) {
+		return CheckResult{}
+	}
+	sock := strings.TrimSpace(cfg.ControlSocket)
+	if sock == "" {
+		return infoCheck("control_socket_path_length",
+			"macOS: control_socket empty (set a short path under Caches; see docs/macos.md)",
+			map[string]any{"platform": "darwin", "length": 0},
+		)
+	}
+	n := len(sock)
+	details := map[string]any{
+		"path":       sock,
+		"length":     n,
+		"warn_above": darwinSunPathWarnLen,
+		"platform":   "darwin",
+	}
+	if n > darwinSunPathWarnLen {
+		return warnCheck("control_socket_path_length", false,
+			fmt.Sprintf("control_socket path is %d bytes (warn > %d); macOS sun_path is ~104 including NUL — "+
+				"bind may fail with \"filename too long\"; keep socket under "+
+				"~/Library/Caches/mount-wrapper/run/ (docs/macos.md)", n, darwinSunPathWarnLen),
+			details)
+	}
+	return infoCheck("control_socket_path_length",
+		fmt.Sprintf("control_socket path length %d is within macOS sun_path limit", n),
+		details)
+}
+
 // --- helpers ---
+
+// isLoopbackHost reports whether host is a loopback address or name.
+// Mirrors internal/api (unexported there) so doctor stays free of api deps.
+func isLoopbackHost(host string) bool {
+	h := strings.TrimSpace(strings.ToLower(host))
+	switch h {
+	case "127.0.0.1", "localhost", "::1", "":
+		return true
+	}
+	h = strings.Trim(h, "[]")
+	if h == "::1" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
 
 func probeBinVersion(opts *Options, path string) string {
 	out, err := runBinTimed(opts, path, 10*time.Second, "--version")

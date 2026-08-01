@@ -200,14 +200,33 @@ func TestPackagingArtifacts(t *testing.T) {
 		},
 		{
 			// Formula sketch (not a published tap): release tarball + macOS caveats.
+			// Tap publish residual; sketch is brew-installable after SHA fill-in.
 			rel: "packaging/homebrew/mount-wrapper.rb.example",
 			contains: []string{
 				"class MountWrapper < Formula",
-				"mount-wrapper_#{version}_darwin_",
+				`version "0.1.1"`,
+				"mount-wrapper_#{version}_darwin_arm64.tar.gz",
+				"mount-wrapper_#{version}_darwin_amd64.tar.gz",
+				"REPLACE_ME_DARWIN_ARM64",
+				"REPLACE_ME_DARWIN_AMD64",
 				"macFUSE",
 				"Application Support/mount-wrapper",
+				"Library/Caches/mount-wrapper/run",
+				"ratarmount-rs",
+				"mount_backend: rust",
 				"brew install --formula",
+				"update-homebrew-formula.sh",
 				"sha256",
+			},
+		},
+		{
+			rel: "scripts/update-homebrew-formula.sh",
+			contains: []string{
+				"SHA256SUMS",
+				"darwin_arm64.tar.gz",
+				"darwin_amd64.tar.gz",
+				"REPLACE_ME_DARWIN_ARM64",
+				"mount-wrapper.rb.example",
 			},
 		},
 	}

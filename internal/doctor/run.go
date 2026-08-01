@@ -34,6 +34,11 @@ func Run(opts Options) *Report {
 		checks = append(checks, checkSourceDirs(o)...)
 		checks = append(checks, checkIndexLayout(o))
 		checks = append(checks, checkFreeSpace(o)...)
+		checks = append(checks, checkWebBindSecurity(o))
+		checks = append(checks, checkConvertDirs(o)...)
+		if c := checkControlSocketPathLength(o); c.Name != "" {
+			checks = append(checks, c)
+		}
 		checks = append(checks, checkConfig(o))
 	}
 

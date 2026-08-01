@@ -827,3 +827,487 @@ func TestFormatNilReport(t *testing.T) {
 		t.Fatalf("%s", js)
 	}
 }
+
+func TestWebBindSecurity(t *testing.T) {
+	t.Parallel()
+
+	baseEnv := func() *testEnv {
+		e := newEnv()
+		e.exists["/dev/fuse"] = true
+		e.which["fusermount3"] = "/bin/fusermount3"
+		e.users["mount-wrapper"] = true
+		e.setExec("/bin/ratarmount-rs", "v1", "")
+		e.which["ratarmount-rs"] = "/bin/ratarmount-rs"
+		for _, p := range []string{
+			"/var/lib/mount-wrapper/mounts",
+			"/var/lib/mount-wrapper/indexes",
+			"/var/lib/mount-wrapper/overlays",
+			"/run/mount-wrapper",
+		} {
+			e.dirs[p] = true
+			e.exists[p] = true
+			e.writable[p] = true
+		}
+		return e
+	}
+
+	cases := []struct {
+		name       string
+		raw        map[string]any
+		wantOK     bool
+		wantSev    string
+		wantSubstr string
+		wantAbsent bool // no config → check not present
+	}{
+		{
+			name: "disabled",
+			raw: map[string]any{
+				"web_enabled": false,
+				"web_host":    "0.0.0.0",
+				"web_token":   "",
+			},
+			wantOK:     true,
+			wantSev:    doctor.SeverityInfo,
+			wantSubstr: "web disabled",
+		},
+		{
+			name: "loopback_no_token",
+			raw: map[string]any{
+				"web_enabled": true,
+				"web_host":    "127.0.0.1",
+				"web_token":   "",
+			},
+			wantOK:     true,
+			wantSev:    doctor.SeverityInfo,
+			wantSubstr: "loopback",
+		},
+		{
+			name: "localhost_no_token",
+			raw: map[string]any{
+				"web_enabled": true,
+				"web_host":    "localhost",
+			},
+			wantOK:     true,
+			wantSev:    doctor.SeverityInfo,
+			wantSubstr: "loopback",
+		},
+		{
+			name: "v6_loopback_no_token",
+			raw: map[string]any{
+				"web_enabled": true,
+				"web_host":    "::1",
+			},
+			wantOK:     true,
+			wantSev:    doctor.SeverityInfo,
+			wantSubstr: "loopback",
+		},
+		{
+			name: "non_loopback_empty_token_warn",
+			raw: map[string]any{
+				"web_enabled": true,
+				"web_host":    "0.0.0.0",
+				"web_token":   "",
+			},
+			wantOK:     false,
+			wantSev:    doctor.SeverityWarn,
+			wantSubstr: "not loopback",
+		},
+		{
+			name: "non_loopback_with_token_ok",
+			raw: map[string]any{
+				"web_enabled": true,
+				"web_host":    "192.168.1.10",
+				"web_token":   "s3cret",
+			},
+			wantOK:     true,
+			wantSev:    doctor.SeverityInfo,
+			wantSubstr: "web_token set",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := baseEnv()
+			cfg := mustCfg(t, tc.raw, "")
+			r := doctor.Run(e.opts(cfg))
+			c := checkByName(r, "web_bind_security")
+			if c.Name == "" {
+				t.Fatal("missing web_bind_security check")
+			}
+			if c.OK != tc.wantOK || c.Severity != tc.wantSev {
+				t.Fatalf("ok=%v sev=%q want ok=%v sev=%q; msg=%q",
+					c.OK, c.Severity, tc.wantOK, tc.wantSev, c.Message)
+			}
+			if !strings.Contains(c.Message, tc.wantSubstr) {
+				t.Fatalf("message %q missing %q", c.Message, tc.wantSubstr)
+			}
+			// Warn must not hard-fail the report by itself.
+			if tc.wantSev == doctor.SeverityWarn && !r.OK && HardFailOnlyErrors(r) {
+				t.Fatalf("warn should not hard-fail report: %s", doctor.FormatText(r))
+			}
+			if tc.wantSev == doctor.SeverityWarn && !r.OK {
+				// other errors may set OK=false; ensure this check alone is not error
+				if c.Severity == doctor.SeverityError {
+					t.Fatal("web_bind_security must not be error severity")
+				}
+			}
+			if tc.wantSev == doctor.SeverityWarn {
+				// Explicit: report OK remains true for warn-only failure.
+				// Isolate: ensure no error-severity checks.
+				if doctor.HardFail(r.Checks) {
+					t.Fatalf("hard fail unexpected: %s", doctor.FormatText(r))
+				}
+				if !r.OK {
+					t.Fatalf("report OK should stay true for warn-only web_bind_security")
+				}
+			}
+		})
+	}
+
+	t.Run("no_config_skipped", func(t *testing.T) {
+		t.Parallel()
+		e := baseEnv()
+		r := doctor.Run(e.opts(nil))
+		if c := checkByName(r, "web_bind_security"); c.Name != "" {
+			t.Fatalf("unexpected web_bind_security without config: %+v", c)
+		}
+	})
+}
+
+func TestConvertCacheDir(t *testing.T) {
+	t.Parallel()
+
+	baseEnv := func() *testEnv {
+		e := newEnv()
+		e.exists["/dev/fuse"] = true
+		e.which["fusermount3"] = "/bin/fusermount3"
+		e.users["mount-wrapper"] = true
+		e.setExec("/bin/ratarmount-rs", "v1", "")
+		e.which["ratarmount-rs"] = "/bin/ratarmount-rs"
+		// 7z present so sevenzip_bin does not also warn in convert-on cases.
+		e.setExec("/usr/bin/7z", "7z 23.0", "")
+		e.which["7z"] = "/usr/bin/7z"
+		for _, p := range []string{
+			"/var/lib/mount-wrapper/mounts",
+			"/var/lib/mount-wrapper/indexes",
+			"/var/lib/mount-wrapper/overlays",
+			"/run/mount-wrapper",
+		} {
+			e.dirs[p] = true
+			e.exists[p] = true
+			e.writable[p] = true
+		}
+		return e
+	}
+
+	cache := "/var/lib/mount-wrapper/nonsolid-cache"
+	acOut := "/var/lib/mount-wrapper/converted"
+
+	cases := []struct {
+		name              string
+		raw               map[string]any
+		setup             func(e *testEnv)
+		wantConvert       bool // convert_cache_dir present
+		wantConvertOK     bool
+		wantConvertSev    string
+		wantConvertSubstr string
+		wantAC            bool // path.archiveconverter_output_dir present
+		wantACOK          bool
+		wantACSev         string
+	}{
+		{
+			name: "convert_off_skips",
+			raw: map[string]any{
+				"convert_7z_nonsolid": false,
+				"convert_zip_to_7z":   false,
+			},
+			wantConvert: false,
+			wantAC:      false,
+		},
+		{
+			name: "nonsolid_cache_exists",
+			raw: map[string]any{
+				"convert_7z_nonsolid": true,
+				"convert_7z_cache_dir": cache,
+			},
+			setup: func(e *testEnv) {
+				e.dirs[cache] = true
+				e.exists[cache] = true
+				e.writable[cache] = true
+			},
+			wantConvert:       true,
+			wantConvertOK:     true,
+			wantConvertSev:    doctor.SeverityInfo,
+			wantConvertSubstr: "exists",
+		},
+		{
+			name: "zip_to_7z_parent_writable",
+			raw: map[string]any{
+				"convert_zip_to_7z":    true,
+				"convert_7z_cache_dir": cache,
+			},
+			setup: func(e *testEnv) {
+				// cache missing; parent writable → info
+				parent := "/var/lib/mount-wrapper"
+				e.dirs[parent] = true
+				e.exists[parent] = true
+				e.writable[parent] = true
+			},
+			wantConvert:       true,
+			wantConvertOK:     true,
+			wantConvertSev:    doctor.SeverityInfo,
+			wantConvertSubstr: "parent writable",
+		},
+		{
+			name: "nonsolid_parent_not_writable",
+			raw: map[string]any{
+				"convert_7z_nonsolid":  true,
+				"convert_7z_cache_dir": cache,
+			},
+			setup: func(e *testEnv) {
+				parent := "/var/lib/mount-wrapper"
+				e.dirs[parent] = true
+				e.exists[parent] = true
+				e.writable[parent] = false
+			},
+			wantConvert:       true,
+			wantConvertOK:     false,
+			wantConvertSev:    doctor.SeverityWarn,
+			wantConvertSubstr: "parent not writable",
+		},
+		{
+			name: "archiveconverter_output_missing_parent",
+			raw: map[string]any{
+				// convert_zip_to_7z defaults true — disable so only AC path is probed.
+				"convert_7z_nonsolid":         false,
+				"convert_zip_to_7z":           false,
+				"archiveconverter_enabled":    true,
+				"archiveconverter_bin":        "/usr/bin/archiveconverter",
+				"archiveconverter_output_dir": acOut,
+			},
+			setup: func(e *testEnv) {
+				e.setExec("/usr/bin/archiveconverter", "ac 1", "")
+				// neither out nor parent writable/present beyond defaults
+			},
+			wantConvert: false,
+			wantAC:      true,
+			wantACOK:    false,
+			wantACSev:   doctor.SeverityWarn,
+		},
+		{
+			name: "archiveconverter_output_ok",
+			raw: map[string]any{
+				"convert_7z_nonsolid":         false,
+				"convert_zip_to_7z":           false,
+				"archiveconverter_enabled":    true,
+				"archiveconverter_bin":        "/usr/bin/archiveconverter",
+				"archiveconverter_output_dir": acOut,
+			},
+			setup: func(e *testEnv) {
+				e.setExec("/usr/bin/archiveconverter", "ac 1", "")
+				e.dirs[acOut] = true
+				e.exists[acOut] = true
+				e.writable[acOut] = true
+			},
+			wantConvert: false,
+			wantAC:      true,
+			wantACOK:    true,
+			wantACSev:   doctor.SeverityInfo,
+		},
+		{
+			name: "both_features",
+			raw: map[string]any{
+				"convert_7z_nonsolid":         true,
+				"convert_zip_to_7z":           true,
+				"convert_7z_cache_dir":        cache,
+				"archiveconverter_enabled":    true,
+				"archiveconverter_bin":        "/usr/bin/archiveconverter",
+				"archiveconverter_output_dir": acOut,
+			},
+			setup: func(e *testEnv) {
+				e.setExec("/usr/bin/archiveconverter", "ac 1", "")
+				e.dirs[cache] = true
+				e.exists[cache] = true
+				e.writable[cache] = true
+				e.dirs[acOut] = true
+				e.exists[acOut] = true
+				e.writable[acOut] = true
+			},
+			wantConvert:       true,
+			wantConvertOK:     true,
+			wantConvertSev:    doctor.SeverityInfo,
+			wantConvertSubstr: "exists",
+			wantAC:            true,
+			wantACOK:          true,
+			wantACSev:         doctor.SeverityInfo,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := baseEnv()
+			if tc.setup != nil {
+				tc.setup(e)
+			}
+			cfg := mustCfg(t, tc.raw, "")
+			r := doctor.Run(e.opts(cfg))
+
+			cc := checkByName(r, "convert_cache_dir")
+			if tc.wantConvert {
+				if cc.Name == "" {
+					t.Fatal("missing convert_cache_dir")
+				}
+				if cc.OK != tc.wantConvertOK || cc.Severity != tc.wantConvertSev {
+					t.Fatalf("convert_cache_dir ok=%v sev=%q want %v/%q msg=%q",
+						cc.OK, cc.Severity, tc.wantConvertOK, tc.wantConvertSev, cc.Message)
+				}
+				if tc.wantConvertSubstr != "" && !strings.Contains(cc.Message, tc.wantConvertSubstr) {
+					t.Fatalf("convert message %q missing %q", cc.Message, tc.wantConvertSubstr)
+				}
+			} else if cc.Name != "" {
+				t.Fatalf("unexpected convert_cache_dir: %+v", cc)
+			}
+
+			ac := checkByName(r, "path.archiveconverter_output_dir")
+			if tc.wantAC {
+				if ac.Name == "" {
+					t.Fatal("missing path.archiveconverter_output_dir")
+				}
+				if ac.OK != tc.wantACOK || ac.Severity != tc.wantACSev {
+					t.Fatalf("ac output ok=%v sev=%q want %v/%q msg=%q",
+						ac.OK, ac.Severity, tc.wantACOK, tc.wantACSev, ac.Message)
+				}
+			} else if ac.Name != "" {
+				t.Fatalf("unexpected ac output check: %+v", ac)
+			}
+		})
+	}
+}
+
+func TestControlSocketPathLength(t *testing.T) {
+	t.Parallel()
+
+	baseEnv := func(plat string) *testEnv {
+		e := newEnv()
+		e.platform = plat
+		if plat == "darwin" {
+			e.exists["/Library/Filesystems/macfuse.fs"] = true
+			e.which["umount"] = "/usr/bin/umount"
+		} else {
+			e.exists["/dev/fuse"] = true
+			e.which["fusermount3"] = "/bin/fusermount3"
+			e.users["mount-wrapper"] = true
+		}
+		e.setExec("/bin/ratarmount-rs", "v1", "")
+		e.which["ratarmount-rs"] = "/bin/ratarmount-rs"
+		for _, p := range []string{
+			"/var/lib/mount-wrapper/mounts",
+			"/var/lib/mount-wrapper/indexes",
+			"/var/lib/mount-wrapper/overlays",
+			"/run/mount-wrapper",
+			"/tmp",
+		} {
+			e.dirs[p] = true
+			e.exists[p] = true
+			e.writable[p] = true
+		}
+		return e
+	}
+
+	// Path length 110 (> darwinSunPathWarnLen 100).
+	longSock := "/tmp/" + strings.Repeat("a", 100) + ".sock"
+
+	cases := []struct {
+		name       string
+		plat       string
+		socket     string
+		wantPresent bool
+		wantOK     bool
+		wantSev    string
+		wantSubstr string
+	}{
+		{
+			name:        "linux_skipped",
+			plat:        "linux",
+			socket:      longSock,
+			wantPresent: false,
+		},
+		{
+			name:        "darwin_short_ok",
+			plat:        "darwin",
+			socket:      "/tmp/mw-control.sock",
+			wantPresent: true,
+			wantOK:      true,
+			wantSev:     doctor.SeverityInfo,
+			wantSubstr:  "within macOS sun_path",
+		},
+		{
+			name:        "darwin_long_warn",
+			plat:        "darwin",
+			socket:      longSock,
+			wantPresent: true,
+			wantOK:      false,
+			wantSev:     doctor.SeverityWarn,
+			wantSubstr:  "sun_path",
+		},
+		{
+			name:        "darwin_empty_info",
+			plat:        "darwin",
+			socket:      "",
+			wantPresent: true,
+			wantOK:      true,
+			wantSev:     doctor.SeverityInfo,
+			wantSubstr:  "empty",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := baseEnv(tc.plat)
+			raw := map[string]any{}
+			if tc.socket != "" {
+				raw["control_socket"] = tc.socket
+				// Parent of long sock for path.control_socket_dir
+				parent := filepath.Dir(tc.socket)
+				e.dirs[parent] = true
+				e.exists[parent] = true
+				e.writable[parent] = true
+			}
+			cfg := mustCfg(t, raw, "")
+			// Empty socket in raw leaves default control socket from FromMap —
+			// force empty when testing empty case.
+			if tc.socket == "" {
+				cfg.ControlSocket = ""
+			}
+			r := doctor.Run(e.opts(cfg))
+			c := checkByName(r, "control_socket_path_length")
+			if !tc.wantPresent {
+				if c.Name != "" {
+					t.Fatalf("unexpected check on %s: %+v", tc.plat, c)
+				}
+				return
+			}
+			if c.Name == "" {
+				t.Fatal("missing control_socket_path_length")
+			}
+			if c.OK != tc.wantOK || c.Severity != tc.wantSev {
+				t.Fatalf("ok=%v sev=%q want %v/%q msg=%q details=%v",
+					c.OK, c.Severity, tc.wantOK, tc.wantSev, c.Message, c.Details)
+			}
+			if tc.wantSubstr != "" && !strings.Contains(c.Message, tc.wantSubstr) {
+				t.Fatalf("message %q missing %q", c.Message, tc.wantSubstr)
+			}
+			if tc.wantSev == doctor.SeverityWarn {
+				if doctor.HardFail(r.Checks) {
+					t.Fatalf("warn should not hard-fail: %s", doctor.FormatText(r))
+				}
+			}
+		})
+	}
+}

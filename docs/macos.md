@@ -60,6 +60,10 @@ socket under a short path such as:
 Avoid deep nested Application Support paths for the socket. If bind fails with
 “filename too long” / invalid argument, shorten `control_socket`.
 
+`mount-wrapper doctor` emits check **`control_socket_path_length`** on Darwin:
+**warn** when `len(control_socket) > 100` (soft margin under the ~104 sun_path
+limit). Severity is warn only (report still OK).
+
 Unit tests that bind real Unix sockets use
 `internal/testutil.ShortUnixSocketPath` (short `/tmp` dir on Darwin) so
 CI under long `/var/folders/...` temp paths stays green.
@@ -85,37 +89,49 @@ launchctl load "$HOME/Library/LaunchAgents/com.hilather.mount-wrapper.plist"
 
 ### Homebrew formula sketch
 
-Formula example (not a published tap):
+Formula example (not a published tap; **sketch is usable** after filling digests):
 [`packaging/homebrew/mount-wrapper.rb.example`](../packaging/homebrew/mount-wrapper.rb.example).
 
-Installs the **prebuilt** GitHub Release tarball:
+Installs the **prebuilt** GitHub Release tarball (GoReleaser names, version **0.1.1**
+placeholder in the sketch):
 
 ```text
 mount-wrapper_#{version}_darwin_arm64.tar.gz   # Apple Silicon
 mount-wrapper_#{version}_darwin_amd64.tar.gz   # Intel
+# e.g. mount-wrapper_0.1.1_darwin_arm64.tar.gz
 ```
 
-Local install after editing `version` + `sha256` (from release `SHA256SUMS`):
+Fill `version` + both `sha256` lines from release `SHA256SUMS` (or snapshot):
 
 ```bash
-cp packaging/homebrew/mount-wrapper.rb.example packaging/homebrew/mount-wrapper.rb
-# set version and platform sha256
+# From a release/snapshot that produced dist/SHA256SUMS:
+VERSION=0.1.1 SHA256SUMS=dist/SHA256SUMS \
+  OUT=packaging/homebrew/mount-wrapper.rb \
+  ./scripts/update-homebrew-formula.sh
+
 brew install --formula ./packaging/homebrew/mount-wrapper.rb
 ```
 
-**macFUSE** is a cask/system extension — allow it in System Settings; the formula
-does not hard-require the cask. Engines (`ratarmount-rs`, etc.) stay external.
+Manual path: copy the `.example`, set `version` and replace
+`REPLACE_ME_DARWIN_{ARM64,AMD64}`, then `brew install --formula …`.
 
-After install, seed config under Application Support (see formula `caveats`):
+**macFUSE** is a cask/system extension — allow it in System Settings; the formula
+does not hard-require the cask. Engines stay external: **ratarmount-rs only**
+(`mount_backend: rust`; Python ratarmount is not supported).
+
+After install, seed config under Application Support (see formula `caveats`).
+Keep `control_socket` short under Caches (`sun_path` ~104 bytes):
 
 ```bash
 mkdir -p "$HOME/Library/Application Support/mount-wrapper"/{mounts,indexes,overlays,hooks.d}
 mkdir -p "$HOME/Library/Caches/mount-wrapper/run" "$HOME/Library/Logs/mount-wrapper"
 cp "$(brew --prefix)/share/mount-wrapper/config.yaml.macos.example" \
   "$HOME/Library/Application Support/mount-wrapper/config.yaml"
+# control_socket: ~/Library/Caches/mount-wrapper/run/control.sock
 ```
 
-Full install steps: [install.md](./install.md).
+Full install steps: [install.md](./install.md). Automated **tap** publish is still
+residual ([parity.md](./parity.md)).
 
 ---
 

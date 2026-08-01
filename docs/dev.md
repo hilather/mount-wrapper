@@ -79,6 +79,11 @@ make build
      Smoke starts **Vite only** (no mount-wrapper daemon), mocks `/api/*` via
      `page.route` (`web/e2e/helpers.ts`):
      - Archives shell: health/status/archives/events → heading + connection badge
+       (`web/e2e/smoke.spec.ts`)
+     - Archives table + actions: non-empty mounted/`mount_failed` rows; Retry /
+       Unmount / Purge / Rescan / Unmount-all POSTs + confirm + toasts
+       (`web/e2e/archives.spec.ts`)
+     - Doctor panel: `GET /api/doctor` → check names (`web/e2e/doctor.spec.ts`)
      - Settings: `GET`/`POST /api/config` → Sources/Paths groups, Validate dry-run,
        Apply success (`web/e2e/settings.spec.ts`)
      Without `RUN_E2E=1`, `npm run test:e2e` exits 0 (skip) so offline/main CI stay green.

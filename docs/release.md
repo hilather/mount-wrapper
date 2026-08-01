@@ -119,10 +119,25 @@ To exercise packaging without publishing:
 - Actions → **release** → **Run workflow** with `snapshot: true` (default), or
 - Locally: `make release-snapshot`
 
+## Optional: refresh Homebrew formula digests
+
+After `dist/SHA256SUMS` exists (snapshot or real release assets):
+
+```bash
+VERSION=0.1.1 SHA256SUMS=dist/SHA256SUMS \
+  OUT=packaging/homebrew/mount-wrapper.rb \
+  ./scripts/update-homebrew-formula.sh
+# Local only — do not commit real digests unless publishing a tap:
+# brew install --formula ./packaging/homebrew/mount-wrapper.rb
+```
+
+The in-tree sketch keeps `REPLACE_ME_DARWIN_*` placeholders; the script rewrites
+`version` + both darwin `sha256` lines. CI does **not** run `brew install`.
+
 ## Residual / not part of the tag flow
 
-- Homebrew: formula is a sketch (`packaging/homebrew/…`); no automated tap
-  publish
+- Homebrew **tap** automation (formula sketch is usable with
+  `scripts/update-homebrew-formula.sh`; no tap publish yet)
 - Dual goreleaser **musl** artifact matrix (optional D7 path is local/CI only)
 - macFUSE real-mount CI (local/manual; see [macos.md](./macos.md))
 

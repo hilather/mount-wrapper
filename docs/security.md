@@ -74,6 +74,11 @@ intent; **set a token** if:
 Non-empty token: `Authorization: Bearer <token>` or `?token=` on GET (SSE /
 browser convenience).
 
+**Doctor:** `mount-wrapper doctor` / `GET /api/doctor` includes check
+`web_bind_security`: when `web_enabled` is true, `web_host` is non-loopback,
+and `web_token` is empty → **severity warn** (does not hard-fail the report).
+Loopback binds without a token are OK.
+
 **Destructive POST rate limits:** `purge`, `unmount` with `all: true`, and
 `rescan` are limited per client IP (default **2s** min interval). Exceeding
 returns HTTP **429** with `code: RATE_LIMITED`. Single-archive unmount / retry
@@ -133,12 +138,14 @@ engine protocol, not the hook env contract.
 ## Operator checklist
 
 1. Keep `web_host` on loopback unless you have network ACLs **and** a strong
-   `web_token`.
+   `web_token`. Run `mount-wrapper doctor` and fix `web_bind_security` if it warns.
 2. Leave `MOUNT_WRAPPER_CONTROL_ALLOW_UNAUTH` unset (or `0`) in production.
 3. Install hooks only as root-owned, non-writable scripts under `hooks.d`.
 4. Restrict who is in group `mount-wrapper` (socket clients).
 5. Treat the control socket and API as equivalent to shell access for mount
    lifecycle operations.
+6. On macOS, keep `control_socket` short (doctor `control_socket_path_length`
+   warns above ~100 bytes; see [macos.md](./macos.md)).
 
 ---
 

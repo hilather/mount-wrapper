@@ -209,7 +209,7 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 | Package | Responsibility |
 |---------|----------------|
 | `internal/service` | Daemon lifecycle: pidfile flock, service dirs, boot remount, control socket, inotify hint, signal stop/reload, single-threaded `Tick`, `HandleRequest` control map, status payload via `internal/status` |
-| `internal/doctor` | Offline environment diagnostics: host/WSL/FUSE/unmount tool, `user_allow_other`, Go + ratarmount(-rs) + archiveconverter + 7z bins, service paths/source dirs, index DrvFs layout, free-space, peercred/control socket notes, systemd PID1 + drop-in generation, service-user messaging |
+| `internal/doctor` | Offline environment diagnostics: host/WSL/FUSE/unmount tool, `user_allow_other`, Go + ratarmount(-rs) + archiveconverter + 7z bins, service paths/source dirs, index DrvFs layout, free-space, peercred/control socket notes, **`web_bind_security`** (non-loopback + empty `web_token` → warn), **`convert_cache_dir`** / archiveconverter output writability when convert features are on, Darwin **`control_socket_path_length`** (~100-byte sun_path warn), systemd PID1 + drop-in generation, service-user messaging |
 
 **CLI:** `mount-wrapper serve [--config] [--once] [--allow-unauth]` plus socket-backed ops (Phase 7.2).
 
@@ -217,7 +217,9 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 
 **Doctor API:** `Run(Options) *Report` with injectable probes. Formatters: `FormatText`, `FormatJSON`, `Report.ToMap`. Systemd: `BuildSystemdDropin` / `ApplyFixSystemd`.
 
-**Hard fail:** only `severity=error` + `ok=false`. Missing optional tools / FUSE are **warn**.
+**Hard fail:** only `severity=error` + `ok=false`. Missing optional tools / FUSE / open non-loopback web bind / convert cache path issues are **warn** (report still `ok: true`).
+
+**Doctor check names (config-dependent extras):** `web_bind_security`, `convert_cache_dir` (when `convert_7z_nonsolid` or `convert_zip_to_7z`), `path.archiveconverter_output_dir` (when `archiveconverter_enabled`), `control_socket_path_length` (Darwin only).
 
 **Wired:** CLI `doctor`, `GET /api/doctor` (Phase 9). SPA doctor panel still Phase 10.
 

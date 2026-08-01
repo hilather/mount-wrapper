@@ -506,7 +506,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 ### 11.3 macOS
 
 - [x] launchd user agent plist example
-- [x] Homebrew formula sketch — release tarball `mount-wrapper_#{version}_darwin_#{arch}.tar.gz`, macFUSE caveats, Application Support config path (`packaging/homebrew/mount-wrapper.rb.example`; not a published tap)
+- [x] Homebrew formula sketch — release tarball `mount-wrapper_#{version}_darwin_{arm64,amd64}.tar.gz` (v0.1.1 sketch), macFUSE caveats, ratarmount-rs only, Application Support config + Caches control socket (`packaging/homebrew/mount-wrapper.rb.example` + `scripts/update-homebrew-formula.sh`); not a published tap
 - [x] Document macFUSE permission prompts (`docs/macos.md`, `docs/install.md`)
 - [x] Socket path length limits under Caches
 - [x] Friend-test checklist (port from upstream `docs/macos.md`)
