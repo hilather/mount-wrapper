@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Package content inventory smoke:** `scripts/smoke-package-contents.sh` builds a
+  `.deb` via `packaging/nfpm.yaml` and asserts required paths with `dpkg-deb -c`
+  (binary, systemd unit, config example, `seed-config.sh`, `create-user.sh`, man
+  page). Soft-skips when `nfpm`/`dpkg-deb` missing; `REQUIRE_TOOLS=1` for CI.
+  Makefile targets `smoke-package` / `package-contents-smoke`; Go test
+  `TestPackageContentsInventory` skips without tools; `smoke.yml` job
+  **package-contents-smoke** installs nfpm. Standalone `nfpm.yaml` aligned with
+  goreleaser for `config.debug.yaml.example` + `LICENSE`.
+- **OpenAPI response schemas (hand-written, D11):** `docs/openapi.yaml` bumped to
+  **0.1.2** with `components.schemas` for Health, Status, Archive, Metrics,
+  Config, Doctor, Hooks, WSLInfo, ErrorBody, and shared 401/429 (`RATE_LIMITED`)
+  responses; path 200s use `$ref` / content schemas (not description-only).
+  Guard: `TestOpenAPIDocument` (`internal/api`). SPA client **codegen** still
+  residual — operators/agents use the YAML + hand-written TS types.
+- **Doctor check-name / severity inventory freeze:** `internal/doctor/inventory.go`
+  exports `CoreCheckNames` and gated `CheckName*` constants (keep in sync with
+  `Run`). `TestDoctorCheckInventory` asserts always-on order, config/platform
+  gating (`web_bind_security`, `convert_cache_dir`,
+  `path.archiveconverter_output_dir`, Darwin `control_socket_path_length`), and
+  that new probes **warn** without hard-failing the report. SPA e2e
+  `MOCK_DOCTOR_REPORT` uses real check IDs (`ratarmount_bin`, `disk.index_dir`).
+  Docs: `docs/architecture.md` inventory table.
 - **Doctor security / convert / Darwin path checks:**
   - `web_bind_security` — when `web_enabled` and `web_host` is non-loopback with
     empty `web_token`, **warn** (not hard-fail); loopback may omit the token.

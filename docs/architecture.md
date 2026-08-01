@@ -215,13 +215,22 @@ Age is mtime-based (not tied to source archive presence). Cache keys are content
 
 **Still deferred:** real FUSE CI; stream-flatten; full solid-folder parse (CLI probe only).
 
-**Doctor API:** `Run(Options) *Report` with injectable probes. Formatters: `FormatText`, `FormatJSON`, `Report.ToMap`. Systemd: `BuildSystemdDropin` / `ApplyFixSystemd`.
+**Doctor API:** `Run(Options) *Report` with injectable probes. Formatters: `FormatText`, `FormatJSON`, `Report.ToMap`. Systemd: `BuildSystemdDropin` / `ApplyFixSystemd`. Inventory contract: `CoreCheckNames` + `CheckName*` in `internal/doctor/inventory.go` (frozen by `TestDoctorCheckInventory`).
 
-**Hard fail:** only `severity=error` + `ok=false`. Missing optional tools / FUSE / open non-loopback web bind / convert cache path issues are **warn** (report still `ok: true`).
+**Hard fail:** only `severity=error` + `ok=false`. Missing optional tools / FUSE / open non-loopback web bind / convert cache path issues / long Darwin control socket are **warn** (report still `ok: true`).
 
-**Doctor check names (config-dependent extras):** `web_bind_security`, `convert_cache_dir` (when `convert_7z_nonsolid` or `convert_zip_to_7z`), `path.archiveconverter_output_dir` (when `archiveconverter_enabled`), `control_socket_path_length` (Darwin only).
+**Doctor check inventory (Run order):**
 
-**Wired:** CLI `doctor`, `GET /api/doctor` (Phase 9). SPA doctor panel still Phase 10.
+| When | Check names |
+|------|-------------|
+| Always (no config required) | `go_version`, `host_platform`, `peercred`, `fuse_device`, `fusermount`, `user_allow_other`, `ratarmount_bin`, `archiveconverter`, `sevenzip_bin`, `mount_backend`, `systemd_pid1`, `service_user` |
+| Config present | `path.mount_root`, `path.index_dir`, `path.overlay_dir`, `path.control_socket_dir` (if socket set), `source_dirs` / `source_dirs[i]`, `index_layout`, `disk.*` (mount/index/overlay; deduped), **`web_bind_security`**, **`config`** |
+| Convert on (`convert_7z_nonsolid` or `convert_zip_to_7z`) | **`convert_cache_dir`** |
+| `archiveconverter_enabled` + output dir set | **`path.archiveconverter_output_dir`** |
+| Darwin + config | **`control_socket_path_length`** (~100-byte sun_path warn) |
+| `--fix-systemd` | **`fix_systemd`** |
+
+**Wired:** CLI `doctor`, `GET /api/doctor` (Phase 9). SPA doctor panel (Phase 10) consumes these names; e2e mock in `web/e2e/helpers.ts` uses the same IDs.
 
 ### Phase 9 — HTTP API + SSE
 

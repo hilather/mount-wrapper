@@ -35,14 +35,16 @@ Binary smoke (no FUSE; works on Ubuntu host, Rocky 8 via container, and macOS):
 
 ```bash
 make smoke
+make smoke-package     # nfpm deb content inventory (soft-skip without nfpm/dpkg-deb)
 make smoke-rocky        # docker/podman + rockylinux:8
 make smoke-musl         # Alpine musl/static build + smoke (optional D7 path)
 # On macOS (or anywhere with a built binary): ./scripts/smoke-binary.sh
 ```
 
 GitHub Actions: Ubuntu + **macOS** unit/smoke in [`ci.yml`](../.github/workflows/ci.yml)
-(`macos-unit-smoke` — no macFUSE); Rocky 8 + **`musl-static-smoke`** in
-[`smoke.yml`](../.github/workflows/smoke.yml). Real FUSE is not default CI.
+(`macos-unit-smoke` — no macFUSE); Rocky 8 + **`package-contents-smoke`** +
+**`musl-static-smoke`** in [`smoke.yml`](../.github/workflows/smoke.yml). Real
+FUSE is not default CI.
 
 Field-test checklist: [field-test.md](./field-test.md). Changelog: [CHANGELOG.md](../CHANGELOG.md).
 Cutting a release: [release.md](./release.md).
@@ -338,9 +340,36 @@ make build
 VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p deb
 ```
 
+**Content inventory smoke** (no root install; asserts paths inside the `.deb`):
+
+```bash
+# Needs nfpm + dpkg-deb. Soft-skips (exit 0) if either is missing.
+make smoke-package
+# CI / hard fail when tools should be present:
+REQUIRE_TOOLS=1 ./scripts/smoke-package-contents.sh --build
+```
+
+Required deb members checked by
+[`scripts/smoke-package-contents.sh`](../scripts/smoke-package-contents.sh):
+
+| Path | Role |
+|------|------|
+| `/usr/bin/mount-wrapper` | binary |
+| `/lib/systemd/system/mount-wrapper.service` | unit |
+| `/usr/share/mount-wrapper/config.yaml.example` | config example |
+| `/usr/share/mount-wrapper/seed-config.sh` | first-install seed |
+| `/usr/share/mount-wrapper/create-user.sh` | service user/dirs |
+| `/usr/share/man/man1/mount-wrapper.1` | man page |
+
+Optional tar check: `CHECK_TAR=1` or `PACKAGE_TAR=dist/…_linux_amd64.tar.gz`
+(relative members under `packaging/…`). CI job **package-contents-smoke** in
+[`smoke.yml`](../.github/workflows/smoke.yml) installs nfpm and runs the script
+with `REQUIRE_TOOLS=1`.
+
 [`packaging/nfpm.yaml`](../packaging/nfpm.yaml) ships the binary, unit, man page,
-examples, `create-user.sh`, and `seed-config.sh`. On **first install**, postinstall
-seeds `/etc/mount-wrapper/config.yaml` from
+examples (including `config.debug.yaml.example`), `LICENSE`, `create-user.sh`, and
+`seed-config.sh` (aligned with `.goreleaser.yaml` nfpms contents). On **first
+install**, postinstall seeds `/etc/mount-wrapper/config.yaml` from
 `/usr/share/mount-wrapper/config.yaml.example` when the dest is missing
 (`packaging/scripts/seed-config.sh`, mode `0640`, best-effort `root:mount-wrapper`).
 **Never overwrites** an existing operator config on upgrade or reinstall.
@@ -362,6 +391,7 @@ sha256sum -c SHA256SUMS
 - Automated Homebrew **tap** publish (formula sketch + `scripts/update-homebrew-formula.sh` are usable locally; deb/rpm + musl tarballs already publish on `v*` via `release.yml`)  
 - macOS CI with **macFUSE** (default CI is unit + binary smoke only; see [dev.md](./dev.md))  
 - Notarized macOS app / automatic macFUSE install  
+- Default package-contents smoke is **deb-only** (`packaging/nfpm.yaml`); tar member checks need `CHECK_TAR=1` / `PACKAGE_TAR=` after a fresh `release-snapshot` (stale `dist/` archives may predate new files such as `seed-config.sh`)
 
 ---
 

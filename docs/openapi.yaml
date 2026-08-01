@@ -1,86 +1,206 @@
-# Hand-written OpenAPI 3 sketch for mount-wrapper HTTP API (D11: not generated).
-# Implementation: internal/api. Source of truth remains code + SPA types (web/src/lib/types.ts).
+# Hand-written OpenAPI 3 for mount-wrapper HTTP API (D11: NOT codegen).
+# Implementation: internal/api. Schemas aligned with web/src/lib/types.ts,
+# internal/status, internal/metrics, internal/doctor, and handler payloads.
+# Residual: SPA client is still hand-written TS (api-types.ts); codegen optional later.
 openapi: 3.0.3
 info:
   title: mount-wrapper HTTP API
-  version: 0.1.1
+  version: 0.1.2
   description: |
     Embedded operator API served by `mount-wrapper serve` when `web_enabled: true`.
-    Default bind `127.0.0.1:8787`. Optional Bearer token (`web_token`) or `?token=`.
+    Default bind `127.0.0.1:8787`. Optional Bearer token (`web_token`) or `?token=` on GET.
+
+    **Auth:** When `web_token` is non-empty, `/api/*` requires `Authorization: Bearer <token>`
+    or `?token=` (GET-friendly). Empty token → open (loopback default).
+
+    **Rate limits:** POST `/api/purge`, `/api/unmount` with `all: true`, and `/api/rescan`
+    use a per-client-IP min interval (default 2s). Excess → HTTP 429 with `code: RATE_LIMITED`.
+
+    **Control unwrap:** Success responses are the control-plane `data` object (not wrapped in
+    `{ok,data}`). Failures are `{error, code}` (`ErrorBody`).
+
+    **SSE** (`GET /api/events`): `text/event-stream` with named events (see path notes).
 servers:
   - url: http://127.0.0.1:8787
     description: Default loopback
+tags:
+  - name: health
+  - name: status
+  - name: archives
+  - name: metrics
+  - name: config
+  - name: actions
+  - name: hooks
+  - name: doctor
+  - name: wsl
+  - name: events
+  - name: prometheus
 paths:
   /api/health:
     get:
+      tags: [health]
       summary: Health / version
+      description: In-process health; probes control status for service reachability.
       security: [{ bearerAuth: [] }, {}]
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/status:
     get:
+      tags: [status]
       summary: Status payload (counts, archives, progress)
+      description: |
+        Full status document from the control `status` op.
+        Optional `include_sizes=1|true` merges per-archive metrics + `metrics_summary`.
       security: [{ bearerAuth: [] }, {}]
+      parameters:
+        - name: include_sizes
+          in: query
+          schema:
+            type: string
+            enum: ["1", "true"]
+          description: When set, same as GET /api/status/sizes.
       responses:
         "200":
           description: Status map
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
   /api/status/sizes:
     get:
+      tags: [status]
       summary: Status with include_sizes metrics merge
       security: [{ bearerAuth: [] }, {}]
       responses:
         "200":
           description: Status + sizes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
   /api/archives:
     get:
-      summary: Archives list (status merge)
+      tags: [archives]
+      summary: Archives list (status + metrics merge)
+      description: Status archives rows with per-archive `metrics` attached from metrics op.
       security: [{ bearerAuth: [] }, {}]
       responses:
         "200":
           description: Archives + counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchivesPayload"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
   /api/metrics:
     get:
+      tags: [metrics]
       summary: Metrics (optional archive_id, no_cache, prefer_mount)
       security: [{ bearerAuth: [] }, {}]
       parameters:
         - name: archive_id
           in: query
           schema: { type: string }
+          description: When set, returns a single metrics object under `metrics` (no summary list).
         - name: no_cache
           in: query
           schema: { type: boolean }
+          description: Bypass metrics cache when true / 1.
         - name: prefer_mount
           in: query
           schema: { type: boolean }
+          description: Prefer mount walk over index for extracted size.
       responses:
         "200":
           description: Metrics payload
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/MetricsListResponse"
+                  - $ref: "#/components/schemas/MetricsOneResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
   /api/config:
     get:
+      tags: [config]
       summary: Public config snapshot
       security: [{ bearerAuth: [] }, {}]
       responses:
         "200":
           description: Config values + hot/restart keys
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigGetResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
     post:
+      tags: [config]
       summary: Validate or apply config patch
+      description: |
+        Body may be `{config: {...}}` (full), `{patch: {...}}` (shallow merge),
+        or a bare public-config object (treated as full, minus `apply`).
+        `apply` defaults true; set false for dry-run validation.
       security: [{ bearerAuth: [] }, {}]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                config: { type: object }
-                patch: { type: object }
-                apply: { type: boolean }
+              $ref: "#/components/schemas/ConfigSetRequest"
       responses:
         "200":
           description: OK / dry-run result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigSetResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
+
   /api/rescan:
     post:
+      tags: [actions]
       summary: Trigger scan
       security: [{ bearerAuth: [] }, {}]
       requestBody:
@@ -89,31 +209,55 @@ paths:
             schema:
               type: object
               properties:
-                assume_stable: { type: boolean }
+                assume_stable: { type: boolean, default: false }
       responses:
         "200":
-          description: Queued/ran
+          description: Scan summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RescanResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
         "429":
-          description: Rate limited
+          $ref: "#/components/responses/RateLimited"
+
   /api/unmount:
     post:
+      tags: [actions]
       summary: Unmount one or all
+      description: |
+        Provide `target` (archive_id or path), `archive_id`, or `all: true`.
+        `all: true` is rate-limited; single-target unmount is not.
       security: [{ bearerAuth: [] }, {}]
       requestBody:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                target: { type: string }
-                all: { type: boolean }
+              $ref: "#/components/schemas/UnmountRequest"
       responses:
         "200":
-          description: OK
+          description: "Unmount result (single archive dict or unmounted list)"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Archive"
+                  - $ref: "#/components/schemas/UnmountAllResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
         "429":
-          description: Rate limited (unmount all)
+          $ref: "#/components/responses/RateLimited"
+
   /api/retry:
     post:
+      tags: [actions]
       summary: Reset mount attempts / requeue
       security: [{ bearerAuth: [] }, {}]
       requestBody:
@@ -121,14 +265,28 @@ paths:
           application/json:
             schema:
               type: object
+              required: [archive_id]
               properties:
                 archive_id: { type: string }
       responses:
         "200":
-          description: OK
+          description: Updated archive row
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Archive"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
   /api/purge:
     post:
+      tags: [actions]
       summary: Admin purge
+      description: "Requires yes=true confirmation. Rate-limited per client IP."
       security: [{ bearerAuth: [] }, {}]
       requestBody:
         content:
@@ -141,12 +299,25 @@ paths:
                 yes: { type: boolean }
       responses:
         "200":
-          description: OK
+          description: Purge result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurgeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
         "429":
-          description: Rate limited
+          $ref: "#/components/responses/RateLimited"
+
   /api/hooks:
     get:
+      tags: [hooks]
       summary: Hooks list or status for archive_id
+      description: |
+        Without `archive_id` → discovered hooks.d scripts (`HooksListResponse`).
+        With `archive_id` → per-archive hook rows (`HooksStatusResponse`).
       security: [{ bearerAuth: [] }, {}]
       parameters:
         - name: archive_id
@@ -155,36 +326,589 @@ paths:
       responses:
         "200":
           description: Hooks payload
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/HooksListResponse"
+                  - $ref: "#/components/schemas/HooksStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
   /api/doctor:
     get:
+      tags: [doctor]
       summary: Offline-style doctor report (in-process)
+      description: Does not require control socket; uses in-process config.
       security: [{ bearerAuth: [] }, {}]
       responses:
         "200":
           description: Doctor report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/wsl-info:
     get:
+      tags: [wsl]
       summary: WSL UNC hint
       security: [{ bearerAuth: [] }, {}]
       responses:
         "200":
           description: WSL info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WSLInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/events:
     get:
+      tags: [events]
       summary: SSE live updates
+      description: |
+        `Content-Type: text/event-stream`.
+
+        **Events (name → data schema):**
+
+        | event | data | when |
+        |-------|------|------|
+        | `snapshot` | full status map (`Status` + `ok`) | on connect; every Nth refresh tick for resync |
+        | `counts` | overview counts object | when top-level counts change |
+        | `archive` | `{archives: Archive[], removed_ids?: string[]}` | new/changed/removed rows |
+        | `scan` | scan meta (e.g. `last_scan_at`) | when last scan timestamp changes |
+        | `metrics` | `metrics_summary` object | when include_sizes summary changes |
+        | `low_disk` | `{low_disk: boolean, ...}` | low_disk edge |
+        | `heartbeat` | `{ts: RFC3339}` | heartbeat ticker (+ SSE comment lines) |
+
+        Clients should reconnect with poll fallback if EventSource drops
+        (SPA: `web/src/lib/sse.ts`).
       security: [{ bearerAuth: [] }, {}]
       responses:
         "200":
-          description: text/event-stream
+          description: text/event-stream (SSE)
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE frames (`event:` / `data:` / comments)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Error"
+
   /metrics:
     get:
+      tags: [prometheus]
       summary: Prometheus text exposition
-      description: Open on loopback; token required if bind is non-loopback and web_token set.
+      description: |
+        Hand-written Prometheus text format 0.0.4 (no client_golang).
+        Always registered when the HTTP server is up (`web_enabled`).
+        **Auth:** open on loopback bind; non-loopback requires same token as `/api/*`
+        when `web_token` is set. HEAD allowed.
       responses:
         "200":
           description: Prometheus text
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Prometheus exposition (version 0.0.4)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: Status unavailable (plain text body for scrapers)
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
+      description: web_token value; also accepted as ?token= on GET.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid token when web_token is configured
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error: unauthorized
+            code: UNAUTHORIZED
+    RateLimited:
+      description: Destructive action rate-limited (code RATE_LIMITED)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+          example:
+            error: rate limited; retry after a short delay
+            code: RATE_LIMITED
+    Error:
+      description: Error body (`error` + `code`)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: |
+            Common codes: `UNAUTHORIZED`, `RATE_LIMITED`, `BAD_REQUEST`,
+            `NOT_FOUND`, `CONFIG_ERROR`, `UNAVAILABLE`, `ERROR`, `MOUNT_FAILED`.
+      additionalProperties: true
+
+    Health:
+      type: object
+      properties:
+        ok: { type: boolean }
+        web_version: { type: string }
+        service_reachable: { type: boolean }
+        control_socket: { type: string }
+        bind: { type: string }
+        service_status_code: { type: integer }
+        service_error: {}
+        service_pid: {}
+        service_version: {}
+        pid: { type: integer, description: HTTP process PID }
+        version: { type: string, description: Service/backend version }
+      additionalProperties: true
+
+    Counts:
+      type: object
+      description: Lifecycle status counts (keys match archive status strings).
+      properties:
+        mounted: { type: integer }
+        converting: { type: integer }
+        indexing: { type: integer }
+        mounting: { type: integer }
+        discovered: { type: integer }
+        hooks_running: { type: integer }
+        index_failed: { type: integer }
+        mount_failed: { type: integer }
+        absent: { type: integer }
+        unmounting: { type: integer }
+      additionalProperties:
+        type: integer
+
+    ArchiveMetrics:
+      type: object
+      properties:
+        archive_id: { type: string }
+        archive_path: { type: string }
+        archive_basename: { type: string }
+        status: { type: string }
+        mount_path: { type: string }
+        archive_size_bytes: { type: integer, nullable: true, format: int64 }
+        index_size_bytes: { type: integer, nullable: true, format: int64 }
+        extracted_size_bytes: { type: integer, nullable: true, format: int64 }
+        space_saved_bytes: { type: integer, nullable: true, format: int64 }
+        space_saved_vs_archive_bytes: { type: integer, nullable: true, format: int64 }
+        convert_source_size_bytes: { type: integer, nullable: true, format: int64 }
+        convert_size_delta_bytes: { type: integer, nullable: true, format: int64 }
+        convert_duration_seconds: { type: number, nullable: true }
+        index_path: { type: string }
+        index_present: { type: boolean }
+        extracted_source:
+          type: string
+          description: '"index" | "mount" | ""'
+        error: { type: string }
+      additionalProperties: true
+
+    MetricsSummary:
+      type: object
+      properties:
+        archive_count: { type: integer }
+        archives_with_extracted_size: { type: integer }
+        archives_with_convert_metadata: { type: integer }
+        total_archive_size_bytes: { type: integer, format: int64 }
+        total_index_size_bytes: { type: integer, format: int64 }
+        total_extracted_size_bytes: { type: integer, format: int64 }
+        total_space_saved_bytes: { type: integer, format: int64 }
+        total_convert_source_size_bytes: { type: integer, nullable: true, format: int64 }
+        total_convert_size_delta_bytes: { type: integer, nullable: true, format: int64 }
+        archives_with_convert_duration: { type: integer, nullable: true }
+        max_convert_duration_seconds: { type: number, nullable: true }
+      additionalProperties: true
+
+    MetricsListResponse:
+      type: object
+      properties:
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArchiveMetrics"
+        summary:
+          $ref: "#/components/schemas/MetricsSummary"
+      additionalProperties: true
+
+    MetricsOneResponse:
+      type: object
+      properties:
+        metrics:
+          $ref: "#/components/schemas/ArchiveMetrics"
+      additionalProperties: true
+
+    Archive:
+      type: object
+      description: Archive row (status.ArchiveDict / SPA ArchiveRow).
+      required: [archive_id, archive_path, archive_basename, status]
+      properties:
+        archive_id: { type: string }
+        archive_path: { type: string }
+        archive_basename: { type: string }
+        source_dir: { type: string }
+        status: { type: string }
+        hooks_status: { type: string }
+        mount_path: { type: string, nullable: true }
+        index_path: { type: string, nullable: true }
+        overlay_path: { type: string, nullable: true }
+        mount_pid: { type: integer, nullable: true, format: int64 }
+        mount_attempts: { type: integer }
+        mount_retryable: { type: boolean }
+        fingerprint: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        last_error: { type: string, nullable: true }
+        last_seen_at: { type: string }
+        removed_at: { type: string, nullable: true }
+        first_mounted_at: { type: string, nullable: true }
+        hooks_completed_at: { type: string, nullable: true }
+        index_started_at: { type: string, nullable: true }
+        index_duration_seconds: { type: number, nullable: true }
+        mount_duration_seconds: { type: number, nullable: true }
+        convert_source_size_bytes: { type: integer, nullable: true, format: int64 }
+        convert_duration_seconds: { type: number, nullable: true }
+        source_fs: { type: string }
+        pid_alive: { type: boolean }
+        elapsed_s: { type: number, nullable: true }
+        progress_label: { type: string }
+        live_pid: { type: integer, nullable: true }
+        is_first_index: { type: boolean, nullable: true }
+        mount_phase: { type: string }
+        is_mounted: { type: boolean, nullable: true }
+        metrics:
+          allOf:
+            - $ref: "#/components/schemas/ArchiveMetrics"
+          nullable: true
+      additionalProperties: true
+
+    IndexingJob:
+      type: object
+      properties:
+        archive_id: { type: string }
+        path: { type: string }
+        basename: { type: string }
+        status: { type: string }
+        elapsed_s: { type: number, nullable: true }
+        source_fs: { type: string }
+        mount_pid: { type: integer, nullable: true, format: int64 }
+        pid_alive: { type: boolean }
+        live_pid: { type: integer, nullable: true }
+        mount_phase: { type: string }
+        progress_label: { type: string }
+      additionalProperties: true
+
+    ErrorEntry:
+      type: object
+      properties:
+        archive_id: { type: string }
+        basename: { type: string }
+        path: { type: string }
+        status: { type: string }
+        mount_attempts: { type: integer }
+        mount_retryable: { type: boolean }
+        last_error: { type: string, nullable: true }
+        stuck: { type: boolean }
+      additionalProperties: true
+
+    Status:
+      type: object
+      description: |
+        Full status document (internal/status.Payload). SSE snapshot adds `ok: true`.
+        With include_sizes, may include `metrics_summary` and per-archive `metrics`.
+      properties:
+        ok: { type: boolean, description: Present on SSE snapshot / SPA StatusSnapshot }
+        version: { type: string }
+        pid: { type: integer }
+        config_path: { type: string }
+        mounted: { type: integer }
+        indexing: { type: integer }
+        mounting: { type: integer }
+        absent: { type: integer }
+        mount_failed: { type: integer }
+        index_failed: { type: integer }
+        discovered: { type: integer }
+        hooks_running: { type: integer }
+        counts:
+          $ref: "#/components/schemas/Counts"
+        indexing_archives:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndexingJob"
+        errors_recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorEntry"
+        last_scan_at: { type: string }
+        last_scan_duration_ms: { type: number, nullable: true }
+        last_scan:
+          type: object
+          additionalProperties: true
+        last_cleanup:
+          type: object
+          additionalProperties: true
+        disk_free_bytes: { type: integer, nullable: true, format: int64 }
+        low_disk: { type: boolean }
+        min_free_bytes: { type: integer }
+        live_mounts:
+          type: array
+          items: { type: string }
+        archives:
+          type: array
+          items:
+            $ref: "#/components/schemas/Archive"
+        generated_at: { type: string }
+        metrics_summary:
+          allOf:
+            - $ref: "#/components/schemas/MetricsSummary"
+          nullable: true
+        error: {}
+      additionalProperties: true
+
+    ArchivesPayload:
+      type: object
+      description: GET /api/archives merge of status + metrics.
+      properties:
+        archives:
+          type: array
+          items:
+            $ref: "#/components/schemas/Archive"
+        summary:
+          allOf:
+            - $ref: "#/components/schemas/MetricsSummary"
+          nullable: true
+        counts:
+          $ref: "#/components/schemas/Counts"
+        mounted: { type: integer }
+        indexing: { type: integer }
+        mounting: { type: integer }
+        discovered: { type: integer }
+        hooks_running: { type: integer }
+        index_failed: { type: integer }
+        mount_failed: { type: integer }
+        absent: { type: integer }
+        converting: { type: integer }
+        version: { type: string }
+        pid: { type: integer }
+        low_disk: { type: boolean }
+        last_scan_at: { type: string }
+        indexing_archives:
+          type: array
+          items: {}
+      additionalProperties: true
+
+    ConfigGetResponse:
+      type: object
+      properties:
+        config:
+          type: object
+          additionalProperties: true
+          description: Public config map (config.ToPublicMap)
+        config_path: { type: string, nullable: true }
+        hot_reload_keys:
+          type: array
+          items: { type: string }
+        restart_required_keys:
+          type: array
+          items: { type: string }
+        unknown_keys:
+          type: array
+          items: { type: string }
+        values:
+          type: object
+          additionalProperties: true
+          description: SPA may alias config under values
+      additionalProperties: true
+
+    ConfigSetRequest:
+      type: object
+      properties:
+        config:
+          type: object
+          additionalProperties: true
+          description: Full public config mapping
+        patch:
+          type: object
+          additionalProperties: true
+          description: Shallow merge onto current public dict
+        apply:
+          type: boolean
+          default: true
+          description: false = dry-run validate only
+      additionalProperties: true
+
+    ConfigSetResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        valid: { type: boolean }
+        apply: { type: boolean }
+        written: { type: boolean }
+        reloaded: { type: boolean }
+        reload_scheduled: { type: boolean }
+        reload_recommended: { type: boolean }
+        reload_error: { type: string }
+        changed_keys:
+          type: array
+          items: { type: string }
+        hot_reloadable:
+          type: array
+          items: { type: string }
+        restart_required:
+          type: array
+          items: { type: string }
+        config:
+          type: object
+          additionalProperties: true
+        config_path: { type: string, nullable: true }
+        error: { type: string }
+      additionalProperties: true
+
+    RescanResponse:
+      type: object
+      properties:
+        duration_ms: { type: number }
+        seen: { type: integer }
+        inserted: { type: integer }
+        reappeared: { type: integer }
+        content_changed: { type: integer }
+        absent: { type: integer }
+        stable: { type: integer }
+        errors:
+          type: array
+          items: { type: string }
+        assume_stable: { type: boolean }
+        finished_at: { type: string }
+        error: { type: string }
+      additionalProperties: true
+
+    UnmountRequest:
+      type: object
+      properties:
+        target: { type: string, description: archive_id or path }
+        archive_id: { type: string, description: Alias for target }
+        all: { type: boolean }
+      additionalProperties: true
+
+    UnmountAllResponse:
+      type: object
+      properties:
+        unmounted:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: true
+
+    PurgeResponse:
+      type: object
+      properties:
+        archive_id: { type: string }
+        index_deleted: { type: boolean }
+        overlay_action: { type: string }
+        mount_cleaned: { type: boolean }
+        status: { type: string }
+      additionalProperties: true
+
+    HookRow:
+      type: object
+      required: [hook_name, status]
+      properties:
+        hook_name: { type: string }
+        status: { type: string }
+        attempts: { type: integer }
+        last_exit_code: { type: integer, nullable: true }
+        last_error: { type: string, nullable: true }
+      additionalProperties: true
+
+    HooksStatusResponse:
+      type: object
+      required: [archive_id]
+      properties:
+        archive_id: { type: string }
+        hooks_status: { type: string }
+        hooks:
+          type: array
+          items:
+            $ref: "#/components/schemas/HookRow"
+      additionalProperties: true
+
+    HooksListResponse:
+      type: object
+      properties:
+        hooks:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              path: { type: string }
+            additionalProperties: true
+      additionalProperties: true
+
+    DoctorCheck:
+      type: object
+      required: [name, ok, message]
+      properties:
+        name: { type: string }
+        ok: { type: boolean }
+        severity:
+          type: string
+          description: info | warn | error
+        message: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+
+    DoctorReport:
+      type: object
+      properties:
+        ok: { type: boolean }
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/DoctorCheck"
+        config_path: { type: string, nullable: true }
+        notes:
+          type: array
+          items: { type: string }
+        fixes_applied:
+          type: array
+          items: { type: string }
+      additionalProperties: true
+
+    WSLInfo:
+      type: object
+      properties:
+        distro_name: { type: string, nullable: true }
+        mount_root: { type: string }
+        unc_mounts: { type: string, nullable: true }
+        hint: { type: string }
+      additionalProperties: true

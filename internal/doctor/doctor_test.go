@@ -164,8 +164,8 @@ func names(r *doctor.Report) map[string]struct{} {
 	return m
 }
 
-func TestDoctorWithoutConfig(t *testing.T) {
-	t.Parallel()
+// inventoryBaseEnv is a healthy baseline for inventory tests (Linux, FUSE, bins).
+func inventoryBaseEnv() *testEnv {
 	e := newEnv()
 	e.exists["/dev/fuse"] = true
 	e.which["fusermount3"] = "/usr/bin/fusermount3"
@@ -173,17 +173,319 @@ func TestDoctorWithoutConfig(t *testing.T) {
 	rm := "/usr/local/bin/ratarmount-rs"
 	e.which["ratarmount-rs"] = rm
 	e.setExec(rm, "ratarmount-rs 0.1.0", "Usage: -f --foreground")
+	for _, p := range []string{
+		"/var/lib/mount-wrapper/mounts",
+		"/var/lib/mount-wrapper/indexes",
+		"/var/lib/mount-wrapper/overlays",
+		"/run/mount-wrapper",
+		"/tmp",
+	} {
+		e.dirs[p] = true
+		e.exists[p] = true
+		e.writable[p] = true
+	}
+	return e
+}
+
+func orderedNames(r *doctor.Report) []string {
+	out := make([]string, 0, len(r.Checks))
+	for _, c := range r.Checks {
+		out = append(out, c.Name)
+	}
+	return out
+}
+
+// TestDoctorCheckInventory freezes check-name inventory, config/platform
+// gating, and the severity contract for newer probes (warn, not hard-fail).
+func TestDoctorCheckInventory(t *testing.T) {
+	t.Parallel()
+
+	// Long Darwin socket (>100 bytes warn threshold).
+	longSock := "/tmp/" + strings.Repeat("x", 100) + ".sock"
+
+	cases := []struct {
+		name string
+		// setup mutates env and returns optional config (nil = no config).
+		setup func(t *testing.T, e *testEnv) *config.Config
+		// required: every name must appear at least once.
+		required []string
+		// requiredPrefix: at least one check name with this prefix.
+		requiredPrefix []string
+		// forbidden: must not appear.
+		forbidden []string
+		// wantOrderPrefix: report names must start with this sequence.
+		wantOrderPrefix []string
+		// check: optional extra assertions on a named check + report.
+		check func(t *testing.T, r *doctor.Report)
+		// wantReportOK: when non-nil, assert r.OK.
+		wantReportOK *bool
+	}{
+		{
+			name: "always_on_no_config",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				return nil
+			},
+			required:        append([]string(nil), doctor.CoreCheckNames...),
+			wantOrderPrefix: append([]string(nil), doctor.CoreCheckNames...),
+			forbidden: []string{
+				doctor.CheckNameWebBindSecurity,
+				doctor.CheckNameConvertCacheDir,
+				doctor.CheckNameArchiveconverterOutputDir,
+				doctor.CheckNameControlSocketPathLength,
+				doctor.CheckNameConfig,
+				doctor.CheckNameIndexLayout,
+				doctor.CheckNameFixSystemd,
+			},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				// No path.* / disk.* / source_dirs without config.
+				for _, c := range r.Checks {
+					if strings.HasPrefix(c.Name, doctor.PathCheckPrefix) ||
+						strings.HasPrefix(c.Name, doctor.DiskCheckPrefix) ||
+						strings.HasPrefix(c.Name, doctor.SourceDirsPrefix) {
+						t.Errorf("unexpected config-dependent check %q without config", c.Name)
+					}
+				}
+				// Core order equals full report when no config.
+				got := orderedNames(r)
+				if len(got) != len(doctor.CoreCheckNames) {
+					t.Fatalf("check count=%d want %d: %v", len(got), len(doctor.CoreCheckNames), got)
+				}
+			},
+		},
+		{
+			name: "config_baseline_linux_convert_off",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				return mustCfg(t, map[string]any{
+					"source_dirs":             []any{"/tmp"},
+					"convert_7z_nonsolid":     false,
+					"convert_zip_to_7z":       false,
+					"archiveconverter_enabled": false,
+					"web_enabled":             false,
+					"control_socket":          "/run/mount-wrapper/control.sock",
+				}, "/tmp/inventory-config.yaml")
+			},
+			required: append(append([]string(nil), doctor.CoreCheckNames...),
+				doctor.CheckNameWebBindSecurity,
+				doctor.CheckNameIndexLayout,
+				doctor.CheckNameConfig,
+				"path.mount_root",
+				"path.index_dir",
+				"path.overlay_dir",
+				"path.control_socket_dir",
+				"source_dirs[0]",
+			),
+			requiredPrefix: []string{doctor.DiskCheckPrefix},
+			wantOrderPrefix: append([]string(nil), doctor.CoreCheckNames...),
+			forbidden: []string{
+				doctor.CheckNameConvertCacheDir,
+				doctor.CheckNameArchiveconverterOutputDir,
+				doctor.CheckNameControlSocketPathLength, // linux
+				doctor.CheckNameFixSystemd,
+			},
+			wantReportOK: boolPtr(true),
+		},
+		{
+			name: "web_non_loopback_empty_token_warn_report_ok",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				return mustCfg(t, map[string]any{
+					"web_enabled":         true,
+					"web_host":            "0.0.0.0",
+					"web_token":           "",
+					"convert_7z_nonsolid": false,
+					"convert_zip_to_7z":   false,
+				}, "")
+			},
+			required: []string{doctor.CheckNameWebBindSecurity},
+			forbidden: []string{
+				doctor.CheckNameConvertCacheDir,
+			},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameWebBindSecurity)
+				if c.Name == "" {
+					t.Fatal("missing web_bind_security")
+				}
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("web_bind_security ok=%v sev=%q want ok=false sev=warn; msg=%q",
+						c.OK, c.Severity, c.Message)
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatalf("web_bind_security must not hard-fail: %s", doctor.FormatText(r))
+				}
+			},
+		},
+		{
+			name: "convert_off_skips_convert_cache_dir",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				return mustCfg(t, map[string]any{
+					"convert_7z_nonsolid": false,
+					"convert_zip_to_7z":   false,
+				}, "")
+			},
+			forbidden: []string{doctor.CheckNameConvertCacheDir},
+			required:  []string{doctor.CheckNameWebBindSecurity},
+		},
+		{
+			name: "convert_on_emits_convert_cache_dir",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				cache := "/var/lib/mount-wrapper/nonsolid-cache"
+				e.dirs[cache] = true
+				e.exists[cache] = true
+				e.writable[cache] = true
+				e.setExec("/usr/bin/7z", "7z 23.0", "")
+				e.which["7z"] = "/usr/bin/7z"
+				return mustCfg(t, map[string]any{
+					"convert_7z_nonsolid":  true,
+					"convert_7z_cache_dir": cache,
+				}, "")
+			},
+			required: []string{doctor.CheckNameConvertCacheDir},
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameConvertCacheDir)
+				if !c.OK || c.Severity != doctor.SeverityInfo {
+					t.Fatalf("convert_cache_dir: %+v", c)
+				}
+			},
+		},
+		{
+			name: "archiveconverter_output_dir_gated",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				out := "/var/lib/mount-wrapper/converted"
+				e.dirs[out] = true
+				e.exists[out] = true
+				e.writable[out] = true
+				e.setExec("/usr/bin/archiveconverter", "ac 1", "")
+				return mustCfg(t, map[string]any{
+					"convert_7z_nonsolid":         false,
+					"convert_zip_to_7z":           false,
+					"archiveconverter_enabled":    true,
+					"archiveconverter_bin":        "/usr/bin/archiveconverter",
+					"archiveconverter_output_dir": out,
+				}, "")
+			},
+			required:  []string{doctor.CheckNameArchiveconverterOutputDir},
+			forbidden: []string{doctor.CheckNameConvertCacheDir},
+		},
+		{
+			name: "darwin_long_socket_warn_not_hard_fail",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				e.platform = "darwin"
+				e.exists["/Library/Filesystems/macfuse.fs"] = true
+				e.which["umount"] = "/usr/bin/umount"
+				// no service user lookup on darwin messaging path
+				parent := filepath.Dir(longSock)
+				e.dirs[parent] = true
+				e.exists[parent] = true
+				e.writable[parent] = true
+				return mustCfg(t, map[string]any{
+					"control_socket": longSock,
+				}, "")
+			},
+			required: []string{doctor.CheckNameControlSocketPathLength},
+			wantReportOK: boolPtr(true),
+			check: func(t *testing.T, r *doctor.Report) {
+				t.Helper()
+				c := checkByName(r, doctor.CheckNameControlSocketPathLength)
+				if c.OK || c.Severity != doctor.SeverityWarn {
+					t.Fatalf("control_socket_path_length ok=%v sev=%q msg=%q",
+						c.OK, c.Severity, c.Message)
+				}
+				if doctor.HardFail(r.Checks) {
+					t.Fatalf("long socket warn must not hard-fail: %s", doctor.FormatText(r))
+				}
+			},
+		},
+		{
+			name: "linux_skips_control_socket_path_length",
+			setup: func(t *testing.T, e *testEnv) *config.Config {
+				t.Helper()
+				return mustCfg(t, map[string]any{
+					"control_socket": longSock,
+				}, "")
+			},
+			forbidden: []string{doctor.CheckNameControlSocketPathLength},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := inventoryBaseEnv()
+			cfg := tc.setup(t, e)
+			r := doctor.Run(e.opts(cfg))
+			if r == nil {
+				t.Fatal("nil report")
+			}
+			n := names(r)
+			got := orderedNames(r)
+
+			for _, want := range tc.required {
+				if _, ok := n[want]; !ok {
+					t.Errorf("missing required check %q; have %v", want, got)
+				}
+			}
+			for _, pref := range tc.requiredPrefix {
+				found := false
+				for name := range n {
+					if strings.HasPrefix(name, pref) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("missing any check with prefix %q; have %v", pref, got)
+				}
+			}
+			for _, ban := range tc.forbidden {
+				if _, ok := n[ban]; ok {
+					t.Errorf("forbidden check %q present; have %v", ban, got)
+				}
+			}
+			if len(tc.wantOrderPrefix) > 0 {
+				if len(got) < len(tc.wantOrderPrefix) {
+					t.Fatalf("got %d checks, want at least %d prefix: %v",
+						len(got), len(tc.wantOrderPrefix), got)
+				}
+				for i, want := range tc.wantOrderPrefix {
+					if got[i] != want {
+						t.Fatalf("order[%d]=%q want %q; full=%v", i, got[i], want, got)
+					}
+				}
+			}
+			if tc.wantReportOK != nil && r.OK != *tc.wantReportOK {
+				t.Fatalf("report OK=%v want %v:\n%s", r.OK, *tc.wantReportOK, doctor.FormatText(r))
+			}
+			if tc.check != nil {
+				tc.check(t, r)
+			}
+		})
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }
+
+func TestDoctorWithoutConfig(t *testing.T) {
+	t.Parallel()
+	e := inventoryBaseEnv()
 
 	r := doctor.Run(e.opts(nil))
 	if r == nil {
 		t.Fatal("nil report")
 	}
 	n := names(r)
-	for _, want := range []string{
-		"go_version", "host_platform", "peercred", "fuse_device", "fusermount",
-		"user_allow_other", "ratarmount_bin", "archiveconverter", "sevenzip_bin",
-		"mount_backend", "systemd_pid1", "service_user",
-	} {
+	for _, want := range doctor.CoreCheckNames {
 		if _, ok := n[want]; !ok {
 			t.Errorf("missing check %q", want)
 		}

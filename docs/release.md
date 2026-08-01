@@ -46,6 +46,8 @@ make web-check    # if web/ changed since last release
 make web-build
 make build
 make smoke        # version / doctor / config show / serve --once
+# Deb content inventory (nfpm + dpkg-deb; soft-skips if tools missing):
+# make smoke-package
 
 # Optional (docker/podman):
 # make smoke-rocky
@@ -54,6 +56,8 @@ make smoke        # version / doctor / config show / serve --once
 # Optional local multi-arch snapshot (does not publish):
 # make release-snapshot
 # sha256sum -c dist/SHA256SUMS
+# Optional tar member inventory after snapshot:
+# CHECK_TAR=1 ./scripts/smoke-package-contents.sh
 ```
 
 Confirm `./bin/mount-wrapper version` reflects a dirty or describe string
@@ -101,7 +105,8 @@ published; cut `v0.1.2` instead if a fix is needed.
 4. Confirm workflow artifact **mount-wrapper-dist** uploaded (same `dist/*`).
 5. Spot-check CI on the same commit if not already green:
    - **ci** — Ubuntu go-test + web; **macos-unit-smoke**
-   - **smoke** — Ubuntu binary smoke, Rocky 8 container, **musl-static-smoke**
+   - **smoke** — Ubuntu binary smoke, Rocky 8 container, **package-contents-smoke**
+     (nfpm deb inventory), **musl-static-smoke**
 
 ## 5. Smoke an installed artifact (recommended)
 

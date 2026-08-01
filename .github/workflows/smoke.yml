@@ -1,8 +1,9 @@
 name: smoke
 
-# Install / binary smoke: Ubuntu + Rocky 8 + musl/static (Alpine build).
-# macOS unit tests + binary smoke live in ci.yml (macos-unit-smoke; no macFUSE).
-# Optional FUSE job on workflow_dispatch only (needs /dev/fuse + engine install).
+# Install / binary smoke: Ubuntu + Rocky 8 + package-contents (nfpm deb) +
+# musl/static (Alpine build). macOS unit tests + binary smoke live in ci.yml
+# (macos-unit-smoke; no macFUSE). Optional FUSE job on workflow_dispatch only
+# (needs /dev/fuse + engine install).
 
 on:
   push:
@@ -52,6 +53,34 @@ jobs:
         run: chmod +x bin/mount-wrapper
       - name: Rocky 8 container smoke
         run: ./scripts/smoke-rocky8.sh
+
+  # Deb content inventory via packaging/nfpm.yaml (default local/CI packaging path).
+  # Lightweight: go install nfpm + dpkg-deb; no FUSE, no full goreleaser.
+  # Pin nfpm to a release that builds with Go 1.25.x (latest may require 1.26+).
+  package-contents:
+    name: package-contents-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.3
+      - name: Package contents smoke
+        env:
+          REQUIRE_TOOLS: "1"
+        run: |
+          set -euo pipefail
+          export PATH="$(go env GOPATH)/bin:${HOME}/go/bin:${PATH}"
+          command -v nfpm
+          command -v dpkg-deb
+          ./scripts/smoke-package-contents.sh --build --require-tools
+      - name: Go test package contents (same tools)
+        run: |
+          set -euo pipefail
+          export PATH="$(go env GOPATH)/bin:${HOME}/go/bin:${PATH}"
+          go test ./internal/config/ -count=1 -run TestPackageContentsInventory -v
 
   # D7 extra path: static binary built in golang:*-alpine; smoke on Alpine + Rocky 8.
   # Does not replace default CGO_ENABLED=0 goreleaser releases.

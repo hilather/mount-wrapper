@@ -36,6 +36,11 @@ contents:
     dst: /usr/share/mount-wrapper/config.yaml.example
     file_info:
       mode: 0644
+  # Align with .goreleaser.yaml nfpms contents (config.debug + LICENSE).
+  - src: ./packaging/examples/config.debug.yaml.example
+    dst: /usr/share/mount-wrapper/config.debug.yaml.example
+    file_info:
+      mode: 0644
   - src: ./packaging/examples/hooks.d/10-list-tree.sh.sample
     dst: /usr/share/mount-wrapper/hooks.d/10-list-tree.sh.sample
     file_info:
@@ -66,6 +71,10 @@ contents:
       mode: 0644
   - src: ./docs/security.md
     dst: /usr/share/doc/mount-wrapper/security.md
+    file_info:
+      mode: 0644
+  - src: ./LICENSE
+    dst: /usr/share/doc/mount-wrapper/LICENSE
     file_info:
       mode: 0644
   - src: ./packaging/man/mount-wrapper.1

@@ -11,7 +11,7 @@
 | Workflow | Jobs |
 |----------|------|
 | [`ci.yml`](../.github/workflows/ci.yml) | Ubuntu unit tests + race subset + build; **macOS** unit tests + build + binary smoke (`macos-unit-smoke`); web check/test/build; optional Playwright dispatch |
-| [`smoke.yml`](../.github/workflows/smoke.yml) | Ubuntu binary smoke + Rocky 8 container smoke + **musl-static-smoke** (Alpine build); optional FUSE dispatch |
+| [`smoke.yml`](../.github/workflows/smoke.yml) | Ubuntu binary smoke + Rocky 8 container smoke + **package-contents-smoke** (nfpm deb inventory) + **musl-static-smoke** (Alpine build); optional FUSE dispatch |
 | [`release.yml`](../.github/workflows/release.yml) | Multi-arch publish on `v*` tags (CGO=0 goreleaser + optional musl tarballs) |
 
 **macOS CI scope:** `macos-latest` runs `go test ./...`, `CGO_ENABLED=0 make build`, and
@@ -27,6 +27,7 @@ Security notes for operators: [security.md](./security.md). Field-test: [field-t
 # Go
 make test
 make smoke         # version + doctor + serve --once
+# make smoke-package  # nfpm deb path inventory (soft-skip without nfpm/dpkg-deb)
 # make smoke-rocky # docker/podman + rockylinux:8
 # make build-musl / smoke-musl  # optional D7 Alpine static path (docker/podman)
 # Optional real-FUSE integration (skipped without /dev/fuse or engine on PATH):
@@ -96,8 +97,8 @@ make build
 | `pages/Archives.svelte` | Overview, savings, table, doctor, global actions |
 | `pages/Settings.svelte` | Grouped config form, validate/apply |
 | `lib/api.ts` | `fetchJson` + typed helpers; Bearer from `__MOUNT_WRAPPER_TOKEN__` |
-| `lib/api-types.ts` | D11 typed API surface (re-exports from `types.ts`; not OpenAPI) |
-| `lib/types.ts` | Hand-written request/response shapes |
+| `lib/api-types.ts` | D11 typed API surface (re-exports from `types.ts`; not OpenAPI codegen) |
+| `lib/types.ts` | Hand-written request/response shapes (aligned with [openapi.yaml](./openapi.yaml) schemas) |
 | `lib/sse.ts` | EventSource client, exponential backoff reconnect |
 | `lib/format.ts` | Bytes / duration / status labels |
 | `lib/settings-schema.ts` | Public config field groups (Settings form) |
@@ -185,4 +186,17 @@ Before considering a change complete:
 3. **Review** — run `/review` or the `review-changes` skill; fix bugs  
 
 See [AGENTS.md](../AGENTS.md).
-- HTTP API sketch: [openapi.yaml](./openapi.yaml)
+
+## HTTP API / OpenAPI
+
+Hand-written OpenAPI 3 document (D11 — **not** generated from Go or used for SPA codegen):
+
+| Item | Detail |
+|------|--------|
+| Spec | [openapi.yaml](./openapi.yaml) (`info.version` tracks API sketch; currently **0.1.2**) |
+| Schemas | `components.schemas` for Health, Status, Archive, Metrics, Config, Doctor, Hooks, WSLInfo, ErrorBody, RATE_LIMITED, etc. |
+| Sources of truth | `web/src/lib/types.ts`, `internal/api` handlers/SSE, `internal/status`, `internal/doctor`, `internal/metrics` |
+| Guard test | `TestOpenAPIDocument` in `internal/api` (loads YAML, asserts paths + schema keys + non–description-only 200s) |
+| Residual | Optional OpenAPI → TS client codegen; SPA still uses hand-written `api-types.ts` / `types.ts` |
+
+When adding or renaming `/api/*` paths or JSON fields that the SPA consumes, update **both** the Go/TS types and `docs/openapi.yaml` (and keep `make test` green).

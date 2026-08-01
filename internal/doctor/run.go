@@ -6,11 +6,15 @@ package doctor
 // summary). When opts.FixSystemd is true, a systemd drop-in is written using
 // BuildSystemdDropin (requires Config).
 //
+// Always-on check order matches CoreCheckNames (inventory.go) — keep both
+// in sync. Config/platform-gated names: CheckName* constants in inventory.go.
+//
 // All external I/O goes through Options injectables so unit tests can fake
 // every probe.
 func Run(opts Options) *Report {
 	o := &opts
 
+	// Keep in sync with CoreCheckNames (inventory.go).
 	checks := []CheckResult{
 		checkGoVersion(o),
 		checkHostPlatform(o),

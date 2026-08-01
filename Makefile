@@ -10,7 +10,7 @@ LDFLAGS  := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(D
 
 export PATH := $(HOME)/.local/go/bin:$(HOME)/.local/node-v22.14.0-linux-x64/bin:$(PATH)
 
-.PHONY: all build build-musl package-musl test vet lint web-install web-dev web-build web-check web-test web-e2e parity release-snapshot smoke smoke-rocky smoke-musl clean tidy fmt help
+.PHONY: all build build-musl package-musl test vet lint web-install web-dev web-build web-check web-test web-e2e parity release-snapshot smoke smoke-rocky smoke-musl smoke-package package-contents-smoke clean tidy fmt help
 
 all: test build
 
@@ -35,6 +35,8 @@ help:
 	@echo "  make smoke       Binary smoke (version/doctor/serve --once)"
 	@echo "  make smoke-rocky Rocky 8 container binary smoke (docker/podman)"
 	@echo "  make smoke-musl  Alpine musl/static build + binary smoke (docker/podman)"
+	@echo "  make smoke-package  Deb content inventory (nfpm + dpkg-deb; soft-skip if missing)"
+	@echo "  make package-contents-smoke  Alias of smoke-package"
 	@echo "  make clean       Remove bin/, dist/, and web/dist"
 
 build:
@@ -115,6 +117,12 @@ smoke-rocky:
 # Alpine container build (static) + smoke with that binary (no FUSE).
 smoke-musl: build-musl
 	BIN=./bin/mount-wrapper-musl ./scripts/smoke-binary.sh
+
+# Deb content inventory via packaging/nfpm.yaml + dpkg-deb -c.
+# Soft-skips (exit 0) when nfpm or dpkg-deb is missing; CI sets REQUIRE_TOOLS=1.
+# Optional tar: CHECK_TAR=1 or PACKAGE_TAR=path/to.tar.gz.
+smoke-package package-contents-smoke:
+	./scripts/smoke-package-contents.sh --build
 
 web-e2e:
 	cd web && RUN_E2E=1 npm run test:e2e

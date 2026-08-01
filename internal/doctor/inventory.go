@@ -1,0 +1,52 @@
+package doctor
+
+// CoreCheckNames is the always-on diagnostic inventory in Run order when no
+// Config is loaded. Keep in sync with the first checks block in Run (run.go).
+//
+// Config-dependent checks are appended later by Run; their names are frozen
+// below as CheckName* constants. Unit tests (TestDoctorCheckInventory) assert
+// presence, gating, and that new probes warn rather than hard-fail.
+var CoreCheckNames = []string{
+	"go_version",
+	"host_platform",
+	"peercred",
+	"fuse_device",
+	"fusermount",
+	"user_allow_other",
+	"ratarmount_bin",
+	"archiveconverter",
+	"sevenzip_bin",
+	"mount_backend",
+	"systemd_pid1",
+	"service_user",
+}
+
+// Config-gated / platform-gated check names (not always present).
+// Keep in sync with Run and the check* helpers in checks.go.
+const (
+	// CheckNameWebBindSecurity is emitted whenever Config is non-nil.
+	CheckNameWebBindSecurity = "web_bind_security"
+	// CheckNameConvertCacheDir is emitted when convert_7z_nonsolid or
+	// convert_zip_to_7z is enabled.
+	CheckNameConvertCacheDir = "convert_cache_dir"
+	// CheckNameArchiveconverterOutputDir is emitted when
+	// archiveconverter_enabled is true and archiveconverter_output_dir is set.
+	CheckNameArchiveconverterOutputDir = "path.archiveconverter_output_dir"
+	// CheckNameControlSocketPathLength is emitted on Darwin when Config is
+	// non-nil (including empty control_socket).
+	CheckNameControlSocketPathLength = "control_socket_path_length"
+	// CheckNameConfig is the trailing schema summary when Config is non-nil.
+	CheckNameConfig = "config"
+	// CheckNameFixSystemd is emitted only when Options.FixSystemd is true.
+	CheckNameFixSystemd = "fix_systemd"
+	// CheckNameIndexLayout is emitted whenever Config is non-nil.
+	CheckNameIndexLayout = "index_layout"
+)
+
+// Name prefixes for config-dependent path/disk/source checks (exact suffix
+// depends on keys and free-space dedupe).
+const (
+	PathCheckPrefix  = "path."
+	DiskCheckPrefix  = "disk."
+	SourceDirsPrefix = "source_dirs"
+)

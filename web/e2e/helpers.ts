@@ -122,7 +122,11 @@ export const MOCK_FAILED_ARCHIVE = {
 
 export const MOCK_ARCHIVE_ROWS = [MOCK_MOUNTED_ARCHIVE, MOCK_FAILED_ARCHIVE]
 
-/** Doctor report with named checks for panel assertions. */
+/**
+ * Doctor report with check names aligned to internal/doctor inventory
+ * (CoreCheckNames + gated names such as web_bind_security / disk.*).
+ * Keep names in sync with doctor.Run / inventory.go so SPA e2e mirrors real IDs.
+ */
 export const MOCK_DOCTOR_REPORT = {
   ok: true,
   config_path: '/tmp/e2e/config.yaml',
@@ -133,20 +137,20 @@ export const MOCK_DOCTOR_REPORT = {
       ok: true,
       severity: 'info',
       name: 'fuse_device',
-      message: '/dev/fuse is present and accessible',
+      message: 'FUSE present (/dev/fuse)',
       details: {},
     },
     {
       ok: true,
       severity: 'info',
-      name: 'ratarmount_rs',
-      message: 'ratarmount-rs found on PATH',
+      name: 'ratarmount_bin',
+      message: 'ratarmount-rs: found executable on PATH',
       details: {},
     },
     {
       ok: false,
       severity: 'warn',
-      name: 'disk_free_index',
+      name: 'disk.index_dir',
       message: 'index_dir free space below warn threshold',
       details: {},
     },
