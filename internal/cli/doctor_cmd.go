@@ -16,6 +16,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	addConfigSocketFlags(fs, &configFlag, &socketFlag)
 	jsonOut := fs.Bool("json", false, "JSON report")
 	fixSystemd := fs.Bool("fix-systemd", false, "write systemd drop-in for source paths")
+	dryRun := fs.Bool("dry-run", false, "with --fix-systemd: print drop-in; do not write")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return ExitOK
@@ -37,6 +38,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	report := doctor.Run(doctor.Options{
 		Config:     cfg,
 		FixSystemd: *fixSystemd,
+		DryRun:     *dryRun,
 	})
 	// Surface the resolved path when no config was loaded so operators see where we looked.
 	if report != nil && report.ConfigPath == "" && resolvedPath != "" {

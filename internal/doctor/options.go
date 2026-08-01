@@ -81,6 +81,9 @@ type Options struct {
 
 	// FixSystemd writes a systemd drop-in for source/stage paths when true.
 	FixSystemd bool
+	// DryRun with FixSystemd previews the drop-in (report notes + details)
+	// without mkdir/write. Ignored when FixSystemd is false.
+	DryRun bool
 	// DropinPath overrides DefaultSystemdDropinFile (tests).
 	DropinPath string
 

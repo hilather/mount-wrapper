@@ -19,5 +19,6 @@
 //
 // The collector TTL cache is dual-keyed by (archive_id, prefer_mount) so an
 // index-first warm entry cannot be returned for a prefer_mount query (and vice
-// versa); both variants keep independent TTLs until Invalidate.
+// versa); both variants keep independent TTLs until Invalidate. Cache Get/Put/
+// Invalidate are concurrency-safe (sync.RWMutex).
 package metrics

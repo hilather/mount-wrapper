@@ -25,7 +25,7 @@ Specs:
 | File | Coverage |
 |------|----------|
 | `e2e/smoke.spec.ts` | Archives heading + connection badge |
-| `e2e/settings.spec.ts` | Settings groups, Validate dry-run, Apply (`GET`/`POST /api/config`) |
+| `e2e/settings.spec.ts` | Settings groups, Validate dry-run, Apply, sticky restart_required banner |
 | `e2e/helpers.ts` | Shared `page.route` mocks |
 
 Default CI `web-check` does **not** install browsers or set `RUN_E2E`.

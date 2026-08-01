@@ -144,7 +144,7 @@ testdata/              fixtures
 ### Doctor (Phase 8 library + CLI)
 
 - `internal/doctor`: offline report (FUSE, bins, paths, disk, config); text/JSON formatters; optional systemd drop-in
-- CLI: `mount-wrapper doctor [--json] [--fix-systemd] [--config PATH]`
+- CLI: `mount-wrapper doctor [--json] [--fix-systemd] [--dry-run] [--config PATH]`
 
 ### HTTP API + SSE (Phase 9)
 

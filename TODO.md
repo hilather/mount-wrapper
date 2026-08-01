@@ -333,7 +333,7 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] `metrics [ARCHIVE_ID] [--no-cache] [--prefer-mount]`
 - [x] `rescan [--assume-stable]`
 - [x] `retry ARCHIVE_ID`
-- [x] `doctor [--json] [--fix-systemd]`
+- [x] `doctor [--json] [--fix-systemd] [--dry-run]`
 - [x] `config show [--local]` / `config set --json|--file [--patch] [--dry-run]`
 - [x] Web: **embedded in `serve`** when `web_enabled` (D4); no separate `web` CLI (upstream had sidecar)
 - [x] `mount PATH` / `unmount TARGET|--all` / `purge ARCHIVE_ID --yes`
@@ -361,7 +361,7 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] Shutdown: unmount live/mounted/indexing/mounting; close inotify; release pidfile; close DB
 - [x] `TimeoutStopSec` guidance (300s+) — unit + install/architecture docs
 - [x] Doctor library (`internal/doctor`): report + injectable probes + text/JSON formatters
-- [x] Doctor CLI: `mount-wrapper doctor [--json] [--fix-systemd] [--config PATH]` (+ `GET /api/doctor`)
+- [x] Doctor CLI: `mount-wrapper doctor [--json] [--fix-systemd] [--dry-run] [--config PATH]` (+ `GET /api/doctor`)
   - [x] Python N/A; instead Go version + ratarmount bin + backends
   - [x] FUSE device / unmount tool
   - [x] `user_allow_other` when windows_visible

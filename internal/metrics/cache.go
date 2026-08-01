@@ -1,6 +1,9 @@
 package metrics
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // cacheKey isolates metrics by archive and extract preference so index-first
 // and prefer_mount results do not clobber each other under the same TTL.
@@ -11,7 +14,10 @@ type cacheKey struct {
 
 // Cache is a simple TTL cache for ArchiveMetrics keyed by
 // (archive_id, prefer_mount) (parity with MetricsCache dual-path TTL).
+// Get, Put, and Invalidate are safe for concurrent use.
 type Cache struct {
+	mu sync.RWMutex
+
 	TTL time.Duration
 	now func() time.Time
 
@@ -39,6 +45,8 @@ func (c *Cache) SetClock(now func() time.Time) {
 	if c == nil {
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if now == nil {
 		c.now = time.Now
 		return
@@ -46,6 +54,7 @@ func (c *Cache) SetClock(now func() time.Time) {
 	c.now = now
 }
 
+// clock returns the current time. Caller must hold c.mu (R or W).
 func (c *Cache) clock() time.Time {
 	if c.now != nil {
 		return c.now()
@@ -56,11 +65,36 @@ func (c *Cache) clock() time.Time {
 // Get returns a cached metrics value if present and not expired for the
 // given archive_id and prefer_mount preference.
 func (c *Cache) Get(archiveID string, preferMount bool) (ArchiveMetrics, bool) {
-	if c == nil || c.entries == nil {
+	if c == nil {
 		return ArchiveMetrics{}, false
 	}
 	k := cacheKey{archiveID: archiveID, preferMount: preferMount}
+
+	c.mu.RLock()
+	if c.entries == nil {
+		c.mu.RUnlock()
+		return ArchiveMetrics{}, false
+	}
 	e, ok := c.entries[k]
+	if !ok {
+		c.mu.RUnlock()
+		return ArchiveMetrics{}, false
+	}
+	expired := c.TTL <= 0 || c.clock().Sub(e.at) > c.TTL
+	if !expired {
+		val := e.value
+		c.mu.RUnlock()
+		return val, true
+	}
+	c.mu.RUnlock()
+
+	// Expired: re-check under write lock and delete if still stale.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		return ArchiveMetrics{}, false
+	}
+	e, ok = c.entries[k]
 	if !ok {
 		return ArchiveMetrics{}, false
 	}
@@ -76,6 +110,8 @@ func (c *Cache) Put(m ArchiveMetrics, preferMount bool) {
 	if c == nil {
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.entries == nil {
 		c.entries = make(map[cacheKey]cacheEntry)
 	}
@@ -86,7 +122,12 @@ func (c *Cache) Put(m ArchiveMetrics, preferMount bool) {
 // Invalidate removes all prefer_mount variants for one archive, or clears
 // the entire cache when archiveID is "".
 func (c *Cache) Invalidate(archiveID string) {
-	if c == nil || c.entries == nil {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
 		return
 	}
 	if archiveID == "" {

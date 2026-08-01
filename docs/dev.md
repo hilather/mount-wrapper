@@ -88,8 +88,25 @@ make build
        (`web/e2e/archives.spec.ts`)
      - Doctor panel: `GET /api/doctor` → check names (`web/e2e/doctor.spec.ts`)
      - Settings: `GET`/`POST /api/config` → Sources/Paths groups, Validate dry-run,
-       Apply success (`web/e2e/settings.spec.ts`)
+       Apply success, sticky `restart_required` banner (`web/e2e/settings.spec.ts`)
      Without `RUN_E2E=1`, `npm run test:e2e` exits 0 (skip) so offline/main CI stay green.
+
+#### Settings: restart-required sticky banner
+
+After **Apply**, when `POST /api/config` returns a non-empty `restart_required`
+list (especially `web_enabled` / `web_host` / `web_port` / **`web_token`**), the
+Settings page shows a **sticky** warn banner listing those keys.
+
+| Behavior | Detail |
+|----------|--------|
+| Survives **Validate** | Dry-run only updates the transient status banner |
+| Survives **Reload from service** | Sticky list is kept; keys no longer in API `restart_required_keys` are dropped |
+| **Dismiss** | Clears sticky list (+ optional `sessionStorage`) |
+| Persistence | `sessionStorage` key `mount-wrapper.settings.pendingRestartKeys` (tab-scoped) |
+| **Not** live-applied | `web_token` and other `web_*` are captured at **serve start** — write to YAML + reload does **not** rebind HTTP or rotate the Bearer token until process restart |
+
+Do not expect the SPA to call an API that rotates `web_token` in-process; the
+banner is the operator signal to `systemctl restart mount-wrapper` (or equivalent).
 
 #### SPA layout (`web/src`)
 
@@ -97,7 +114,7 @@ make build
 |------|------|
 | `App.svelte` | Shell: nav, theme (`mw-theme`), connection badge, auto-refresh |
 | `pages/Archives.svelte` | Overview, savings, table, doctor, global actions |
-| `pages/Settings.svelte` | Grouped config form, validate/apply |
+| `pages/Settings.svelte` | Grouped config form, validate/apply, sticky restart banner |
 | `lib/api.ts` | `fetchJson` + typed helpers; Bearer from `__MOUNT_WRAPPER_TOKEN__` |
 | `lib/api-types.ts` | D11 typed API surface (re-exports from `types.ts`; not OpenAPI codegen) |
 | `lib/types.ts` | Hand-written request/response shapes (aligned with [openapi.yaml](./openapi.yaml) schemas) |
@@ -105,6 +122,7 @@ make build
 | `lib/merge.ts` | Archive row merge / fine-grained SSE patch (preserve metrics) |
 | `lib/format.ts` | Bytes / duration / status labels |
 | `lib/settings-schema.ts` | Public config field groups (Settings form) |
+| `lib/pending-restart.ts` | Sticky restart-required keys + sessionStorage helpers |
 | `lib/stores/app.svelte.ts` | Shared runes state (archives, connection, toasts) |
 | `components/*` | Table, pills, savings, doctor, badge, toasts, hooks drawer |
 | `e2e/` | Optional Playwright smoke (mocked API; `RUN_E2E=1`) |

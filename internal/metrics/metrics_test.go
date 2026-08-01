@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -458,6 +459,62 @@ func TestCacheInvalidate(t *testing.T) {
 	cache.Invalidate("")
 	if _, ok := cache.Get("b", false); ok {
 		t.Fatal("all cleared")
+	}
+}
+
+// TestCacheConcurrentGetPutInvalidate exercises concurrent Get/Put/Invalidate
+// on dual-key (archive_id, prefer_mount) entries under the race detector.
+func TestCacheConcurrentGetPutInvalidate(t *testing.T) {
+	t.Parallel()
+	cache := metrics.NewCache(60)
+	const (
+		goroutines = 16
+		iters      = 200
+	)
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := 0; g < goroutines; g++ {
+		g := g
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iters; i++ {
+				id := "a" + string(rune('0'+g%4))
+				prefer := i%2 == 0
+				switch i % 5 {
+				case 0, 1:
+					cache.Put(metrics.ArchiveMetrics{
+						ArchiveID: id,
+						Status:    "mounted",
+					}, prefer)
+				case 2, 3:
+					_, _ = cache.Get(id, prefer)
+				default:
+					if i%7 == 0 {
+						cache.Invalidate("")
+					} else {
+						cache.Invalidate(id)
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Dual-key prefer_mount still holds after concurrent traffic.
+	cache.Put(metrics.ArchiveMetrics{ArchiveID: "final", Status: "indexed"}, false)
+	cache.Put(metrics.ArchiveMetrics{ArchiveID: "final", Status: "mounted"}, true)
+	if m, ok := cache.Get("final", false); !ok || m.Status != "indexed" {
+		t.Fatalf("prefer_mount=false: got ok=%v status=%q", ok, m.Status)
+	}
+	if m, ok := cache.Get("final", true); !ok || m.Status != "mounted" {
+		t.Fatalf("prefer_mount=true: got ok=%v status=%q", ok, m.Status)
+	}
+	cache.Invalidate("final")
+	if _, ok := cache.Get("final", false); ok {
+		t.Fatal("expected miss after Invalidate for prefer_mount=false")
+	}
+	if _, ok := cache.Get("final", true); ok {
+		t.Fatal("expected miss after Invalidate for prefer_mount=true")
 	}
 }
 

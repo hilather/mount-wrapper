@@ -1,10 +1,13 @@
 package doctor
 
+import "strings"
+
 // Run executes diagnostic checks and returns a Report.
 //
 // When opts.Config is nil, only host/binary probes run (no path/source/config
 // summary). When opts.FixSystemd is true, a systemd drop-in is written using
-// BuildSystemdDropin (requires Config).
+// BuildSystemdDropin (requires Config). With FixSystemd and DryRun, the drop-in
+// is not written; unit text is placed in notes and check details.
 //
 // Always-on check order matches CoreCheckNames (inventory.go) — keep both
 // in sync. Config/platform-gated names: CheckName* constants in inventory.go.
@@ -58,18 +61,26 @@ func Run(opts Options) *Report {
 			))
 		} else {
 			path := o.dropinPath()
+			content := BuildSystemdDropin(o.Config)
 			ok, msg := ApplyFixSystemd(o.Config, path, o)
 			sev := SeverityInfo
 			if !ok {
 				sev = SeverityError
 			}
-			if ok {
+			details := map[string]any{"path": path}
+			if ok && o.DryRun {
+				// Preview only: do not record as a fix; surface full unit text.
+				details["dry_run"] = true
+				details["content"] = content
+				notes = append(notes, msg+" (not written)")
+				notes = append(notes, strings.TrimRight(content, "\n"))
+			} else if ok {
 				msg = msg + "; run: systemctl daemon-reload && systemctl restart mount-wrapper"
 				fixes = append(fixes, msg)
 			} else {
 				notes = append(notes,
 					"Could not write systemd drop-in (need root?). "+
-						"Preview with: mount-wrapper doctor",
+						"Preview with: mount-wrapper doctor --fix-systemd --dry-run",
 				)
 			}
 			checks = append(checks, CheckResult{
@@ -77,7 +88,7 @@ func Run(opts Options) *Report {
 				OK:       ok,
 				Severity: sev,
 				Message:  msg,
-				Details:  map[string]any{"path": path},
+				Details:  details,
 			})
 		}
 	}

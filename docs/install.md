@@ -169,6 +169,8 @@ sudo systemctl enable --now mount-wrapper
 
 # 4) Doctor + source path drop-in
 sudo -u mount-wrapper mount-wrapper doctor --config /etc/mount-wrapper/config.yaml
+# Optional: preview drop-in without writing
+mount-wrapper doctor --config /etc/mount-wrapper/config.yaml --fix-systemd --dry-run
 sudo mount-wrapper doctor --config /etc/mount-wrapper/config.yaml --fix-systemd
 sudo systemctl daemon-reload && sudo systemctl restart mount-wrapper
 ```
@@ -197,7 +199,11 @@ Extend `ReadOnlyPaths` / `ReadWritePaths` via `doctor --fix-systemd` (writes
   `archiveconverter_output_dir`
 
 Defaults under `/var/lib/mount-wrapper/…` are not re-listed. Paths are deduped.
-After writing the drop-in: `systemctl daemon-reload && systemctl restart mount-wrapper`.
+
+**Preview without writing:** `mount-wrapper doctor --config … --fix-systemd --dry-run`
+prints the generated unit in report **notes** (text) / check **details.content**
+(JSON) and does not mkdir/write the drop-in. Then apply for real with
+`--fix-systemd` (no `--dry-run`), and: `systemctl daemon-reload && systemctl restart mount-wrapper`.
 
 ---
 

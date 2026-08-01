@@ -150,6 +150,7 @@ serve flags:
 doctor flags:
   --json               JSON report
   --fix-systemd        Write systemd drop-in for source paths
+  --dry-run            With --fix-systemd: print drop-in; do not write
 
 config show flags:
   --local              Read config file only (no control socket)

@@ -78,11 +78,19 @@ func BuildSystemdDropin(cfg *config.Config) string {
 
 // ApplyFixSystemd writes the systemd drop-in to dropinPath.
 // Returns (ok, message). opts may be nil for production I/O.
+//
+// When opts.DryRun is true, the drop-in is not written (no mkdir/write);
+// returns ok and a would-write message. Callers that need the unit text
+// should use BuildSystemdDropin (Run places it in report notes/details).
 func ApplyFixSystemd(cfg *config.Config, dropinPath string, opts *Options) (bool, string) {
 	if dropinPath == "" {
 		dropinPath = DefaultSystemdDropinFile
 	}
 	content := BuildSystemdDropin(cfg)
+
+	if opts != nil && opts.DryRun {
+		return true, "dry-run: would write " + dropinPath
+	}
 
 	mkdir := os.MkdirAll
 	write := defaultWriteFile

@@ -60,6 +60,14 @@ Machine-readable report.
 .B \-\-fix\-systemd
 Write a systemd drop-in for source paths (when applicable).
 .TP
+.B \-\-dry\-run
+With
+.BR \-\-fix\-systemd ,
+print the generated drop-in unit text (report notes / JSON
+.BR details.content )
+and do not write the file. Harmless without
+.BR \-\-fix\-systemd .
+.TP
 .BR \-c ", " \-\-config " " \fIPATH\fR
 Config to diagnose.
 .RE

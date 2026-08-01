@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Doctor **`--fix-systemd --dry-run`**: preview generated systemd drop-in unit
+  text (report notes + JSON `details.content`) without writing the drop-in.
+- **SPA Settings:** sticky process-restart banner when Apply returns non-empty
+  `restart_required` (e.g. `web_token` / other `web_*`). Survives Validate and
+  Reload until Dismiss; optional `sessionStorage`. Does **not** live-apply
+  `web_token` (serve-start capture unchanged). Playwright e2e coverage.
+
+### Fixed
+
+- `metrics.Cache` concurrent safety: `sync.RWMutex` around the dual-key
+  `(archive_id, prefer_mount)` entries map (`Get` / `Put` / `Invalidate`).
+
 ## [0.1.3] - 2026-08-01
 
 Operator polish and correctness after v0.1.2. Mount backend remains

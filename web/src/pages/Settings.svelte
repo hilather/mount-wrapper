@@ -1,6 +1,12 @@
 <script lang="ts">
   import { getConfig, postConfig } from '../lib/api'
   import {
+    mergePendingRestartKeys,
+    readPendingRestartKeys,
+    reconcilePendingRestartKeys,
+    writePendingRestartKeys,
+  } from '../lib/pending-restart'
+  import {
     SETTINGS_SCHEMA,
     destructiveWarnings,
     formToValue,
@@ -12,7 +18,13 @@
   let loading = $state(true)
   let busy = $state(false)
   let error = $state('')
+  /** Transient Validate/Apply status (cleared on next action / Reload). */
   let banner = $state<{ kind: string; html: string } | null>(null)
+  /**
+   * Sticky restart-required keys from Apply (esp. web_*). Survives Validate /
+   * Reload until Dismiss or reconcile removes all keys. sessionStorage optional.
+   */
+  let pendingRestartKeys = $state<string[]>(readPendingRestartKeys())
   let meta = $state('')
   let formValues = $state<Record<string, string | boolean>>({})
   let hotKeys = $state<Set<string>>(new Set())
@@ -22,6 +34,15 @@
   $effect(() => {
     void load()
   })
+
+  function setPendingRestartKeys(keys: string[]) {
+    pendingRestartKeys = keys
+    writePendingRestartKeys(keys)
+  }
+
+  function dismissPendingRestart() {
+    setPendingRestartKeys([])
+  }
 
   function initForm(config: Record<string, unknown>, metaResp?: ConfigGetResponse) {
     const next: Record<string, string | boolean> = {}
@@ -37,12 +58,20 @@
     restartKeys = new Set(restart)
     configPath = metaResp?.config_path ?? ''
     meta = `Loaded from service · ${configPath || 'unknown'} · ${new Date().toLocaleString()}`
+    // Drop sticky keys the service no longer classifies as restart-required.
+    if (pendingRestartKeys.length && restart.length) {
+      const reconciled = reconcilePendingRestartKeys(pendingRestartKeys, restart)
+      if (reconciled.join('\0') !== pendingRestartKeys.join('\0')) {
+        setPendingRestartKeys(reconciled)
+      }
+    }
   }
 
   async function load() {
     loading = true
     error = ''
     banner = null
+    // Do not clear pendingRestartKeys — sticky until dismiss / reconcile.
     try {
       const data = await getConfig()
       const config = (data.config ?? data.values ?? {}) as Record<string, unknown>
@@ -95,7 +124,8 @@
       const result = await postConfig({ config, apply })
       const changed = (result.changed_keys || []).join(', ') || '(none)'
       const hot = (result.hot_reloadable || []).join(', ') || '(none)'
-      const restart = (result.restart_required || []).join(', ') || '(none)'
+      const restartList = result.restart_required || []
+      const restart = restartList.join(', ') || '(none)'
       if (!apply) {
         banner = {
           kind: 'warn',
@@ -105,9 +135,11 @@
       }
       let kind = 'ok'
       let extra = ''
-      if ((result.restart_required || []).length) {
+      if (restartList.length) {
         kind = 'warn'
         extra = `<br/><strong>Restart required</strong> for: ${esc(restart)}`
+        // Sticky banner (esp. web_token / web_* — never live-applied).
+        setPendingRestartKeys(mergePendingRestartKeys(pendingRestartKeys, restartList))
       }
       banner = {
         kind,
@@ -155,6 +187,29 @@
     </div>
 
     <p class="hint">{meta || 'Load configuration from the running service.'}</p>
+
+    {#if pendingRestartKeys.length}
+      <div
+        class="banner banner-warn banner-restart-sticky"
+        role="status"
+        data-testid="restart-required-banner"
+      >
+        <div class="banner-restart-body">
+          <strong>Process restart required</strong>
+          <br />
+          Keys written but not yet live in this process:
+          <code>{pendingRestartKeys.join(', ')}</code>
+          <br />
+          <span class="banner-restart-note"
+            >web_* (including <code>web_token</code>) are captured at serve start — restart
+            <code>mount-wrapper</code>; they are not live-applied.</span
+          >
+        </div>
+        <button type="button" class="secondary" data-testid="restart-required-dismiss" onclick={dismissPendingRestart}
+          >Dismiss</button
+        >
+      </div>
+    {/if}
 
     {#if banner}
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -281,6 +336,7 @@
         Changes write <code>config.yaml</code> via the service control plane. Hot-reloadable keys
         apply immediately; restart-required keys need
         <code>systemctl restart mount-wrapper</code> (or equivalent).
+        <code>web_token</code> and other <code>web_*</code> keys are never live-applied.
       </p>
     {/if}
   </section>

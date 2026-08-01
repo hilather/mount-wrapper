@@ -245,6 +245,7 @@ Control op `reload` schedules work on the next tick (or immediate via `config_se
 | `archiveconverter_enabled` + output dir set | **`path.archiveconverter_output_dir`** |
 | Darwin + config | **`control_socket_path_length`** (~100-byte sun_path warn) |
 | `--fix-systemd` | **`fix_systemd`** |
+| `--fix-systemd --dry-run` | **`fix_systemd`** (preview only; notes + `details.content`; no write) |
 
 **Wired:** CLI `doctor`, `GET /api/doctor` (Phase 9). SPA doctor panel (Phase 10) consumes these names; e2e mock in `web/e2e/helpers.ts` uses the same IDs.
 
