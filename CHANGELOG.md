@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Default **`web_port`** is **8788** (was 8787). Bind remains loopback
+  `127.0.0.1` unless configured; Vite dev proxy and packaging examples track
+  the new default. Constants: `config.DefaultWebPort` / `DefaultWebHost`.
 - Hand-written OpenAPI (`docs/openapi.yaml`) **info.version** **0.1.6**;
   `GET /api/doctor` description documents live/platform checks that never
   hard-fail offline (`control_socket_live`, `pidfile_live`, `systemd_unit`,

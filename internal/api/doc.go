@@ -1,7 +1,7 @@
 // Package api is the localhost HTTP API and SSE stream for the operator SPA.
 //
 // The server is embedded in `mount-wrapper serve` when web_enabled is true.
-// It binds web_host:web_port (default 127.0.0.1:8787), optionally requires
+// It binds web_host:web_port (default 127.0.0.1:8788), optionally requires
 // Bearer web_token on /api/* (or ?token= for GET), and serves the embedded
 // SPA from internal/webui at /.
 //

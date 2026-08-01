@@ -24,7 +24,7 @@ help:
 	@echo "  make tidy        go mod tidy"
 	@echo "  make fmt         gofmt -w"
 	@echo "  make web-install npm install in web/"
-	@echo "  make web-dev     Vite dev server (proxies /api → :8787)"
+	@echo "  make web-dev     Vite dev server (proxies /api → :8788)"
 	@echo "  make web-build   Build SPA into internal/webui/dist"
 	@echo "  make web-check   svelte-check + tsc"
 	@echo "  make web-test    vitest unit tests in web/"

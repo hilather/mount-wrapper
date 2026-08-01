@@ -388,7 +388,7 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 
 ## Phase 9 — HTTP API (for SPA)
 
-- [x] Bind `web_host` / `web_port` (default `127.0.0.1:8787`); warn if non-loopback
+- [x] Bind `web_host` / `web_port` (default `127.0.0.1:8788`); warn if non-loopback
 - [x] Optional Bearer `web_token` on `/api/*` (+ `?token=` for GET convenience, parity)
 - [x] Endpoints (parity with upstream `web.py` + reactive additions):
   - [x] `GET /api/health` — web ok + serve reachable + pid/version
@@ -588,7 +588,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 
 **Runtime defaults**
 - Mount backend default: `rust` / ratarmount-rs resolution chain
-- Web: embedded in serve; bind `127.0.0.1:8787`; optional `web_token`
+- Web: embedded in serve; bind `127.0.0.1:8788`; optional `web_token`
 - Live UI: SSE (`GET /api/events`) + poll fallback
 - Poll 60s; overlay cleanup `quarantine`
 - Hooks env: `MOUNT_WRAPPER_*` only (argv still mount path, archive path)

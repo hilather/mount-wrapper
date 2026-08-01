@@ -43,7 +43,7 @@ Use [`packaging/examples/config.yaml.macos.example`](../packaging/examples/confi
 |-----|------------------|
 | state / mounts / indexes | `~/Library/Application Support/mount-wrapper/…` |
 | `control_socket` / `pid_file` | `~/Library/Caches/mount-wrapper/run/…` |
-| `web_enabled` | `true` (loopback `127.0.0.1:8787`) |
+| `web_enabled` | `true` (loopback `127.0.0.1:8788`) |
 | `use_inotify` | `false` (poll primary) |
 | `windows_visible` | `false` |
 | Service user | **login user** (no system `mount-wrapper` user) |
@@ -193,7 +193,7 @@ Record OS version, Apple Silicon vs Intel, macFUSE version; paste doctor JSON.
 
 ### E. Web
 
-- [ ] With `web_enabled: true`, open `http://127.0.0.1:8787/`  
+- [ ] With `web_enabled: true`, open `http://127.0.0.1:8788/`  
 
 ### F. Failures worth capturing
 

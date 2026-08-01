@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hilather/mount-wrapper/internal/config"
 )
 
 // DefaultSSEInterval is how often SSE clients poll status and emit deltas.
@@ -44,7 +46,7 @@ type Server struct {
 
 // ServerOptions configures the HTTP API server.
 type ServerOptions struct {
-	// Bind is host:port (default from config or 127.0.0.1:8787).
+	// Bind is host:port (default from config or config.DefaultWebHost:DefaultWebPort).
 	Bind string
 	// Version is reported as web_version / health version.
 	Version string
@@ -95,17 +97,17 @@ func New(backend Backend, opts ServerOptions) *Server {
 		if cfg := backend.Config(); cfg != nil {
 			host := cfg.WebHost
 			if host == "" {
-				host = "127.0.0.1"
+				host = config.DefaultWebHost
 			}
 			port := cfg.WebPort
 			if port == 0 {
-				port = 8787
+				port = config.DefaultWebPort
 			}
 			bind = host + ":" + strconv.Itoa(port)
 		}
 	}
 	if bind == "" {
-		bind = "127.0.0.1:8787"
+		bind = config.DefaultWebHost + ":" + strconv.Itoa(config.DefaultWebPort)
 	}
 	token := opts.Token
 	if token == "" && backend != nil {

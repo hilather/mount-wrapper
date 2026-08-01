@@ -78,7 +78,7 @@ Argv is still: `hook <mount_path> <archive_path>` (plus name discovery under `ho
 | Sidecar `tarmount-wsl web` (+ optional web unit) | **Embedded in `serve`** when `web_enabled: true` |
 | Vanilla JS dashboard | Svelte 5 SPA + **SSE** (poll fallback) |
 
-Default bind remains loopback **`127.0.0.1:8787`**. Optional `web_token` Bearer.
+Default bind remains loopback **`127.0.0.1:8788`**. Optional `web_token` Bearer.
 
 ### Mount backend default (D14)
 
@@ -111,7 +111,7 @@ ratarmount-rs on `PATH` for the service user.
 7. **Start** mount-wrapper (`systemctl enable --now mount-wrapper` or launchd).
 8. **Verify:**
    - `mount-wrapper doctor --json`
-   - `mount-wrapper status` / dashboard `http://127.0.0.1:8787/`
+   - `mount-wrapper status` / dashboard `http://127.0.0.1:8788/`
    - Rescan; confirm first archive indexes/mounts; hooks once on first success.
 9. **Deprecate** old unit files and package when stable (see below).
 

@@ -53,7 +53,7 @@ cleanup_after: 24h
 # Embedded operator dashboard (same process as serve).
 web_enabled: true
 web_host: "127.0.0.1"
-web_port: 8787
+web_port: 8788
 web_token: ""
 
 log_level: INFO

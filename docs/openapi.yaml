@@ -8,7 +8,7 @@ info:
   version: 0.1.6
   description: |
     Embedded operator API served by `mount-wrapper serve` when `web_enabled: true`.
-    Default bind `127.0.0.1:8787`. Optional Bearer token (`web_token`) or `?token=` on GET.
+    Default bind `127.0.0.1:8788`. Optional Bearer token (`web_token`) or `?token=` on GET.
 
     **Auth:** When `web_token` is non-empty, `/api/*` requires `Authorization: Bearer <token>`
     or `?token=` (GET-friendly). Empty token → open (loopback default).
@@ -21,7 +21,7 @@ info:
 
     **SSE** (`GET /api/events`): `text/event-stream` with named events (see path notes).
 servers:
-  - url: http://127.0.0.1:8787
+  - url: http://127.0.0.1:8788
     description: Default loopback
 tags:
   - name: health

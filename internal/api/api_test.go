@@ -167,7 +167,7 @@ func (f *fakeBackend) Config() *config.Config {
 	}
 	return &config.Config{
 		WebHost:       "127.0.0.1",
-		WebPort:       8787,
+		WebPort:       8788,
 		MountRoot:     "/var/lib/mount-wrapper/mounts",
 		ControlSocket: "/run/mount-wrapper/control.sock",
 	}
@@ -623,7 +623,7 @@ func TestDoctorAndWSLInfo(t *testing.T) {
 		cfg: &config.Config{
 			MountRoot: "/var/lib/mount-wrapper/mounts",
 			WebHost:   "127.0.0.1",
-			WebPort:   8787,
+			WebPort:   8788,
 		},
 	}
 	srv := newTestServer(t, "", be)
@@ -1249,7 +1249,7 @@ func TestPrometheusMetricsAuthNonLoopback(t *testing.T) {
 		},
 	}
 	srv := api.New(be, api.ServerOptions{
-		Bind:                   "0.0.0.0:8787",
+		Bind:                   "0.0.0.0:8788",
 		Token:                  "secret-token",
 		Version:                "web-test",
 		SSEInterval:            50 * time.Millisecond,

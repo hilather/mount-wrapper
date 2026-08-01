@@ -9,7 +9,7 @@
 #   sudo -u mount-wrapper mount-wrapper doctor --config /etc/mount-wrapper/config.yaml
 #
 # Control plane: Unix socket at control_socket (mode 0660, group mount-wrapper).
-# Web UI: embedded in serve when web_enabled (default bind 127.0.0.1:8787).
+# Web UI: embedded in serve when web_enabled (default bind 127.0.0.1:8788).
 
 version: 1
 
@@ -44,7 +44,7 @@ cleanup_after: 24h
 # Embedded operator dashboard (no separate web unit; D4).
 web_enabled: true
 web_host: "127.0.0.1"
-web_port: 8787
+web_port: 8788
 # Leave empty on loopback for local-only access; set a secret if binding non-loopback.
 web_token: ""
 # Prometheus: GET /metrics is always exposed when web is on (no extra flag).

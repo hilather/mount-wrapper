@@ -13,7 +13,7 @@ Related: [architecture.md](./architecture.md), [install.md](./install.md),
 | Surface | Default exposure | Auth / isolation |
 |---------|------------------|------------------|
 | Control Unix socket | Local only (`/run/mount-wrapper/control.sock`) | Peer credentials: **root** or group **`mount-wrapper`** |
-| HTTP API + SPA | Loopback `127.0.0.1:8787` | Optional Bearer `web_token` (empty = open on bind host) |
+| HTTP API + SPA | Loopback `127.0.0.1:8788` | Optional Bearer `web_token` (empty = open on bind host) |
 | Hooks (`hooks.d`) | Root-owned scripts under config path | Owner + not group/other-writable + realpath under hooks dir |
 | FUSE mounts | Service user | External engine (`ratarmount-rs`); not reimplemented in Go |
 | State DB | `/var/lib/mount-wrapper/state.db` | Single-writer `serve`; filesystem permissions |
@@ -59,7 +59,7 @@ fail closed with structured errors. Ops include destructive `purge` / `unmount`
 
 ## HTTP API + SPA
 
-**Bind:** `web_host` / `web_port` (default `127.0.0.1:8787`). Non-loopback
+**Bind:** `web_host` / `web_port` (default `127.0.0.1:8788`). Non-loopback
 binds log a warning (`web_host is not loopback…`) but are still allowed for
 advanced setups.
 

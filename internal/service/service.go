@@ -374,11 +374,11 @@ func (s *Service) startWebIfEnabled() error {
 	}
 	host := s.Config.WebHost
 	if host == "" {
-		host = "127.0.0.1"
+		host = config.DefaultWebHost
 	}
 	port := s.Config.WebPort
 	if port == 0 {
-		port = 8787
+		port = config.DefaultWebPort
 	}
 	bind := net.JoinHostPort(host, strconv.Itoa(port))
 	srv := api.New(&APIBackend{S: s}, api.ServerOptions{

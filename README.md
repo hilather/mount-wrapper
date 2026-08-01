@@ -53,7 +53,7 @@ make build
 # ./bin/mount-wrapper stop                # human: stop scheduled
 # ./bin/mount-wrapper stop --json         # machine: {"stop":"scheduled"}
 
-# SPA (HMR; proxies /api → :8787 when daemon is up)
+# SPA (HMR; proxies /api → :8788 when daemon is up)
 make web-install
 make web-dev
 
@@ -159,7 +159,7 @@ testdata/              fixtures
 
 - `internal/api`: localhost REST + SSE for the operator SPA; optional Bearer `web_token`; rate-limits on destructive POSTs (purge / unmount-all / rescan)
 - Hardening notes: [docs/security.md](./docs/security.md); man page sketch `packaging/man/mount-wrapper.1`
-- Embedded in `serve` when `web_enabled: true` (default bind `127.0.0.1:8787`)
+- Embedded in `serve` when `web_enabled: true` (default bind `127.0.0.1:8788`)
 - Endpoints: `/api/health`, `/status`, `/archives`, `/metrics`, `/config`, actions (`rescan`/`unmount`/`retry`/`purge`), `/doctor`, `/wsl-info`, SSE `/api/events`; **Prometheus** `GET /metrics` (open on loopback bind; aggregate size/savings gauges via `include_sizes` summary — no per-archive series)
 - SSE events: initial `snapshot`; deltas `counts` / `archive` / `scan` / `low_disk` / optional `metrics`; periodic full `snapshot` resync; `heartbeat` (see [docs/architecture.md](./docs/architecture.md))
 - Static SPA from `internal/webui` at `/` (client routes fall back to `index.html`)

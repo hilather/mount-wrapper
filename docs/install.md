@@ -77,7 +77,7 @@ Auth: root **or** group `mount-wrapper` (peercred). Escape hatch:
 `MOUNT_WRAPPER_CONTROL_ALLOW_UNAUTH=1` (default off).
 
 **Web UI:** embedded in `serve` when `web_enabled: true` (default bind
-`127.0.0.1:8787`). No separate web systemd unit.
+`127.0.0.1:8788`). No separate web systemd unit.
 
 ---
 

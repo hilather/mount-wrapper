@@ -11,7 +11,7 @@ export default defineConfig({
     // Dev: proxy API/SSE to the Go daemon (default web_port).
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8787',
+        target: 'http://127.0.0.1:8788',
         changeOrigin: true,
         // Keep SSE streams open (Vite/http-proxy defaults can be short).
         timeout: 0,

@@ -78,7 +78,7 @@ go test -tags=fuse ./internal/mounter/ -count=1 -run TestRealFUSEMountUnmount -v
 
 With `web_enabled: true`:
 
-- Open `http://127.0.0.1:8787/`
+- Open `http://127.0.0.1:8788/`
 - Connection badge: **`live (SSE)`** when EventSource is open; **`poll (SSE down)`**
   when HTTP poll is driving the UI (SSE down/not yet connected); **`reconnecting`**
   during SSE backoff. Tooltip explains the mode; badge uses `aria-live="polite"`.
@@ -98,15 +98,15 @@ When a mounted outer archive has nested members ratarmount-rs skipped:
 Quick check:
 
 ```bash
-curl -sS http://127.0.0.1:8787/api/status | jq '.archives[] | select(.nested_skips_count != null) | {archive_basename, status, nested_skips_count, nested_skips_summary, last_error}'
+curl -sS http://127.0.0.1:8788/api/status | jq '.archives[] | select(.nested_skips_count != null) | {archive_basename, status, nested_skips_count, nested_skips_summary, last_error}'
 ```
 
-Prometheus: `curl -sS http://127.0.0.1:8787/metrics | head`
+Prometheus: `curl -sS http://127.0.0.1:8788/metrics | head`
 
 Size/savings aggregates (default scrape; may be slower than count-only status):
 
 ```bash
-curl -sS http://127.0.0.1:8787/metrics | grep -E 'mount_wrapper_(archive|index|extracted|space_saved)_'
+curl -sS http://127.0.0.1:8788/metrics | grep -E 'mount_wrapper_(archive|index|extracted|space_saved)_'
 ```
 
 Expect `mount_wrapper_archive_size_bytes`, `…_index_size_bytes`,

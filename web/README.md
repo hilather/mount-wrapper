@@ -4,7 +4,7 @@ Operator SPA source. Production build is copied into `../internal/webui/dist` fo
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173 — proxies /api → :8787
+npm run dev      # http://localhost:5173 — proxies /api → :8788
 npm run build
 npm run check
 npm test         # vitest unit tests (no browsers)

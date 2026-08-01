@@ -69,7 +69,7 @@ make build
 # ./bin/mount-wrapper hooks status ARCHIVE_ID           # human; --json for payload
 # Override socket without full config: --socket /path/to/control.sock
 
-# Frontend (HMR; proxies /api → http://127.0.0.1:8787)
+# Frontend (HMR; proxies /api → http://127.0.0.1:8788)
 make web-install
 make web-dev
 
@@ -80,7 +80,7 @@ make build
 
 ### HTTP API + Vite proxy (Phase 9–10)
 
-1. Enable web in config (`web_enabled: true`, default bind `127.0.0.1:8787`).
+1. Enable web in config (`web_enabled: true`, default bind `127.0.0.1:8788`).
 2. Run the daemon: `./bin/mount-wrapper serve --config …` (long-running, not `--once`).
 3. SPA dev: `make web-dev` — Vite serves the UI on `:5173` and proxies `/api/*` (including SSE `/api/events`) to the daemon. Proxy timeouts are disabled so EventSource stays open.
 4. Optional `web_token`: set in config; SPA injects `window.__MOUNT_WRAPPER_TOKEN__` when assets are served from the daemon. For Vite-only dev, set the token in the browser console (`window.__MOUNT_WRAPPER_TOKEN__ = '…'`) or temporarily leave `web_token` empty on loopback.

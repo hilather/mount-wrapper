@@ -59,6 +59,12 @@ func TestFromMap_emptyDefaults(t *testing.T) {
 	if cfg.WebEnabled {
 		t.Fatal("web_enabled should default false")
 	}
+	if cfg.WebHost != DefaultWebHost {
+		t.Fatalf("web_host=%s want %s", cfg.WebHost, DefaultWebHost)
+	}
+	if cfg.WebPort != DefaultWebPort {
+		t.Fatalf("web_port=%d want %d", cfg.WebPort, DefaultWebPort)
+	}
 	if cfg.MountBackend != BackendRust {
 		t.Fatalf("mount_backend=%s", cfg.MountBackend)
 	}

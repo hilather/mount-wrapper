@@ -13,7 +13,7 @@
 # control_socket: /tmp/mount-wrapper-debug/control.sock
 # web_enabled: true
 # web_host: "127.0.0.1"
-# web_port: 8787
+# web_port: 8788
 
 version: 1
 

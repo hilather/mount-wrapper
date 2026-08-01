@@ -27,7 +27,7 @@ func TestClone_deepCopiesSlicesAndPointers(t *testing.T) {
 		ArchiveconverterThreads:           &threads,
 		ArchiveconverterNestedConcurrency: &nested,
 		LogLevel:                          "INFO",
-		WebPort:                           8787,
+		WebPort:                           8788,
 	}
 	dst := Clone(src)
 	if dst == nil || dst == src {

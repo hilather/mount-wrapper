@@ -291,7 +291,7 @@ Control op `reload` / SIGHUP schedules `doReload` on the next tick. `config_set`
 | `internal/api` | Localhost HTTP (`net/http`), optional Bearer `web_token` (+ `?token=` for GET), REST via `Backend.HandleRequest`, in-process doctor/wsl-info, SSE `/api/events` (snapshot + deltas + heartbeat), embedded SPA from `internal/webui` |
 | `internal/service` | Starts API when `web_enabled`; `APIBackend` adapter; stops on `Shutdown`; `SkipWeb` for tests |
 
-**Enable:** `web_enabled: true`, bind `web_host`:`web_port` (default `127.0.0.1:8787`). Non-loopback bind logs a warning.
+**Enable:** `web_enabled: true`, bind `web_host`:`web_port` (default `127.0.0.1:8788`). Non-loopback bind logs a warning.
 
 **Auth:** empty `web_token` → open API. Non-empty → `Authorization: Bearer …` or `?token=` on GET.
 **Prometheus exception:** `GET /metrics` is always open when bind is loopback (token optional for scrapers).
@@ -377,7 +377,7 @@ Defaults (overridable via `api.ServerOptions`): refresh **2s**, heartbeat **15s*
 
 Reconnect uses exponential backoff; ~15s poll + occasional `/api/archives` soft-refresh keeps size columns warm while SSE is primary. Pure merge helpers live in `web/src/lib/merge.ts`.
 
-**Dev split:** Vite (`make web-dev`) proxies `/api` → `http://127.0.0.1:8787` (see `web/vite.config.ts` and `docs/dev.md`).
+**Dev split:** Vite (`make web-dev`) proxies `/api` → `http://127.0.0.1:8788` (see `web/vite.config.ts` and `docs/dev.md`).
 
 ### Phase 11 — packaging (in-tree polish)
 

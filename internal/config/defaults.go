@@ -50,6 +50,12 @@ const (
 	DefaultRustRatarmountBin = "ratarmount-rs"
 )
 
+// Default HTTP/SPA bind when web_enabled (omitted or zero port).
+const (
+	DefaultWebHost = "127.0.0.1"
+	DefaultWebPort = 8788
+)
+
 // DefaultArchiveconverterBin returns $HOME/.local/bin/archiveconverter, or
 // "archiveconverter" when the home directory is unavailable.
 func DefaultArchiveconverterBin() string {

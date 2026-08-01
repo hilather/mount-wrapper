@@ -698,7 +698,7 @@ func FromMap(raw map[string]any, configPath string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	webHost, err := requireStr(raw, "web_host", "127.0.0.1")
+	webHost, err := requireStr(raw, "web_host", DefaultWebHost)
 	if err != nil {
 		return nil, err
 	}
@@ -910,7 +910,7 @@ func requireInt(raw map[string]any, key string, def int, minValue *int) (int, er
 }
 
 func requireWebPort(raw map[string]any) (int, error) {
-	port, err := requireInt(raw, "web_port", 8787, intPtr(1))
+	port, err := requireInt(raw, "web_port", DefaultWebPort, intPtr(1))
 	if err != nil {
 		return 0, err
 	}
