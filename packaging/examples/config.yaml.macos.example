@@ -1,0 +1,57 @@
+# mount-wrapper — first-step macOS example configuration
+#
+# User-agent install (no root / no system service user required):
+#   mkdir -p "$HOME/Library/Application Support/mount-wrapper"/{mounts,indexes,overlays,hooks.d}
+#   mkdir -p "$HOME/Library/Caches/mount-wrapper/run"
+#   cp packaging/examples/config.yaml.macos.example \
+#     "$HOME/Library/Application Support/mount-wrapper/config.yaml"
+#   # replace YOU in the copy, then:
+#   mount-wrapper doctor --config "$HOME/Library/Application Support/mount-wrapper/config.yaml"
+#   mount-wrapper serve --config "$HOME/Library/Application Support/mount-wrapper/config.yaml"
+#
+# launchd: packaging/launchd/com.hilather.mount-wrapper.plist.example
+# Socket path length: macOS sockaddr_un is short (~104 bytes). Keep control_socket
+# under Library/Caches/.../run/ (not a deep nested path under Application Support).
+
+version: 1
+
+source_dirs:
+  # Absolute paths only on macOS (no Windows drive letters / DrvFs).
+  - "/Users/YOU/Archives"
+
+# User-writable layout under Application Support (login user, not mount-wrapper).
+mount_root: "/Users/YOU/Library/Application Support/mount-wrapper/mounts"
+index_dir: "/Users/YOU/Library/Application Support/mount-wrapper/indexes"
+overlay_dir: "/Users/YOU/Library/Application Support/mount-wrapper/overlays"
+state_db: "/Users/YOU/Library/Application Support/mount-wrapper/state.db"
+hooks_dir: "/Users/YOU/Library/Application Support/mount-wrapper/hooks.d"
+
+# Runtime under Caches (socket + pidfile; watch path length limits).
+control_socket: "/Users/YOU/Library/Caches/mount-wrapper/run/control.sock"
+pid_file: "/Users/YOU/Library/Caches/mount-wrapper/run/mount-wrapper.pid"
+
+poll_interval_seconds: 60
+reconcile_interval_seconds: 30
+# inotify is Linux-only; poll is the primary discovery path on macOS.
+use_inotify: false
+
+stable_file_mode: two_scans
+min_file_age_seconds: 30
+
+mount_backend: rust
+# ratarmount_bin: ratarmount-rs  # PATH / brew
+
+recursive_mount: true
+write_overlay: true
+# macOS desktop default: do not force allow_other-style visibility.
+windows_visible: false
+overlay_cleanup: quarantine
+cleanup_after: 24h
+
+# Embedded operator dashboard (same process as serve).
+web_enabled: true
+web_host: "127.0.0.1"
+web_port: 8787
+web_token: ""
+
+log_level: INFO

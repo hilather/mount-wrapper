@@ -1,0 +1,829 @@
+package doctor
+
+import (
+	"fmt"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/hilather/mount-wrapper/internal/config"
+	"github.com/hilather/mount-wrapper/internal/mounter"
+	"github.com/hilather/mount-wrapper/internal/paths"
+	"github.com/hilather/mount-wrapper/internal/platform"
+)
+
+func checkGoVersion(opts *Options) CheckResult {
+	ver := opts.goVersion()
+	// runtime.Version() is typically "go1.22.0". Require go1.21+ as a soft floor
+	// (module declares a higher version; doctor only fails on ancient runtimes).
+	ok := true
+	msg := fmt.Sprintf("Go %s", strings.TrimPrefix(ver, "go"))
+	if strings.HasPrefix(ver, "go1.") {
+		// Parse major.minor roughly: go1.N...
+		rest := strings.TrimPrefix(ver, "go1.")
+		minor := 0
+		for i := 0; i < len(rest) && rest[i] >= '0' && rest[i] <= '9'; i++ {
+			minor = minor*10 + int(rest[i]-'0')
+		}
+		if minor > 0 && minor < 21 {
+			ok = false
+			msg = fmt.Sprintf("Go %s — require Go 1.21+", strings.TrimPrefix(ver, "go"))
+		}
+	}
+	return CheckResult{
+		Name:     "go_version",
+		OK:       ok,
+		Severity: map[bool]string{true: SeverityInfo, false: SeverityError}[ok],
+		Message:  msg,
+		Details: map[string]any{
+			"version":  ver,
+			"required": ">=1.21",
+			"compiler": runtime.Compiler,
+			"arch":     runtime.GOARCH,
+		},
+	}
+}
+
+func checkHostPlatform(opts *Options) CheckResult {
+	plat := opts.platform()
+	wsl := opts.isWSL()
+	var notes []string
+	if platform.IsDarwin(plat) {
+		notes = append(notes, "macOS first-step support active; see docs/macos.md")
+	}
+	if wsl {
+		notes = append(notes, "WSL detected")
+	}
+	msg := "platform=" + plat
+	if len(notes) > 0 {
+		msg += " (" + strings.Join(notes, "; ") + ")"
+	}
+	return infoCheck("host_platform", msg, map[string]any{
+		"platform": plat,
+		"peercred": platform.PeercredBackendLabel(plat),
+		"wsl":      wsl,
+	})
+}
+
+func checkPeercred(opts *Options) CheckResult {
+	plat := opts.platform()
+	label := platform.PeercredBackendLabel(plat)
+	allowUnauth := platform.ControlAllowUnauth()
+	msg := "control socket peer credentials via " + label
+	if allowUnauth {
+		msg += " — " + platform.ControlAllowUnauthEnv + "=1 (unauthenticated control allowed)"
+	}
+	details := map[string]any{
+		"backend":      label,
+		"platform":     plat,
+		"allow_unauth": allowUnauth,
+	}
+	if opts.Config != nil && opts.Config.ControlSocket != "" {
+		details["control_socket"] = opts.Config.ControlSocket
+		msg += "; socket path " + opts.Config.ControlSocket
+	}
+	return infoCheck("peercred", msg, details)
+}
+
+func checkFuseDevice(opts *Options) CheckResult {
+	probe := platform.ProbeFusePresence(opts.platform(), platform.PathExistsFunc(opts.pathExists()))
+	var msg string
+	if probe.OK {
+		if len(probe.Found) > 0 {
+			msg = "FUSE present (" + probe.Found[0] + ")"
+		} else {
+			msg = "FUSE present"
+		}
+	} else {
+		hint := probe.Hint
+		if hint == "" {
+			hint = "FUSE not detected"
+		}
+		msg = "FUSE not detected — " + hint
+	}
+	return CheckResult{
+		Name:     "fuse_device",
+		OK:       probe.OK,
+		Severity: map[bool]string{true: SeverityInfo, false: SeverityWarn}[probe.OK],
+		Message:  msg,
+		Details: map[string]any{
+			"platform":   probe.Platform,
+			"candidates": probe.Candidates,
+			"found":      probe.Found,
+			"ok":         probe.OK,
+			"hint":       probe.Hint,
+		},
+	}
+}
+
+func checkFusermount(opts *Options) CheckResult {
+	probe := platform.ProbeUnmountTool(opts.platform(), platform.WhichFunc(opts.which()))
+	if probe.OK {
+		tool := probe.Tool
+		cmdPreview := tool
+		if len(probe.CommandTemplate) >= 2 {
+			cmdPreview = strings.Join(probe.CommandTemplate[:2], " ")
+		} else if len(probe.CommandTemplate) == 1 {
+			cmdPreview = probe.CommandTemplate[0]
+		}
+		return infoCheck("fusermount", fmt.Sprintf("unmount tool ready: %s (%s)", tool, cmdPreview), map[string]any{
+			"platform":         probe.Platform,
+			"tool":             probe.Tool,
+			"command_template": probe.CommandTemplate,
+			"ok":               true,
+		})
+	}
+	return warnCheck("fusermount", false, probe.Tool+" not found on PATH", map[string]any{
+		"platform": probe.Platform,
+		"tool":     probe.Tool,
+		"ok":       false,
+	})
+}
+
+func checkUserAllowOther(opts *Options) CheckResult {
+	plat := opts.platform()
+	windowsVisible := true
+	if opts.Config != nil {
+		windowsVisible = opts.Config.WindowsVisible
+	} else {
+		windowsVisible = platform.DefaultWindowsVisible(plat)
+	}
+
+	if platform.IsDarwin(plat) {
+		return infoCheck("user_allow_other",
+			"macOS: user_allow_other / windows_visible are WSL-oriented; "+
+				"keep windows_visible: false for single-user mounts",
+			map[string]any{
+				"platform":        "darwin",
+				"windows_visible": windowsVisible,
+			},
+		)
+	}
+
+	fuseConf := opts.fuseConfPath()
+	enabled := false
+	if text, err := opts.readFile()(fuseConf); err == nil {
+		for _, line := range strings.Split(text, "\n") {
+			stripped := strings.TrimSpace(line)
+			if strings.HasPrefix(stripped, "#") {
+				continue
+			}
+			if stripped == "user_allow_other" {
+				enabled = true
+				break
+			}
+		}
+	}
+
+	if windowsVisible && !enabled {
+		return warnCheck("user_allow_other", false,
+			"windows_visible is true but user_allow_other is not set in "+fuseConf+
+				"; Windows may not see FUSE mounts via \\\\wsl.localhost\\...",
+			map[string]any{
+				"fuse_conf":       fuseConf,
+				"enabled":         false,
+				"windows_visible": windowsVisible,
+			},
+		)
+	}
+	msg := "user_allow_other not required (windows_visible=false)"
+	if enabled {
+		msg = "user_allow_other enabled"
+	}
+	return infoCheck("user_allow_other", msg, map[string]any{
+		"enabled":         enabled,
+		"windows_visible": windowsVisible,
+		"fuse_conf":       fuseConf,
+	})
+}
+
+func checkRatarmount(opts *Options) CheckResult {
+	backend := config.BackendRust
+	var configured string
+	if opts.Config != nil {
+		backend = opts.Config.MountBackend
+		configured = opts.Config.RatarmountBin
+		if backend == "" {
+			backend = config.BackendRust
+		}
+	}
+	// Normalize when possible; invalid backend still surfaces in details.
+	if nb, err := config.NormalizeMountBackend(backend); err == nil {
+		backend = nb
+	}
+	label := mounter.BackendLabel(backend)
+
+	which := opts.which()
+	isExec := opts.isExecutable()
+	resolved, _ := mounter.ResolveRatarmountBin(backend, configured, mounter.ResolveOptions{
+		Which:              mounter.WhichFunc(which),
+		IsExecutable:       mounter.ExecutableFunc(isExec),
+		SearchPathDisabled: false,
+	})
+
+	// Candidate list for messaging (parity with Python tried list).
+	candidates := []string{}
+	if opts.Config != nil {
+		eff := opts.Config.EffectiveRatarmountBin()
+		candidates = append(candidates, eff)
+		if configured != "" && configured != eff {
+			candidates = append(candidates, configured)
+		}
+	}
+	def := mounter.DefaultRatarmountBin(backend)
+	if !containsString(candidates, def) {
+		candidates = append(candidates, def)
+	}
+	if p := which("ratarmount"); p != "" && !containsString(candidates, p) {
+		candidates = append(candidates, p)
+	}
+	if p := which("ratarmount-rs"); p != "" && !containsString(candidates, p) {
+		candidates = append(candidates, p)
+	}
+	// Prefer resolver result first, then the messaging candidate list.
+	tryOrder := make([]string, 0, len(candidates)+1)
+	if resolved != "" {
+		tryOrder = append(tryOrder, resolved)
+	}
+	tryOrder = append(tryOrder, candidates...)
+	seen := map[string]struct{}{}
+	for _, candidate := range tryOrder {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+
+		// Bare name: resolve via which.
+		path := candidate
+		if !strings.Contains(path, string(filepath.Separator)) && !strings.HasPrefix(path, ".") {
+			if w := which(path); w != "" {
+				path = w
+			}
+		}
+
+		if isExec(path) {
+			version := probeBinVersion(opts, path)
+			hasF := probeSupportsForeground(opts, path)
+			// hasF nil = unknown (still ok); false = missing support (error)
+			ok := true
+			sev := SeverityInfo
+			msg := fmt.Sprintf("%s: found executable %s", label, path)
+			if version != "" {
+				msg += " (" + version + ")"
+			}
+			if hasF != nil && !*hasF {
+				ok = false
+				sev = SeverityError
+				msg += " — missing -f/--foreground support"
+			}
+			return CheckResult{
+				Name:     "ratarmount_bin",
+				OK:       ok,
+				Severity: sev,
+				Message:  msg,
+				Details: map[string]any{
+					"path":                path,
+					"version":             nullIfEmpty(version),
+					"supports_foreground": boolOrNil(hasF),
+					"mount_backend":       backend,
+				},
+			}
+		}
+		if opts.pathExists()(path) {
+			return warnCheck("ratarmount_bin", false,
+				fmt.Sprintf("%s: %s exists but is not executable", label, path),
+				map[string]any{"path": path, "mount_backend": backend},
+			)
+		}
+	}
+
+	var hint string
+	if mounter.IsRustBackend(backend) {
+		hint = fmt.Sprintf(
+			"ratarmount-rs not found (tried %s, PATH). "+
+				"Build with `make release && make install` in ratarmount-rs, "+
+				"or set ratarmount_bin to the binary path.",
+			config.DefaultRustRatarmountBin,
+		)
+	} else {
+		hint = "ratarmount not found on PATH. Install ratarmount or set ratarmount_bin."
+	}
+	return warnCheck("ratarmount_bin", false, hint, map[string]any{
+		"tried":         candidates,
+		"mount_backend": backend,
+	})
+}
+
+func checkArchiveconverter(opts *Options) CheckResult {
+	enabled := false
+	configured := ""
+	if opts.Config != nil {
+		enabled = opts.Config.ArchiveconverterEnabled
+		configured = strings.TrimSpace(opts.Config.ArchiveconverterBin)
+	}
+
+	candidates := []string{}
+	if configured != "" {
+		candidates = append(candidates, configured)
+	}
+	// Auto candidates: config default home path + bare name.
+	def := config.DefaultArchiveconverterBin()
+	if !containsString(candidates, def) {
+		candidates = append(candidates, def)
+	}
+	if !containsString(candidates, "archiveconverter") {
+		candidates = append(candidates, "archiveconverter")
+	}
+
+	which := opts.which()
+	isExec := opts.isExecutable()
+	for _, candidate := range candidates {
+		path := candidate
+		if !strings.Contains(path, string(filepath.Separator)) && !strings.HasPrefix(path, ".") {
+			if w := which(path); w != "" {
+				path = w
+			}
+		}
+		if !isExec(path) {
+			continue
+		}
+		version := probeBinVersion(opts, path)
+		msg := "archiveconverter found at " + path
+		if version != "" {
+			msg += " (" + version + ")"
+		}
+		if !enabled {
+			msg += " — disabled (set archiveconverter_enabled: true to convert .7z before index)"
+		}
+		return infoCheck("archiveconverter", msg, map[string]any{
+			"path":    path,
+			"version": nullIfEmpty(version),
+			"enabled": enabled,
+		})
+	}
+
+	if enabled {
+		tried := configured
+		if tried == "" {
+			tried = "(auto)"
+		}
+		return warnCheck("archiveconverter", false,
+			"archiveconverter_enabled is true but binary not found. "+
+				"Build sibling archiveconverter (`cargo build --release`) or set "+
+				"archiveconverter_bin. Without it, solid nested .7z mounts may be slow/fail.",
+			map[string]any{"enabled": true, "tried": tried},
+		)
+	}
+	return infoCheck("archiveconverter",
+		"archiveconverter not installed (optional). "+
+			"Enable with archiveconverter_enabled for solid→non-solid .7z conversion.",
+		map[string]any{"enabled": false},
+	)
+}
+
+func checkSevenZipBin(opts *Options) CheckResult {
+	// Report 7z binary when convert_7z_nonsolid or convert_zip_to_7z is enabled,
+	// or always as optional info when config present.
+	enabled := false
+	configured := ""
+	if opts.Config != nil {
+		enabled = opts.Config.Convert7zNonsolid || opts.Config.ConvertZipTo7z
+		configured = strings.TrimSpace(opts.Config.Convert7zBin)
+	}
+
+	candidates := []string{}
+	if configured != "" {
+		candidates = append(candidates, configured)
+	}
+	for _, name := range []string{"7z", "7zz", "7za"} {
+		if !containsString(candidates, name) {
+			candidates = append(candidates, name)
+		}
+	}
+
+	which := opts.which()
+	isExec := opts.isExecutable()
+	for _, candidate := range candidates {
+		path := candidate
+		if !strings.Contains(path, string(filepath.Separator)) && !strings.HasPrefix(path, ".") {
+			if w := which(path); w != "" {
+				path = w
+			}
+		}
+		if !isExec(path) {
+			continue
+		}
+		version := probeBinVersion(opts, path)
+		msg := "7z tool found at " + path
+		if version != "" {
+			msg += " (" + truncate(version, 80) + ")"
+		}
+		if !enabled {
+			msg += " — convert_7z_nonsolid / convert_zip_to_7z disabled"
+		}
+		return infoCheck("sevenzip_bin", msg, map[string]any{
+			"path":    path,
+			"version": nullIfEmpty(version),
+			"enabled": enabled,
+		})
+	}
+
+	if enabled {
+		tried := configured
+		if tried == "" {
+			tried = "7z/7zz/7za"
+		}
+		return warnCheck("sevenzip_bin", false,
+			"convert_7z_* / convert_zip_to_7z enabled but 7z binary not found on PATH. "+
+				"Install p7zip/7zip or set convert_7z_bin.",
+			map[string]any{"enabled": true, "tried": tried},
+		)
+	}
+	// Optional when features off — still emit a soft info so the check appears.
+	return infoCheck("sevenzip_bin",
+		"7z not required (convert_7z_nonsolid / convert_zip_to_7z disabled)",
+		map[string]any{"enabled": false},
+	)
+}
+
+func checkMountBackend(opts *Options) CheckResult {
+	backend := config.BackendRust
+	if opts.Config != nil && opts.Config.MountBackend != "" {
+		backend = opts.Config.MountBackend
+	}
+	if nb, err := config.NormalizeMountBackend(backend); err == nil {
+		backend = nb
+	}
+	label := mounter.BackendLabel(backend)
+	if mounter.IsPythonBackend(backend) {
+		return infoCheck("mount_backend",
+			fmt.Sprintf("using %s; 7z random-access backends live inside Python ratarmount", label),
+			map[string]any{"mount_backend": backend},
+		)
+	}
+	return infoCheck("mount_backend",
+		fmt.Sprintf("using %s; Python ratarmountcore sevenzip/py7zr checks skipped", label),
+		map[string]any{"mount_backend": backend},
+	)
+}
+
+func checkSystemd(opts *Options) CheckResult {
+	plat := opts.platform()
+	if platform.IsDarwin(plat) {
+		return infoCheck("systemd_pid1",
+			"macOS: systemd not used; run `mount-wrapper serve --foreground` "+
+				"(launchd packaging is future work — docs/macos.md)",
+			map[string]any{"platform": "darwin", "is_systemd": false},
+		)
+	}
+	comm, err := opts.readPID1()()
+	if err != nil {
+		comm = "unknown"
+	}
+	isSystemd := comm == "systemd"
+	sev := SeverityInfo
+	if !isSystemd {
+		sev = SeverityWarn
+	}
+	msg := "systemd is PID 1"
+	if !isSystemd {
+		msg = fmt.Sprintf("PID 1 is %q (enable systemd in /etc/wsl.conf for the service unit)", comm)
+	}
+	return CheckResult{
+		Name:     "systemd_pid1",
+		OK:       true, // informational / soft warn only
+		Severity: sev,
+		Message:  msg,
+		Details:  map[string]any{"pid1": comm, "is_systemd": isSystemd},
+	}
+}
+
+func checkServiceUser(opts *Options) CheckResult {
+	plat := opts.platform()
+	if platform.IsDarwin(plat) {
+		return infoCheck("service_user",
+			"macOS first-step: run as your login user "+
+				"(no dedicated mount-wrapper system user yet)",
+			map[string]any{"platform": "darwin", "user": "current"},
+		)
+	}
+	name := opts.serviceUser()
+	if opts.lookupUser()(name) {
+		return infoCheck("service_user", "user "+name+" exists", map[string]any{"user": name})
+	}
+	return warnCheck("service_user", false,
+		"user "+name+" not found (install the package or create the service user)",
+		map[string]any{"user": name},
+	)
+}
+
+func checkServicePaths(opts *Options) []CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return nil
+	}
+	var out []CheckResult
+	for _, item := range []struct {
+		name string
+		path string
+	}{
+		{"mount_root", cfg.MountRoot},
+		{"index_dir", cfg.IndexDir},
+		{"overlay_dir", cfg.OverlayDir},
+	} {
+		out = append(out, checkOnePath(opts, "path."+item.name, item.name, item.path))
+	}
+	// Control socket parent (run dir).
+	if cfg.ControlSocket != "" {
+		parent := filepath.Dir(cfg.ControlSocket)
+		out = append(out, checkOnePath(opts, "path.control_socket_dir", "control_socket_dir", parent))
+	}
+	return out
+}
+
+func checkOnePath(opts *Options, checkName, label, pathStr string) CheckResult {
+	if pathStr == "" {
+		return warnCheck(checkName, false, label+" is empty", map[string]any{"path": pathStr})
+	}
+	exists := opts.pathExists()(pathStr)
+	isDir := opts.isDir()(pathStr)
+	if exists && !isDir {
+		return errorCheck(checkName, false,
+			fmt.Sprintf("%s exists but is not a directory: %s", label, pathStr),
+			map[string]any{"path": pathStr},
+		)
+	}
+	parent := resolveParent(pathStr, opts.pathExists())
+	parentExists := opts.pathExists()(parent)
+	writable := false
+	if parentExists {
+		writable = opts.writable()(parent)
+	}
+	if exists {
+		return infoCheck(checkName, fmt.Sprintf("%s exists at %s", label, pathStr), map[string]any{
+			"path": pathStr, "exists": true, "parent_writable": writable,
+		})
+	}
+	if parentExists && writable {
+		return infoCheck(checkName,
+			fmt.Sprintf("%s does not exist yet; parent writable: true", label),
+			map[string]any{"path": pathStr, "exists": false, "parent_writable": true},
+		)
+	}
+	if parentExists {
+		return warnCheck(checkName, false,
+			fmt.Sprintf("%s does not exist yet; parent not writable: %s", label, parent),
+			map[string]any{"path": pathStr, "exists": false, "parent_writable": false},
+		)
+	}
+	return warnCheck(checkName, false,
+		fmt.Sprintf("%s and parent missing: %s", label, pathStr),
+		map[string]any{"path": pathStr, "exists": false, "parent_writable": false},
+	)
+}
+
+func checkSourceDirs(opts *Options) []CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return nil
+	}
+	if len(cfg.SourceDirs) == 0 {
+		return []CheckResult{
+			warnCheck("source_dirs", false, "no source_dirs configured", map[string]any{}),
+		}
+	}
+	var out []CheckResult
+	for i, src := range cfg.SourceDirs {
+		name := fmt.Sprintf("source_dirs[%d]", i)
+		mapped, err := paths.ToWSLPath(src, &paths.ToWSLOpts{})
+		if err != nil {
+			out = append(out, errorCheck(name, false, fmt.Sprintf("%q: %v", src, err), map[string]any{
+				"configured": src,
+			}))
+			continue
+		}
+		exists := opts.isDir()(mapped)
+		drvfs := paths.IsDrvFsPath(mapped)
+		sev := SeverityInfo
+		ok := true
+		note := "directory exists"
+		if !exists {
+			sev = SeverityWarn
+			// Soft: missing source is warn, still ok=true (parity with Python)
+			ok = true
+			note = "mapped path not found or not a directory"
+		}
+		fsNote := "Linux FS"
+		if drvfs {
+			fsNote = "DrvFs"
+		}
+		out = append(out, CheckResult{
+			Name:     name,
+			OK:       ok,
+			Severity: sev,
+			Message:  fmt.Sprintf("%q → %s (%s; %s)", src, mapped, fsNote, note),
+			Details: map[string]any{
+				"configured": src,
+				"mapped":     mapped,
+				"exists":     exists,
+				"drvfs":      drvfs,
+			},
+		})
+	}
+	return out
+}
+
+func checkIndexLayout(opts *Options) CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return CheckResult{} // skipped by caller
+	}
+	indexDir := cfg.IndexDir
+	onDrvfs := paths.IsDrvFsPath(indexDir)
+	allow := cfg.AllowIndexesOnDrvfs
+	if onDrvfs && !allow {
+		return warnCheck("index_layout", false,
+			fmt.Sprintf("index_dir %q appears to be on DrvFs; keep indexes on the Linux filesystem "+
+				"or set allow_indexes_on_drvfs: true", indexDir),
+			map[string]any{
+				"index_dir":              indexDir,
+				"drvfs":                  true,
+				"allow_indexes_on_drvfs": allow,
+			},
+		)
+	}
+	msg := "index_dir on Linux filesystem"
+	if onDrvfs {
+		msg = "index_dir on DrvFs allowed (allow_indexes_on_drvfs=true)"
+	}
+	return infoCheck("index_layout", msg, map[string]any{
+		"index_dir":              indexDir,
+		"drvfs":                  onDrvfs,
+		"allow_indexes_on_drvfs": allow,
+	})
+}
+
+func checkFreeSpace(opts *Options) []CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return nil
+	}
+	threshold := int64(cfg.MinFreeBytes)
+	if threshold <= 0 && opts.MinFreeWarnBytes > 0 {
+		threshold = opts.MinFreeWarnBytes
+	}
+
+	var out []CheckResult
+	seen := map[string]struct{}{}
+	for _, item := range []struct {
+		name string
+		path string
+	}{
+		{"mount_root", cfg.MountRoot},
+		{"index_dir", cfg.IndexDir},
+		{"overlay_dir", cfg.OverlayDir},
+	} {
+		if item.path == "" {
+			continue
+		}
+		// Deduplicate by cleaned path so same FS is not reported thrice when identical.
+		key := filepath.Clean(item.path)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		free, ok := opts.freeBytes()(item.path)
+		if !ok {
+			out = append(out, infoCheck("disk."+item.name,
+				fmt.Sprintf("free space for %s unavailable", item.name),
+				map[string]any{"path": item.path, "free_bytes": nil},
+			))
+			continue
+		}
+		details := map[string]any{
+			"path":       item.path,
+			"free_bytes": free,
+			"threshold":  threshold,
+		}
+		if threshold > 0 && free < threshold {
+			out = append(out, warnCheck("disk."+item.name, false,
+				fmt.Sprintf("%s low disk: %s free (threshold %s)",
+					item.name, humanBytes(free), humanBytes(threshold)),
+				details,
+			))
+			continue
+		}
+		out = append(out, infoCheck("disk."+item.name,
+			fmt.Sprintf("%s free space: %s", item.name, humanBytes(free)),
+			details,
+		))
+	}
+	return out
+}
+
+func checkConfig(opts *Options) CheckResult {
+	cfg := opts.Config
+	if cfg == nil {
+		return CheckResult{}
+	}
+	return infoCheck("config",
+		fmt.Sprintf("config schema version %d loaded", cfg.Version),
+		map[string]any{
+			"overlay_cleanup":       cfg.OverlayCleanup,
+			"stable_file_mode":      cfg.StableFileMode,
+			"poll_interval_seconds": cfg.PollIntervalSeconds,
+			"recursive_mount":       cfg.RecursiveMount,
+			"control_socket":        cfg.ControlSocket,
+			"mount_backend":         cfg.MountBackend,
+			"ratarmount_bin":        cfg.EffectiveRatarmountBin(),
+		},
+	)
+}
+
+// --- helpers ---
+
+func probeBinVersion(opts *Options, path string) string {
+	out, err := runBinTimed(opts, path, 10*time.Second, "--version")
+	if err != nil && out == "" {
+		return ""
+	}
+	line := firstLine(out)
+	return truncate(line, 120)
+}
+
+func probeSupportsForeground(opts *Options, path string) *bool {
+	out, err := runBinTimed(opts, path, 15*time.Second, "--help")
+	if err != nil && out == "" {
+		return nil
+	}
+	lower := strings.ToLower(out)
+	v := strings.Contains(lower, "-f") || strings.Contains(lower, "foreground")
+	return &v
+}
+
+func runBinTimed(opts *Options, path string, timeout time.Duration, args ...string) (string, error) {
+	if opts != nil && opts.RunBin != nil {
+		return opts.RunBin(path, args...)
+	}
+	return runBinWithTimeout(path, timeout, args...)
+}
+
+func containsString(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func boolOrNil(p *bool) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func humanBytes(n int64) string {
+	if n < 0 {
+		return fmt.Sprintf("%d B", n)
+	}
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
+	v := float64(n)
+	i := 0
+	for v >= 1024 && i < len(units)-1 {
+		v /= 1024
+		i++
+	}
+	if i == 0 {
+		return fmt.Sprintf("%d B", n)
+	}
+	return fmt.Sprintf("%.1f %s", v, units[i])
+}

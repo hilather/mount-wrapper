@@ -1,0 +1,36 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Go
+/vendor/
+
+# Local agent / IDE state (not part of the product)
+.grok/
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.svelte-kit/
+web/test-results/
+web/playwright-report/
+web/blob-report/
+web/playwright/.cache/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local env
+.env
+.env.*
+*.log
+
+# Coverage
+coverage.out
+coverage.html

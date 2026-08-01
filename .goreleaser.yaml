@@ -1,0 +1,197 @@
+# Multi-platform release for mount-wrapper.
+#
+# Supported matrix (CGO_ENABLED=0, pure-Go SQLite — works on Rocky 8+ / Ubuntu 20.04+ /
+# current macOS without newer-glibc host dependency):
+#
+#   linux/amd64   linux/arm64    → tar.gz + .deb + .rpm
+#   darwin/amd64  darwin/arm64   → tar.gz (Homebrew/manual; no deb/rpm)
+#
+# Local:
+#   goreleaser release --snapshot --clean
+#   goreleaser release --clean          # requires git tag + GITHUB_TOKEN for publish
+#
+# CI: .github/workflows/release.yml on tags v*
+
+version: 2
+
+project_name: mount-wrapper
+
+before:
+  hooks:
+    - go mod tidy
+    # Embed production SPA so serve has a dashboard without a separate web job.
+    - make web-build
+
+builds:
+  - id: mount-wrapper
+    main: ./cmd/mount-wrapper
+    binary: mount-wrapper
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    flags:
+      - -trimpath
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - docs/install.md
+      - docs/migration.md
+      - docs/security.md
+      - docs/macos.md
+      - packaging/examples/*
+      - packaging/systemd/mount-wrapper.service
+      - packaging/launchd/*
+      - packaging/scripts/*
+      - packaging/man/*
+      - packaging/wsl.conf.snippet
+      - packaging/windows-task-scheduler.xml.example
+      - packaging/env.example
+      - packaging/homebrew/*
+
+nfpms:
+  - id: linux-packages
+    package_name: mount-wrapper
+    # Only package Linux builds (Ubuntu .deb + Rocky/RHEL .rpm).
+    ids: [mount-wrapper]
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Arch }}"
+    vendor: hilather
+    homepage: https://github.com/hilather/mount-wrapper
+    maintainer: hilather <noreply@github.com>
+    description: |-
+      Archive auto-mounter orchestrator for ratarmount / ratarmount-rs.
+      FUSE engines are not bundled — install ratarmount-rs (default), fuse3, and
+      optionally archiveconverter and 7z/p7zip.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    section: utils
+    priority: optional
+    # Build packages only for linux GOOS (skip darwin binaries).
+    overrides:
+      deb:
+        dependencies:
+          - fuse3
+        recommends:
+          - p7zip-full
+      rpm:
+        dependencies:
+          - fuse3
+        recommends:
+          - p7zip
+    contents:
+      - src: packaging/systemd/mount-wrapper.service
+        dst: /lib/systemd/system/mount-wrapper.service
+        file_info:
+          mode: 0644
+      - src: packaging/examples/config.yaml.example
+        dst: /usr/share/mount-wrapper/config.yaml.example
+        file_info:
+          mode: 0644
+      - src: packaging/examples/config.debug.yaml.example
+        dst: /usr/share/mount-wrapper/config.debug.yaml.example
+        file_info:
+          mode: 0644
+      - src: packaging/examples/hooks.d/10-list-tree.sh.sample
+        dst: /usr/share/mount-wrapper/hooks.d/10-list-tree.sh.sample
+        file_info:
+          mode: 0644
+      - src: packaging/scripts/create-user.sh
+        dst: /usr/share/mount-wrapper/create-user.sh
+        file_info:
+          mode: 0755
+      - src: packaging/env.example
+        dst: /usr/share/mount-wrapper/env.example
+        file_info:
+          mode: 0644
+      - src: packaging/wsl.conf.snippet
+        dst: /usr/share/mount-wrapper/wsl.conf.snippet
+        file_info:
+          mode: 0644
+      - src: packaging/windows-task-scheduler.xml.example
+        dst: /usr/share/mount-wrapper/windows-task-scheduler.xml.example
+        file_info:
+          mode: 0644
+      - src: packaging/man/mount-wrapper.1
+        dst: /usr/share/man/man1/mount-wrapper.1
+        file_info:
+          mode: 0644
+      - src: docs/install.md
+        dst: /usr/share/doc/mount-wrapper/install.md
+        file_info:
+          mode: 0644
+      - src: docs/security.md
+        dst: /usr/share/doc/mount-wrapper/security.md
+        file_info:
+          mode: 0644
+      - src: LICENSE
+        dst: /usr/share/doc/mount-wrapper/LICENSE
+        file_info:
+          mode: 0644
+    scripts:
+      postinstall: packaging/scripts/nfpm-postinstall.sh
+
+checksum:
+  name_template: SHA256SUMS
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  draft: false
+  mode: replace
+  header: |
+    ## mount-wrapper {{.Version}}
+
+    ### Binaries (CGO_ENABLED=0)
+
+    | Platform | Archive |
+    |----------|---------|
+    | Linux x86_64 (Ubuntu, Rocky 8+, WSL2) | `mount-wrapper_{{ .Version }}_linux_amd64.tar.gz` |
+    | Linux arm64 | `mount-wrapper_{{ .Version }}_linux_arm64.tar.gz` |
+    | macOS Intel | `mount-wrapper_{{ .Version }}_darwin_amd64.tar.gz` |
+    | macOS Apple Silicon | `mount-wrapper_{{ .Version }}_darwin_arm64.tar.gz` |
+
+    ### Packages
+
+    | Format | Arch | Target |
+    |--------|------|--------|
+    | `.deb` | amd64, arm64 | Ubuntu / Debian |
+    | `.rpm` | amd64, arm64 | Rocky / RHEL / Fedora |
+
+    Verify:
+
+    ```bash
+    sha256sum -c SHA256SUMS
+    # macOS: shasum -a 256 -c SHA256SUMS
+    ```
+
+    Engines are **not** bundled: install **ratarmount-rs** (default backend), **fuse3**
+    (Linux) or **macFUSE** (macOS), optional archiveconverter and 7z. See
+    [docs/install.md](https://github.com/hilather/mount-wrapper/blob/main/docs/install.md).

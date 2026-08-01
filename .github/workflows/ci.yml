@@ -1,0 +1,86 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: "Run optional Playwright SPA smoke (installs Chromium + deps)"
+        type: boolean
+        default: false
+
+jobs:
+  go:
+    name: go-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # go.mod requires 1.25 (modernc.org/sqlite and toolchain).
+          go-version: "1.25.x"
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: Race (control / state / service / api / mounter)
+        # Full-suite -race is slow; keep the concurrency-critical packages under race.
+        run: go test -race ./internal/control/... ./internal/state/... ./internal/service/... ./internal/api/... ./internal/mounter/...
+      - name: Build
+        run: make build
+      # Future: Rocky 8 / glibc-2.28 container smoke (static or older glibc matrix).
+      # Future: macOS + macFUSE job (Phase 11+; needs FUSE entitlement / self-hosted or macOS runner).
+
+  web:
+    name: web-check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - name: Embed SPA into internal/webui (embed.FS smoke)
+        working-directory: ${{ github.workspace }}
+        run: |
+          rm -rf internal/webui/dist
+          mkdir -p internal/webui/dist
+          cp -a web/dist/. internal/webui/dist/
+          go test ./internal/webui/...
+      # Playwright is NOT run in this job (browser download is heavy).
+      # Optional: Actions → Run workflow → enable "run_e2e", or locally:
+      #   cd web && npm run test:e2e:install && RUN_E2E=1 npm run test:e2e
+
+  # Optional Playwright SPA smoke (mocked /api/*; no daemon). Not on push/PR.
+  web-e2e:
+    name: web-e2e (optional)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_e2e }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Install Playwright Chromium (+ OS deps)
+        run: npx playwright install --with-deps chromium
+      - name: SPA smoke (mocked API)
+        run: RUN_E2E=1 npm run test:e2e
+        env:
+          CI: true

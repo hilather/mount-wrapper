@@ -1,0 +1,52 @@
+# Homebrew formula *sketch* for mount-wrapper (not published to a tap yet).
+# Copy into a tap as Formula/mount-wrapper.rb and adjust url/sha256 per release.
+#
+# Suggested deps (manual; formula does not vendor engines):
+#   brew install macfuse   # system extension approval required
+#   # ratarmount-rs: install from upstream release or cargo
+#   # optional: archiveconverter, p7zip
+#
+# Install sketch after formula is real:
+#   brew install hilather/tap/mount-wrapper
+#   cp "$(brew --prefix)/share/mount-wrapper/config.yaml.macos.example" \
+#     "$HOME/Library/Application Support/mount-wrapper/config.yaml"
+
+class MountWrapper < Formula
+  desc "Archive auto-mounter orchestrator (ratarmount / ratarmount-rs)"
+  homepage "https://github.com/hilather/mount-wrapper"
+  # url "https://github.com/hilather/mount-wrapper/archive/refs/tags/v0.1.0.tar.gz"
+  # sha256 "REPLACE_ME"
+  license "MIT"
+  head "https://github.com/hilather/mount-wrapper.git", branch: "main"
+
+  depends_on "go" => :build
+  # macFUSE is a cask / system extension — document, do not hard-require here:
+  # depends_on :macos
+
+  def install
+    ldflags = %W[
+      -s -w
+      -X main.version=#{version}
+      -X main.commit=homebrew
+      -X main.date=#{time.iso8601}
+    ]
+    system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/mount-wrapper"
+
+    pkgshare.install "packaging/examples/config.yaml.macos.example"
+    pkgshare.install "packaging/launchd/com.hilather.mount-wrapper.plist.example"
+  end
+
+  def caveats
+    <<~EOS
+      macFUSE must be installed and allowed in System Settings.
+      Install engines on PATH (ratarmount-rs recommended; or ratarmount).
+      Example config: #{pkgshare}/config.yaml.macos.example
+      launchd plist:  #{pkgshare}/com.hilather.mount-wrapper.plist.example
+      Keep control_socket under ~/Library/Caches/... (socket path length limit).
+    EOS
+  end
+
+  test do
+    assert_match "mount-wrapper", shell_output("#{bin}/mount-wrapper version")
+  end
+end

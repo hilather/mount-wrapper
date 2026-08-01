@@ -1,0 +1,61 @@
+name: release
+
+# Publish multi-arch binaries + deb/rpm when a version tag is pushed.
+# Matrix: linux/{amd64,arm64} + darwin/{amd64,arm64} (CGO_ENABLED=0).
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      snapshot:
+        description: "Build snapshot artifacts without publishing a GitHub Release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    name: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install SPA deps (for make web-build in goreleaser before hook)
+        working-directory: web
+        run: npm ci
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: >-
+            ${{ github.event_name == 'workflow_dispatch' && inputs.snapshot && 'release --snapshot --clean' || 'release --clean' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload dist (workflow artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mount-wrapper-dist
+          path: dist/*
+          if-no-files-found: error

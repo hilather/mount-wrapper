@@ -1,0 +1,11 @@
+# Suggested /etc/wsl.conf fragment for mount-wrapper on Ubuntu WSL2.
+# Merge into /etc/wsl.conf, then from Windows: wsl --shutdown
+# and re-open the distro (or use packaging/windows-task-scheduler.xml.example).
+
+[boot]
+systemd=true
+
+[automount]
+enabled=true
+# metadata + permissive umask so service user mount-wrapper can read drop-folder archives
+options=metadata,umask=022,fmask=011

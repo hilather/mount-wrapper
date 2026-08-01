@@ -1,0 +1,224 @@
+/** Shared API / status types for the operator SPA (parity with Go internal/status + metrics). */
+
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'service-down' | 'unknown'
+
+export interface Counts {
+  [key: string]: number | undefined
+  mounted?: number
+  converting?: number
+  indexing?: number
+  mounting?: number
+  discovered?: number
+  hooks_running?: number
+  index_failed?: number
+  mount_failed?: number
+  absent?: number
+}
+
+export interface ArchiveMetrics {
+  archive_id?: string
+  archive_path?: string
+  archive_basename?: string
+  status?: string
+  mount_path?: string
+  archive_size_bytes?: number | null
+  index_size_bytes?: number | null
+  extracted_size_bytes?: number | null
+  space_saved_bytes?: number | null
+  space_saved_vs_archive_bytes?: number | null
+  convert_source_size_bytes?: number | null
+  convert_size_delta_bytes?: number | null
+  convert_duration_seconds?: number | null
+  index_path?: string
+  index_present?: boolean
+  extracted_source?: string
+  error?: string
+}
+
+export interface ArchiveRow {
+  archive_id: string
+  archive_path: string
+  archive_basename: string
+  source_dir?: string
+  status: string
+  hooks_status?: string
+  mount_path?: string | null
+  index_path?: string | null
+  overlay_path?: string | null
+  mount_pid?: number | null
+  mount_attempts?: number
+  mount_retryable?: boolean
+  fingerprint?: string
+  size_bytes?: number
+  last_error?: string | null
+  last_seen_at?: string
+  removed_at?: string | null
+  first_mounted_at?: string | null
+  hooks_completed_at?: string | null
+  index_started_at?: string | null
+  index_duration_seconds?: number | null
+  mount_duration_seconds?: number | null
+  convert_source_size_bytes?: number | null
+  convert_duration_seconds?: number | null
+  source_fs?: string
+  pid_alive?: boolean
+  elapsed_s?: number | null
+  progress_label?: string
+  live_pid?: number | null
+  is_first_index?: boolean | null
+  mount_phase?: string
+  is_mounted?: boolean | null
+  metrics?: ArchiveMetrics | null
+}
+
+export interface MetricsSummary {
+  archive_count?: number
+  archives_with_extracted_size?: number
+  archives_with_convert_metadata?: number
+  total_archive_size_bytes?: number
+  total_index_size_bytes?: number
+  total_extracted_size_bytes?: number
+  total_space_saved_bytes?: number
+  total_convert_source_size_bytes?: number | null
+  total_convert_size_delta_bytes?: number | null
+  archives_with_convert_duration?: number | null
+  max_convert_duration_seconds?: number | null
+}
+
+export interface ArchivesPayload {
+  archives?: ArchiveRow[]
+  summary?: MetricsSummary | null
+  counts?: Counts
+  mounted?: number
+  indexing?: number
+  mounting?: number
+  discovered?: number
+  hooks_running?: number
+  index_failed?: number
+  mount_failed?: number
+  absent?: number
+  converting?: number
+  version?: string
+  pid?: number
+  low_disk?: boolean
+  last_scan_at?: string
+  indexing_archives?: unknown[]
+}
+
+export interface StatusSnapshot extends ArchivesPayload {
+  ok?: boolean
+  error?: unknown
+  generated_at?: string
+  metrics_summary?: MetricsSummary | null
+}
+
+export interface HealthPayload {
+  ok?: boolean
+  web_version?: string
+  service_reachable?: boolean
+  control_socket?: string
+  bind?: string
+  service_status_code?: number
+  service_error?: unknown
+  service_pid?: number
+  service_version?: string
+  pid?: number
+  version?: string
+}
+
+export interface WSLInfo {
+  distro_name?: string | null
+  mount_root?: string
+  unc_mounts?: string | null
+  hint?: string
+}
+
+export interface DoctorCheck {
+  ok: boolean
+  severity?: string
+  name: string
+  message: string
+  [key: string]: unknown
+}
+
+export interface DoctorReport {
+  ok?: boolean
+  checks?: DoctorCheck[]
+  [key: string]: unknown
+}
+
+export interface ConfigGetResponse {
+  config?: Record<string, unknown>
+  config_path?: string
+  hot_reload_keys?: string[]
+  restart_required_keys?: string[]
+  values?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export interface ConfigSetResponse {
+  ok?: boolean
+  written?: boolean
+  reloaded?: boolean
+  changed_keys?: string[]
+  hot_reloadable?: string[]
+  restart_required?: string[]
+  config?: Record<string, unknown>
+  error?: string
+  [key: string]: unknown
+}
+
+export interface RescanResponse {
+  seen?: number
+  inserted?: number
+  stable?: number
+  [key: string]: unknown
+}
+
+export interface ActionResponse {
+  status?: string
+  overlay_action?: string
+  [key: string]: unknown
+}
+
+/** Per-hook row from GET /api/hooks?archive_id= (control hooks_status). */
+export interface HookRow {
+  hook_name: string
+  status: string
+  attempts?: number
+  last_exit_code?: number | null
+  last_error?: string | null
+}
+
+/** Response for GET /api/hooks?archive_id=. */
+export interface HooksStatusResponse {
+  archive_id: string
+  hooks_status?: string
+  hooks?: HookRow[]
+}
+
+/** Response for GET /api/hooks (no archive_id → hooks_list). */
+export interface HooksListResponse {
+  hooks?: Array<{ name?: string; path?: string }>
+}
+
+export type SortKey =
+  | 'name'
+  | 'status'
+  | 'archive_size'
+  | 'convert_source_size'
+  | 'convert_duration'
+  | 'index_size'
+  | 'index_duration'
+  | 'mount_duration'
+  | 'extracted_size'
+  | 'space_saved'
+
+export type ToastKind = 'ok' | 'err' | 'warn' | 'info'
+
+export interface Toast {
+  id: number
+  kind: ToastKind
+  message: string
+  html?: boolean
+}

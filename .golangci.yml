@@ -1,0 +1,20 @@
+# golangci-lint config for mount-wrapper (Phase 0 baseline).
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - misspell
+
+linters-settings:
+  misspell:
+    locale: US
+
+issues:
+  exclude-use-default: false

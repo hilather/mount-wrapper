@@ -1,0 +1,83 @@
+# nfpm sketch for .deb / .rpm (alternative to goreleaser nfpms).
+# Not wired into CI. Local smoke (after installing nfpm + building the binary):
+#
+#   make build
+#   VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p deb
+#   VERSION=$(git describe --tags --always) nfpm package -f packaging/nfpm.yaml -p rpm
+#
+# postinstall should create user/dirs (create-user.sh) — only run as root on
+# real package install, never from unit tests.
+
+name: mount-wrapper
+arch: amd64
+platform: linux
+version: ${VERSION}
+section: utils
+priority: optional
+maintainer: hilather
+description: |
+  Archive auto-mounter orchestrator for ratarmount / ratarmount-rs.
+  Engines (ratarmount-rs, fuse3, archiveconverter, 7z) are not bundled.
+vendor: hilather
+homepage: https://github.com/hilather/mount-wrapper
+license: MIT
+
+contents:
+  - src: ./bin/mount-wrapper
+    dst: /usr/bin/mount-wrapper
+    file_info:
+      mode: 0755
+  - src: ./packaging/systemd/mount-wrapper.service
+    dst: /lib/systemd/system/mount-wrapper.service
+    file_info:
+      mode: 0644
+  - src: ./packaging/examples/config.yaml.example
+    dst: /usr/share/mount-wrapper/config.yaml.example
+    file_info:
+      mode: 0644
+  - src: ./packaging/examples/hooks.d/10-list-tree.sh.sample
+    dst: /usr/share/mount-wrapper/hooks.d/10-list-tree.sh.sample
+    file_info:
+      mode: 0644
+  - src: ./packaging/wsl.conf.snippet
+    dst: /usr/share/mount-wrapper/wsl.conf.snippet
+    file_info:
+      mode: 0644
+  - src: ./packaging/windows-task-scheduler.xml.example
+    dst: /usr/share/mount-wrapper/windows-task-scheduler.xml.example
+    file_info:
+      mode: 0644
+  - src: ./packaging/env.example
+    dst: /usr/share/mount-wrapper/env.example
+    file_info:
+      mode: 0644
+  - src: ./packaging/scripts/create-user.sh
+    dst: /usr/share/mount-wrapper/create-user.sh
+    file_info:
+      mode: 0755
+  - src: ./docs/install.md
+    dst: /usr/share/doc/mount-wrapper/install.md
+    file_info:
+      mode: 0644
+  - src: ./docs/security.md
+    dst: /usr/share/doc/mount-wrapper/security.md
+    file_info:
+      mode: 0644
+  - src: ./packaging/man/mount-wrapper.1
+    dst: /usr/share/man/man1/mount-wrapper.1
+    file_info:
+      mode: 0644
+
+# scripts:
+#   postinstall: ./packaging/scripts/nfpm-postinstall.sh
+
+overrides:
+  deb:
+    depends:
+      # fuse3 provides fusermount3; engine binaries are Recommends-class.
+      - fuse3
+    recommends:
+      - p7zip-full
+  rpm:
+    depends:
+      - fuse3

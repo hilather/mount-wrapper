@@ -1,0 +1,51 @@
+# Example mount-wrapper config (schema version 1).
+# Full key inventory: TODO.md Appendix D.
+#
+# Packaged Linux install (service user mount-wrapper:mount-wrapper):
+#   sudo packaging/scripts/create-user.sh
+#   sudo cp packaging/examples/config.yaml.example /etc/mount-wrapper/config.yaml
+#   # edit source_dirs; ensure mount-wrapper can read them
+#   sudo systemctl enable --now mount-wrapper
+#   sudo -u mount-wrapper mount-wrapper doctor --config /etc/mount-wrapper/config.yaml
+#
+# Control plane: Unix socket at control_socket (mode 0660, group mount-wrapper).
+# Web UI: embedded in serve when web_enabled (default bind 127.0.0.1:8787).
+
+version: 1
+
+source_dirs:
+  - /var/lib/mount-wrapper/inbox
+  # - D:\Archives   # WSL maps to /mnt/d/Archives
+
+mount_root: /var/lib/mount-wrapper/mounts
+index_dir: /var/lib/mount-wrapper/indexes
+overlay_dir: /var/lib/mount-wrapper/overlays
+state_db: /var/lib/mount-wrapper/state.db
+hooks_dir: /etc/mount-wrapper/hooks.d
+
+# Runtime paths (systemd RuntimeDirectory=mount-wrapper → /run/mount-wrapper).
+control_socket: /run/mount-wrapper/control.sock
+pid_file: /run/mount-wrapper/mount-wrapper.pid
+
+mount_backend: rust
+# ratarmount_bin:  # auto-resolved when empty (ratarmount-rs for rust)
+
+poll_interval_seconds: 60
+stable_file_mode: two_scans
+recursive_mount: true
+write_overlay: true
+# windows_visible requires user_allow_other in /etc/fuse.conf (create-user.sh).
+windows_visible: true
+overlay_cleanup: quarantine
+cleanup_after: 24h
+
+# Embedded operator dashboard (no separate web unit; D4).
+web_enabled: true
+web_host: "127.0.0.1"
+web_port: 8787
+# Leave empty on loopback for local-only access; set a secret if binding non-loopback.
+web_token: ""
+# Prometheus: GET /metrics is always exposed when web is on (no extra flag).
+# Loopback bind → scrape without token; non-loopback → requires web_token when set.
+
+log_level: INFO

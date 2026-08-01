@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Example launchd *user agent* for mount-wrapper on macOS (login user, not root).
+
+  Setup:
+    1. Install binary (e.g. /usr/local/bin/mount-wrapper or ~/bin/mount-wrapper)
+    2. Copy packaging/examples/config.yaml.macos.example →
+         ~/Library/Application Support/mount-wrapper/config.yaml
+       and replace YOU with your short username
+    3. mkdir -p ~/Library/Caches/mount-wrapper/run
+       mkdir -p ~/Library/Logs/mount-wrapper
+    4. Copy this plist to ~/Library/LaunchAgents/com.hilather.mount-wrapper.plist
+       replacing REPLACE_HOME with $HOME (absolute path, no ~)
+    5. launchctl load ~/Library/LaunchAgents/com.hilather.mount-wrapper.plist
+
+  Socket path length:
+    macOS sockaddr_un sun_path is short (~104 bytes). Prefer control_socket under
+    Library/Caches/mount-wrapper/run/control.sock (see config.yaml.macos.example).
+    Deep Application Support paths can exceed the limit and fail bind.
+
+  Prerequisites: macFUSE allowed in System Settings → Privacy & Security;
+  ratarmount-rs (or ratarmount) on PATH. See docs/install.md and docs/macos.md.
+
+  Note: serve has no --foreground flag; launchd already keeps the process in
+  the foreground of the job.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hilather.mount-wrapper</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/mount-wrapper</string>
+    <string>serve</string>
+    <string>--config</string>
+    <string>REPLACE_HOME/Library/Application Support/mount-wrapper/config.yaml</string>
+  </array>
+
+  <!-- Keep PATH so ratarmount-rs / brew bins resolve for the agent. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>REPLACE_HOME/Library/Application Support/mount-wrapper</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>REPLACE_HOME/Library/Logs/mount-wrapper/serve.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>REPLACE_HOME/Library/Logs/mount-wrapper/serve.err.log</string>
+
+  <!-- Soft throttle if the process crashes in a loop. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>

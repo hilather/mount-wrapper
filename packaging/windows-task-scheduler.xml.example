@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<!--
+  Optional: keep the WSL distro (and thus mount-wrapper via systemd) warm after
+  Windows login. WSL does not start until something touches the distro; without
+  a kick, mounts only appear after an interactive `wsl` session.
+
+  Import:
+    1. Open Task Scheduler → Import Task…
+    2. Select this file
+    3. Edit the action: set the distro name (-d Ubuntu-24.04 → your distro)
+    4. Ensure systemd is enabled in the distro (/etc/wsl.conf [boot] systemd=true)
+
+  Action equivalent:
+    wsl.exe -d Ubuntu-24.04 --exec /bin/true
+
+  After the distro boots, systemd should start mount-wrapper if the unit is enabled.
+  See docs/install.md (WSL section).
+-->
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>wsl.exe</Command>
+      <Arguments>-d Ubuntu-24.04 --exec /bin/true</Arguments>
+    </Exec>
+  </Actions>
+</Task>

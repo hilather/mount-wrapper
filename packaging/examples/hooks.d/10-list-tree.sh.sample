@@ -1,0 +1,14 @@
+#!/bin/sh
+# Sample first-mount hook. Copy to hooks.d without the .sample suffix and chmod +x.
+# Env protocol: MOUNT_WRAPPER_* (D3). argv: $1=mount path $2=archive path.
+
+set -eu
+MOUNT_PATH="${1:-${MOUNT_WRAPPER_MOUNT_PATH:-}}"
+ARCHIVE_PATH="${2:-${MOUNT_WRAPPER_ARCHIVE_PATH:-}}"
+
+echo "mount-wrapper hook: mount=${MOUNT_PATH} archive=${ARCHIVE_PATH}"
+if [ -n "${MOUNT_PATH}" ] && [ -d "${MOUNT_PATH}" ]; then
+  # shallow listing only — real hooks should bound output
+  ls -la "${MOUNT_PATH}" | head -n 50 || true
+fi
+exit 0

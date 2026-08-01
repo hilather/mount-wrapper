@@ -1,0 +1,82 @@
+# mount-wrapper systemd unit (packaged Linux / WSL2).
+# Service user/group: mount-wrapper:mount-wrapper (D9).
+#
+# Install sketch:
+#   install -m 0644 packaging/systemd/mount-wrapper.service /etc/systemd/system/
+#   packaging/scripts/create-user.sh
+#   systemctl daemon-reload && systemctl enable --now mount-wrapper
+#
+# Extend source/stage paths after first config edit:
+#   mount-wrapper doctor --config /etc/mount-wrapper/config.yaml --fix-systemd
+#   systemctl daemon-reload && systemctl restart mount-wrapper
+#
+# Optional env overrides (PATH for engines, MOUNT_WRAPPER_CONTROL_ALLOW_UNAUTH, etc.):
+#   /etc/mount-wrapper/env  (KEY=value lines; file may be absent)
+
+[Unit]
+Description=mount-wrapper archive auto-mounter
+Documentation=https://github.com/hilather/mount-wrapper
+Documentation=file:///usr/share/doc/mount-wrapper/install.md
+After=network-online.target local-fs.target
+Wants=network-online.target
+# DrvFs may appear after WSL boot; serve retries missing sources each scan.
+
+[Service]
+Type=simple
+User=mount-wrapper
+Group=mount-wrapper
+# Optional KEY=value overrides; "-" means missing file is OK.
+EnvironmentFile=-/etc/mount-wrapper/env
+ExecStart=/usr/bin/mount-wrapper serve --config /etc/mount-wrapper/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# Graceful stop unmounts the managed FUSE pool (SIGTERM → fusermount → lazy).
+# Default systemd stop budget (90s) is often too short when many archives are
+# mounted; 300s matches upstream guidance. Large fleets may want higher:
+#   TimeoutStopSec=max(300, num_mounted * 15)
+TimeoutStopSec=300
+
+RuntimeDirectory=mount-wrapper
+RuntimeDirectoryMode=0750
+StateDirectory=mount-wrapper
+ConfigurationDirectory=mount-wrapper
+# Logs dir is optional; create via create-user.sh / package postinst.
+LogsDirectory=mount-wrapper
+
+# --- Hardening baseline (FUSE-aware) -----------------------------------------
+# Keep this mild: the daemon execs ratarmount(-rs), archiveconverter, and 7z
+# children, and creates FUSE mounts under StateDirectory.
+NoNewPrivileges=true
+# Entire FS hierarchy read-only except API VFS + explicit ReadWritePaths.
+# StateDirectory / RuntimeDirectory / LogsDirectory remain writable via systemd.
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# Do not enable MemoryDenyWriteExecute or tight SystemCallFilter — engine
+# children and FUSE helpers may need broader syscalls.
+# Do not set PrivateDevices=true without verifying /dev/fuse visibility.
+
+# FUSE character device (required for mount_backend engines).
+# Documented: without this (and with DevicePolicy closed via DeviceAllow),
+# mount attempts fail with "operation not permitted" / missing /dev/fuse.
+DeviceAllow=/dev/fuse rwm
+# Doctor --fix-systemd may emit DeviceAllow=/dev/fuse rw (equivalent for char dev).
+
+# Explicit data roots (StateDirectory parent is already RW; listed for clarity
+# and for drop-in merges). Add source_dirs via doctor-generated drop-in.
+ReadWritePaths=/var/lib/mount-wrapper /var/log/mount-wrapper
+# Default WSL automount root for reading archives. Extend for other paths:
+#   mount-wrapper doctor --fix-systemd
+ReadOnlyPaths=/mnt
+
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

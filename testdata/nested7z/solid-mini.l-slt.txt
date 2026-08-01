@@ -1,0 +1,32 @@
+Listing archive: solid-mini.7z
+
+--
+Path = solid-mini.7z
+Type = 7z
+Physical Size = 164
+Headers Size = 154
+Method = LZMA2:12
+Solid = +
+Blocks = 1
+
+----------
+Path = s1.txt
+Size = 3
+Packed Size = 10
+Modified = 2026-07-31 21:10:45.4343997
+Attributes = A -rw-rw-r--
+CRC = 8F7EE1B7
+Encrypted = -
+Method = LZMA2:12
+Block = 0
+
+Path = s2.txt
+Size = 3
+Packed Size = 
+Modified = 2026-07-31 21:10:45.4343997
+Attributes = A -rw-rw-r--
+CRC = A453B274
+Encrypted = -
+Method = LZMA2:12
+Block = 0
+

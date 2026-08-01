@@ -1,0 +1,217 @@
+.\" Man page for mount-wrapper — install as /usr/share/man/man1/mount-wrapper.1
+.TH MOUNT-WRAPPER 1 "2026-07" "mount-wrapper" "User Commands"
+.SH NAME
+mount-wrapper \- archive auto-mounter orchestrator (ratarmount engines)
+.SH SYNOPSIS
+.B mount-wrapper
+.I command
+[\fIoptions\fR]
+.SH DESCRIPTION
+.B mount-wrapper
+discovers archives under configured source directories, indexes and mounts them
+via external ratarmount engines (default
+.BR ratarmount-rs ),
+runs first-mount hooks, and exposes a Unix control socket plus an optional
+localhost HTTP API and embedded operator SPA.
+.PP
+It does
+.B not
+reimplement ratarmount inside Go. Engines, FUSE userland, and optional convert
+tools must be installed separately.
+.SH COMMANDS
+.TP
+.B version
+Print version, commit, and build date.
+.TP
+.B help
+Show usage summary.
+.TP
+.B serve
+Run the daemon (scan / index / mount / hooks loop). Loads YAML config, opens
+the state database, binds the control socket when configured, and optionally
+starts the HTTP API when
+.B web_enabled
+is true.
+.RS
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Config YAML (default: platform path, e.g.
+.IR /etc/mount-wrapper/config.yaml
+on Linux).
+.TP
+.B \-\-once
+Run a single service tick then exit (tests / oneshot debug).
+.TP
+.B \-\-allow\-unauth
+Allow control-plane ops without peer credentials. Also enabled when env
+.B MOUNT_WRAPPER_CONTROL_ALLOW_UNAUTH=1
+.RE
+.TP
+.B doctor
+Offline environment diagnostics (FUSE, bins, paths, disk, peercred notes).
+Does not require a running
+.B serve
+process.
+.RS
+.TP
+.B \-\-json
+Machine-readable report.
+.TP
+.B \-\-fix\-systemd
+Write a systemd drop-in for source paths (when applicable).
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Config to diagnose.
+.RE
+.TP
+.B config show|set
+Show or update configuration.
+.RS
+.TP
+.B show \-\-local
+Read the config file only (no control socket).
+.TP
+.B set
+Apply a full config or shallow patch via the running daemon, or offline with
+.BR \-\-dry\-run .
+Flags:
+.BR \-\-json ,
+.BR \-\-file ,
+.BR \-\-patch ,
+.BR \-\-dry\-run .
+.RE
+.TP
+.B status
+Service status (requires
+.BR serve ).
+.B \-\-json
+for machine-readable output;
+.B \-\-sizes
+includes size metrics (slower).
+.TP
+.B metrics [\fIARCHIVE_ID\fR]
+Archive size metrics (requires
+.BR serve ).
+.TP
+.B rescan
+Trigger an immediate source scan (requires
+.BR serve ).
+.TP
+.B retry \fIARCHIVE_ID\fR
+Reset mount attempts for one archive (requires
+.BR serve ).
+.TP
+.B mount \fIPATH\fR
+Request mount of an archive path (requires
+.BR serve ).
+.TP
+.B unmount \fITARGET\fR|\-\-all
+Unmount managed archive(s) (requires
+.BR serve ).
+.TP
+.B purge \fIARCHIVE_ID\fR
+Purge state/index/overlay for an archive. Requires
+.B \-\-yes
+and a running
+.BR serve .
+.TP
+.B hooks list|status
+Inspect first-mount hooks (requires
+.BR serve ).
+.SH COMMON OPTIONS
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Config YAML path.
+.TP
+.BR \-\-socket " " \fIPATH\fR
+Control socket path (overrides
+.B control_socket
+in config) for socket-backed CLI commands.
+.SH CONFIGURATION
+Primary file:
+.I /etc/mount-wrapper/config.yaml
+(Linux FHS). Schema version 1. Hot-reloadable keys apply on
+.B reload
+/ SIGHUP without a full process restart; path and bind keys typically require
+restart. See packaged examples under
+.I /usr/share/mount-wrapper/
+or the source tree
+.IR packaging/examples/ .
+.PP
+Important security-related keys:
+.TP
+.B web_enabled / web_host / web_port / web_token
+HTTP API + SPA. Default bind is loopback. Empty
+.B web_token
+means no Bearer auth (acceptable only on trusted loopback).
+When the web server is on,
+.B GET /metrics
+exposes Prometheus text gauges; scrapes on loopback need no token.
+.TP
+.B control_socket
+Unix socket path for CLI and local control.
+.TP
+.B hooks_dir
+Directory of first-mount hook executables (must pass owner/writable/realpath
+checks).
+.SH ENVIRONMENT
+.TP
+.B MOUNT_WRAPPER_CONTROL_ALLOW_UNAUTH
+When set to
+.BR 1 ,
+allows control connections without peer credentials (default off). Prefer
+fix/group socket auth in production.
+.TP
+.B WSL_DISTRO_NAME
+Used by the HTTP
+.B /api/wsl-info
+helper for Windows UNC path hints.
+.PP
+Hook processes receive
+.B MOUNT_WRAPPER_*
+variables only for archive and config fields (no dual
+.B TARMOUNT_*
+export from this daemon). Engine-specific variables such as
+.B RATARMOUNT_*
+may still be set for child mount processes.
+.SH FILES
+.TP
+.I /etc/mount-wrapper/config.yaml
+Main configuration.
+.TP
+.I /etc/mount-wrapper/hooks.d/
+First-mount hooks.
+.TP
+.I /var/lib/mount-wrapper/
+Mounts, indexes, overlays, state database.
+.TP
+.I /run/mount-wrapper/control.sock
+Default control socket (mode 0660).
+.TP
+.I /run/mount-wrapper/
+Runtime directory (socket + pidfile).
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B non-zero
+Usage error, config/load failure, or command/service failure.
+.SH SECURITY
+Control socket authentication uses peer credentials (root or group
+.BR mount-wrapper ).
+The HTTP API defaults to loopback with optional Bearer token. Destructive HTTP
+actions (purge, unmount-all, rescan) are rate-limited per client. See
+.I docs/security.md
+in the source distribution for a full review of hooks path escape, token
+defaults, and escape hatches.
+.SH SEE ALSO
+.BR fusermount3 (1),
+ratarmount / ratarmount-rs documentation.
+.PP
+Project docs:
+.IR https://github.com/hilather/mount-wrapper
+.SH AUTHOR
+hilather / mount-wrapper contributors.
+.SH LICENSE
+MIT

@@ -1,0 +1,38 @@
+# mount-wrapper debug overlay — merge into a full config or use as a
+# starting point for local troubleshooting with mount_backend: rust.
+#
+# Local debug usually runs as your login user (not the mount-wrapper system
+# user). Point control_socket / state_db / mount_root at writable paths under
+# /tmp or the repo, and keep web_enabled on loopback only.
+#
+# Example local serve:
+#   cp packaging/examples/config.yaml.example /tmp/mw-debug.yaml
+#   # edit paths; merge keys below or set log_level/ratarmount_* here
+#   ./bin/mount-wrapper serve --config /tmp/mw-debug.yaml --once
+#
+# control_socket: /tmp/mount-wrapper-debug/control.sock
+# web_enabled: true
+# web_host: "127.0.0.1"
+# web_port: 8787
+
+version: 1
+
+log_level: DEBUG
+
+# ratarmount-rs -d 3 (nested automount + 7z open/read tracing).
+ratarmount_debug: 3
+ratarmount_7z_debug: true
+
+# Per-archive logs: {ratarmount_log_dir}/{archive_id}.ratarmount.log
+ratarmount_log_dir: /var/lib/mount-wrapper/ratarmount-logs
+
+# Module filter for ratarmount-rs (wins over -d when set).
+ratarmount_rust_log: >-
+  ratarmount=debug,
+  ratarmount_compositing=debug,
+  ratarmount_formats_sevenzip=debug,
+  ratarmount_formats_zip=debug,
+  ratarmount_fuse=info
+
+# Do not pass --log-file here; ratarmount_log_dir injects it per mount.
+extra_ratarmount_args: []

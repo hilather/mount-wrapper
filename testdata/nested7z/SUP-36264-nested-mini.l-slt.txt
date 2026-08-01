@@ -1,0 +1,62 @@
+Listing archive: SUP-36264-nested-mini.7z
+
+--
+Path = SUP-36264-nested-mini.7z
+Type = 7z
+Physical Size = 145074
+Headers Size = 327
+Method = Copy
+Solid = -
+Blocks = 5
+
+----------
+Path = algosec-support-zip--CM-Primary--10.86.44.46--2026-07-14--08-44-03.7z
+Size = 5005
+Packed Size = 5005
+Modified = 2026-07-26 12:36:49.0000000
+Attributes = A -rw-r--r--
+CRC = AEFB06C7
+Encrypted = -
+Method = Copy
+Block = 0
+
+Path = algosec-support-zip--CM-Secondary--10.86.44.45--2026-07-14--08-47-35.7z
+Size = 64589
+Packed Size = 64589
+Modified = 2026-07-26 12:36:49.0000000
+Attributes = A -rw-r--r--
+CRC = 9D37AD6D
+Encrypted = -
+Method = Copy
+Block = 1
+
+Path = algosec-support-zip--RA--10.204.67.242--2026-07-14--08-54-43.7z
+Size = 52564
+Packed Size = 52564
+Modified = 2026-07-26 12:36:49.0000000
+Attributes = A -rw-r--r--
+CRC = 1485CBE5
+Encrypted = -
+Method = Copy
+Block = 2
+
+Path = algosec-support-zip--Slave--10.204.67.241--2026-07-14--08-57-05.7z
+Size = 22549
+Packed Size = 22549
+Modified = 2026-07-26 12:36:49.0000000
+Attributes = A -rw-r--r--
+CRC = 49E9220C
+Encrypted = -
+Method = Copy
+Block = 3
+
+Path = collect-support-zip.log
+Size = 40
+Packed Size = 40
+Modified = 2026-07-26 12:36:49.0000000
+Attributes = A -rw-r--r--
+CRC = 44BF628D
+Encrypted = -
+Method = Copy
+Block = 4
+

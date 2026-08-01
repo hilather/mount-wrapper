@@ -1,0 +1,42 @@
+Listing archive: nested-multi-mini.7z
+
+--
+Path = nested-multi-mini.7z
+Type = 7z
+Physical Size = 391
+Headers Size = 184
+Method = Copy
+Solid = -
+Blocks = 3
+
+----------
+Path = inner-a.7z
+Size = 100
+Packed Size = 100
+Modified = 2026-07-31 21:10:45.4253996
+Attributes = A -rw-rw-r--
+CRC = 732386BA
+Encrypted = -
+Method = Copy
+Block = 0
+
+Path = inner-b.7z
+Size = 100
+Packed Size = 100
+Modified = 2026-07-31 21:10:45.4273997
+Attributes = A -rw-rw-r--
+CRC = DCB3BDBE
+Encrypted = -
+Method = Copy
+Block = 1
+
+Path = readme.txt
+Size = 7
+Packed Size = 7
+Modified = 2026-07-31 21:10:45.4283997
+Attributes = A -rw-rw-r--
+CRC = 16E490B3
+Encrypted = -
+Method = Copy
+Block = 2
+

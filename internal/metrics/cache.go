@@ -1,0 +1,86 @@
+package metrics
+
+import "time"
+
+// Cache is a simple TTL cache for ArchiveMetrics by archive_id
+// (parity with MetricsCache).
+type Cache struct {
+	TTL time.Duration
+	now func() time.Time
+
+	entries map[string]cacheEntry
+}
+
+type cacheEntry struct {
+	at    time.Time
+	value ArchiveMetrics
+}
+
+// NewCache creates a TTL cache. ttl <= 0 means entries expire immediately
+// (Get always misses unless put in the same instant with zero TTL check:
+// zero TTL is treated as always-expired on Get).
+func NewCache(ttlSeconds float64) *Cache {
+	return &Cache{
+		TTL:     time.Duration(ttlSeconds * float64(time.Second)),
+		now:     time.Now,
+		entries: make(map[string]cacheEntry),
+	}
+}
+
+// SetClock injects a clock for tests. nil restores time.Now.
+func (c *Cache) SetClock(now func() time.Time) {
+	if c == nil {
+		return
+	}
+	if now == nil {
+		c.now = time.Now
+		return
+	}
+	c.now = now
+}
+
+func (c *Cache) clock() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+// Get returns a cached metrics value if present and not expired.
+func (c *Cache) Get(archiveID string) (ArchiveMetrics, bool) {
+	if c == nil || c.entries == nil {
+		return ArchiveMetrics{}, false
+	}
+	e, ok := c.entries[archiveID]
+	if !ok {
+		return ArchiveMetrics{}, false
+	}
+	if c.TTL <= 0 || c.clock().Sub(e.at) > c.TTL {
+		delete(c.entries, archiveID)
+		return ArchiveMetrics{}, false
+	}
+	return e.value, true
+}
+
+// Put stores metrics under metrics.ArchiveID.
+func (c *Cache) Put(m ArchiveMetrics) {
+	if c == nil {
+		return
+	}
+	if c.entries == nil {
+		c.entries = make(map[string]cacheEntry)
+	}
+	c.entries[m.ArchiveID] = cacheEntry{at: c.clock(), value: m}
+}
+
+// Invalidate removes one archive or clears the entire cache when archiveID is "".
+func (c *Cache) Invalidate(archiveID string) {
+	if c == nil || c.entries == nil {
+		return
+	}
+	if archiveID == "" {
+		c.entries = make(map[string]cacheEntry)
+		return
+	}
+	delete(c.entries, archiveID)
+}

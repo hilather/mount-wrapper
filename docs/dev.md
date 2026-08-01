@@ -1,0 +1,176 @@
+# Development
+
+## Prerequisites
+
+- Go 1.25+ (module requires 1.25 for pure-Go SQLite; CI uses `1.25.x`)
+- Node 22+ (for SPA)
+- Optional: golangci-lint, fuse3 + ratarmount(-rs) (for optional FUSE integration tests)
+
+## CI (GitHub Actions)
+
+Workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+
+| Job | Steps |
+|-----|--------|
+| `go-test` | `go vet`, `go test ./...`, `go test -race` on `internal/{control,state,service,api,mounter}`, `make build` |
+| `web-check` | `npm ci`, check, **vitest**, build, copy into `internal/webui/dist` + `go test ./internal/webui/...` |
+| `web-e2e` (optional) | **Not on push/PR.** `workflow_dispatch` + `run_e2e` input only — installs Chromium + deps, `RUN_E2E=1 npm run test:e2e` |
+
+Future (commented in workflow): Rocky 8 / glibc matrix; macOS + macFUSE.
+
+Security notes for operators: [security.md](./security.md). Man page sketch: `packaging/man/mount-wrapper.1`.
+
+## Quick start
+
+```bash
+# Go
+make test
+# Optional real-FUSE integration (skipped without /dev/fuse or engine on PATH):
+#   go test -tags=fuse ./internal/mounter/ -count=1 -run TestRealFUSEMountUnmount -v
+#   PATH=/path/to/ratarmount-rs/target/release:$PATH go test -tags=fuse ./internal/mounter/ -count=1
+make build
+./bin/mount-wrapper version
+
+# Offline CLI (no FUSE / no serve)
+./bin/mount-wrapper doctor --json
+# ./bin/mount-wrapper doctor --config packaging/examples/config.yaml.example --json
+# ./bin/mount-wrapper config show --local --config packaging/examples/config.yaml.example
+# ./bin/mount-wrapper config set --config … --patch --json '{"log_level":"DEBUG"}' --dry-run
+
+# Serve one tick (loads config, opens state DB, scan/reconcile/work once, exits)
+# Use a writable debug config with source_dirs / state_db under /tmp or a project path.
+# ./bin/mount-wrapper serve --config packaging/examples/config.debug.yaml.example --once
+
+# Socket-backed CLI (requires running serve + control socket server — Phase 7.1)
+# ./bin/mount-wrapper status --config … --json
+# ./bin/mount-wrapper rescan --assume-stable
+# Override socket without full config: --socket /path/to/control.sock
+
+# Frontend (HMR; proxies /api → http://127.0.0.1:8787)
+make web-install
+make web-dev
+
+# Production SPA into embed.FS
+make web-build
+make build
+```
+
+### HTTP API + Vite proxy (Phase 9–10)
+
+1. Enable web in config (`web_enabled: true`, default bind `127.0.0.1:8787`).
+2. Run the daemon: `./bin/mount-wrapper serve --config …` (long-running, not `--once`).
+3. SPA dev: `make web-dev` — Vite serves the UI on `:5173` and proxies `/api/*` (including SSE `/api/events`) to the daemon. Proxy timeouts are disabled so EventSource stays open.
+4. Optional `web_token`: set in config; SPA injects `window.__MOUNT_WRAPPER_TOKEN__` when assets are served from the daemon. For Vite-only dev, set the token in the browser console (`window.__MOUNT_WRAPPER_TOKEN__ = '…'`) or temporarily leave `web_token` empty on loopback.
+5. Production: `make web-build && make build` embeds `web/dist` into `internal/webui`; same origin as the API (no CORS).
+6. SPA quality gates:
+   - `make web-check` — `svelte-check` + `tsc`
+   - `make web-test` — vitest (formatters, table sort/filter, SSE backoff)
+   - `make web-build` — production bundle → `internal/webui/dist`
+   - **Optional E2E** (local or Actions `workflow_dispatch`; not default CI):
+     ```bash
+     cd web
+     npm run test:e2e:install          # once: download Chromium
+     RUN_E2E=1 npm run test:e2e        # or: make web-e2e
+     ```
+     Smoke starts **Vite only** (no mount-wrapper daemon), mocks `/api/health`,
+     `/api/status`, `/api/archives`, `/api/events`, `/api/wsl-info` via
+     `page.route`, asserts Archives heading + connection badge.
+     Without `RUN_E2E=1`, `npm run test:e2e` exits 0 (skip) so offline/main CI stay green.
+
+#### SPA layout (`web/src`)
+
+| Path | Role |
+|------|------|
+| `App.svelte` | Shell: nav, theme (`mw-theme`), connection badge, auto-refresh |
+| `pages/Archives.svelte` | Overview, savings, table, doctor, global actions |
+| `pages/Settings.svelte` | Grouped config form, validate/apply |
+| `lib/api.ts` | `fetchJson` + typed helpers; Bearer from `__MOUNT_WRAPPER_TOKEN__` |
+| `lib/api-types.ts` | D11 typed API surface (re-exports from `types.ts`; not OpenAPI) |
+| `lib/types.ts` | Hand-written request/response shapes |
+| `lib/sse.ts` | EventSource client, exponential backoff reconnect |
+| `lib/format.ts` | Bytes / duration / status labels |
+| `lib/settings-schema.ts` | Public config field groups (Settings form) |
+| `lib/stores/app.svelte.ts` | Shared runes state (archives, connection, toasts) |
+| `components/*` | Table, pills, savings, doctor, badge, toasts, hooks drawer |
+| `e2e/` | Optional Playwright smoke (mocked API; `RUN_E2E=1`) |
+
+### Parity inventories (Phase 12)
+
+```bash
+./tools/parity/run_all.sh   # CLI / config keys / socket ops markdown
+go test ./tools/parity/
+```
+
+See [parity.md](./parity.md) and [migration.md](./migration.md).
+
+## Layout
+
+| Path | Role |
+|------|------|
+| `cmd/mount-wrapper` | Binary entry |
+| `internal/config` | YAML config (schema v1) — unit-tested |
+| `internal/platform` | Host/FUSE/peercred |
+| `internal/paths` | WSL/DrvFs path helpers |
+| `internal/state` | SQLite lifecycle store + migrations — unit-tested |
+| `internal/match` | Archive name regex + extension filter — unit-tested |
+| `internal/scanner` | Discovery + stable-file + fingerprint — unit-tested |
+| `internal/archives` | archives_dir path helpers + relocate (space gate, sidecar) — unit-tested |
+| `internal/convert` | Convert predicates, cmd construction, metadata, zip/flatten runners — unit-tested |
+| `internal/mounter` | Backend resolve, cmd build, process group, unmount, Engine convert jobs — unit-tested; optional `//go:build fuse` real mount |
+| `internal/reconcile` | Liveness + boot plan — unit-tested |
+| `internal/cleaner` | Grace purge + overlay quarantine — unit-tested |
+| `internal/hooks` | hooks.d discovery, security, runner — unit-tested |
+| `internal/metrics` | Space-saved formulas + collector — unit-tested |
+| `internal/doctor` | Offline diagnostics report — unit-tested |
+| `internal/status` | Rich status payload + human formatter — unit-tested |
+| `internal/control` | Unix socket JSON-lines server/client + peercred auth — unit-tested |
+| `internal/service` | Serve loop, pidfile, signals, HandleRequest + control socket + optional HTTP — unit-tested |
+| `internal/cli` | Operator CLI (offline + socket client) — unit-tested |
+| `internal/api` | HTTP API + SSE + SPA static — unit-tested |
+| `internal/webui` | `embed.FS` of SPA `dist/` |
+| `web/` | Svelte 5 + Vite source |
+| `packaging/` | systemd, launchd, examples, create-user, WSL samples, nfpm sketch |
+| `testdata/` | Fixtures |
+| `docs/` | architecture, dev, install, macOS |
+| `AGENTS.md` | Mandatory agent policy (docs + tests + review) |
+| `.grok/skills/` | keep-docs-current, keep-tests-current, review-changes |
+| `.goreleaser.yaml` | Release binary matrix sketch (not CI-publish yet) |
+
+## Version embedding
+
+`make build` injects version metadata (same keys as goreleaser):
+
+```bash
+make build
+./bin/mount-wrapper version
+# LDFLAGS: -X main.version=… -X main.commit=… -X main.date=…
+```
+
+Release archives should ship **`SHA256SUMS`** (see `.goreleaser.yaml` checksum block and [install.md](./install.md)).
+
+## Package smoke
+
+```bash
+go test ./internal/config/... ./internal/platform/... ./internal/paths/... \
+  ./internal/state/... ./internal/match/... ./internal/scanner/... ./internal/archives/... \
+  ./internal/mounter/... ./internal/convert/... ./internal/reconcile/... ./internal/cleaner/... \
+  ./internal/hooks/... ./internal/metrics/... ./internal/doctor/... ./internal/status/... \
+  ./internal/control/... ./internal/service/... ./internal/api/... ./internal/cli/...
+# Load example:
+# packaging/examples/config.yaml.example
+# Smoke serve (oneshot):
+# make build && ./bin/mount-wrapper serve --config packaging/examples/config.debug.yaml.example --once
+# Offline CLI:
+# ./bin/mount-wrapper doctor --config packaging/examples/config.yaml.example --json
+# ./bin/mount-wrapper config show --local --config packaging/examples/config.yaml.example
+```
+
+## Agent quality bar
+
+Before considering a change complete:
+
+1. **Docs** — update README / TODO / docs / packaging examples for user-visible diffs  
+2. **Tests** — add regression coverage for behavior changes (`make test`)  
+3. **Review** — run `/review` or the `review-changes` skill; fix bugs  
+
+See [AGENTS.md](../AGENTS.md).
