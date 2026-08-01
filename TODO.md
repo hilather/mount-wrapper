@@ -3,7 +3,7 @@
 Go daemon + TypeScript SPA rewrite of [tarmount-wsl](https://github.com/mbrewer/tarmount-wsl) feature parity.
 
 **Target stack**
-- **Backend:** Go (single binary orchestrator; shells out to ratarmount / ratarmount-rs / archiveconverter)
+- **Backend:** Go (single binary orchestrator; shells out to ratarmount-rs / archiveconverter)
 - **Frontend:** TypeScript SPA (Svelte recommended; Vue acceptable)
 - **Platforms:** Ubuntu (WSL2 primary), Rocky 8, macOS (macFUSE)
 - **Source of truth for behavior:** `tarmount-wsl` design + implementation
@@ -14,7 +14,7 @@ Go daemon + TypeScript SPA rewrite of [tarmount-wsl](https://github.com/mbrewer/
 SPA (TS) ──HTTP/SSE──► Go serve (SQLite, scanner, mounter, hooks, cleaner)
 CLI ──────UDS JSON────► same process
                           │ exec
-                    ratarmount(-rs) / archiveconverter / 7z tools
+                    ratarmount-rs / archiveconverter / 7z tools
 ```
 
 ---
@@ -156,7 +156,7 @@ CLI ──────UDS JSON────► same process
 
 ## Phase 4 — Mounter & backends
 
-- [x] Backend selection: `python` (ratarmount) | `rust` (ratarmount-rs) + aliases (`ratarmount`, `ratarmount-rs`)
+- [x] Backend selection: `rust` (ratarmount-rs) only; python/ratarmount rejected
 - [x] Resolve `ratarmount_bin` (config → defaults → PATH → sibling build paths; switch-backend default swap)
 - [x] Build CLI:
   - [x] `-f`, `--index-file`, `--write-overlay`, `--recursive` / recursive extensions
@@ -487,7 +487,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 - [~] postinst: user/group, dirs, `user_allow_other` when possible — `packaging/scripts/create-user.sh` (operators); nfpm postinstall hook residual
 - [x] ship example config, hooks sample, wsl.conf snippet (`packaging/examples/*`, `packaging/wsl.conf.snippet`); man page residual
 - [x] ship `windows-task-scheduler.xml.example` (WSL boot without relying only on docs)
-- [x] Document engine install (ratarmount / ratarmount-rs / archiveconverter / fuse3); optional Recommends in nfpm sketch
+- [x] Document engine install (ratarmount-rs / archiveconverter / fuse3); optional Recommends in nfpm sketch
 - [x] **Do not** require vendoring Python ratarmount in Go package
 
 ### 11.2 Rocky 8
@@ -495,7 +495,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 - [~] Build against glibc 2.28 **or** musl static binary — release default `CGO_ENABLED=0`; optional `make build-musl` + CI `musl-static-smoke` (D7); dual goreleaser musl publish residual
 - [~] `.rpm` via nfpm/goreleaser — sketch only
 - [x] systemd unit parity (same unit file)
-- [x] Document fuse3 / ratarmount install on Rocky (`docs/install.md`)
+- [x] Document fuse3 / ratarmount-rs install on Rocky (`docs/install.md`)
 - [x] CI job or container smoke on rocky:8 — `.github/workflows/smoke.yml` + `scripts/smoke-rocky8.sh`
 
 ### 11.3 macOS

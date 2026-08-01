@@ -17,7 +17,7 @@ drop-in binary rename.
 | Lifecycle statuses | Same status enum + transitions (incl. `converting`) |
 | Control op **names** | Familiar (`status`, `metrics`, `config_get`, …) |
 | Hooks model | First-mount scripts in `hooks.d`, exit `0` / `75` / other |
-| Engines | External ratarmount / ratarmount-rs / archiveconverter / 7z |
+| Engines | External ratarmount-rs / archiveconverter / 7z |
 
 ---
 
@@ -84,10 +84,10 @@ Default bind remains loopback **`127.0.0.1:8787`**. Optional `web_token` Bearer.
 
 | Upstream default | mount-wrapper default |
 |------------------|------------------------|
-| Often **python** ratarmount (package venv) | **`rust`** (`ratarmount-rs`) |
+| **python** ratarmount (deprecated) | **`rust` only** (`ratarmount-rs`) |
 
 Engines are **not** vendored inside the Go package. Install `ratarmount-rs` (or
-Python ratarmount) on `PATH` for the service user.
+ratarmount-rs on `PATH` for the service user.
 
 ### Packaging stance
 

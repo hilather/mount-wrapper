@@ -76,7 +76,6 @@ Python ratarmount venv.
 | Tool | Role | Notes |
 |------|------|--------|
 | **ratarmount-rs** | Default mount engine (`mount_backend: rust`) | On `PATH` as `ratarmount-rs` |
-| **ratarmount** | Optional Python engine (`mount_backend: python`) | Not required when using rust |
 | **fuse3** | Linux FUSE userland (`fusermount3`) | `/dev/fuse` present |
 | **macFUSE** | macOS FUSE | System Settings approval |
 | **archiveconverter** | Optional solid→non-solid 7z convert | Often `~/.local/bin/archiveconverter` |
@@ -128,7 +127,7 @@ published artifact name; until then use the script/CI path above.
 ### macOS
 
 1. Install [macFUSE](https://macfuse.github.io/) and allow the system extension.  
-2. Install `ratarmount-rs` (or Python `ratarmount`) on `PATH`.  
+2. Install `ratarmount-rs` on `PATH`.  
 3. Optional: archiveconverter / p7zip via brew.  
 
 See [macos.md](./macos.md).

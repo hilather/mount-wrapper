@@ -235,9 +235,6 @@ func checkRatarmount(opts *Options) CheckResult {
 	if !containsString(candidates, def) {
 		candidates = append(candidates, def)
 	}
-	if p := which("ratarmount"); p != "" && !containsString(candidates, p) {
-		candidates = append(candidates, p)
-	}
 	if p := which("ratarmount-rs"); p != "" && !containsString(candidates, p) {
 		candidates = append(candidates, p)
 	}
@@ -301,17 +298,12 @@ func checkRatarmount(opts *Options) CheckResult {
 		}
 	}
 
-	var hint string
-	if mounter.IsRustBackend(backend) {
-		hint = fmt.Sprintf(
-			"ratarmount-rs not found (tried %s, PATH). "+
-				"Build with `make release && make install` in ratarmount-rs, "+
-				"or set ratarmount_bin to the binary path.",
-			config.DefaultRustRatarmountBin,
-		)
-	} else {
-		hint = "ratarmount not found on PATH. Install ratarmount or set ratarmount_bin."
-	}
+	hint := fmt.Sprintf(
+		"ratarmount-rs not found (tried %s, PATH). "+
+			"Build/install ratarmount-rs and ensure it is on PATH, "+
+			"or set ratarmount_bin to the binary path. Python ratarmount is not supported.",
+		config.DefaultRustRatarmountBin,
+	)
 	return warnCheck("ratarmount_bin", false, hint, map[string]any{
 		"tried":         candidates,
 		"mount_backend": backend,
@@ -459,14 +451,8 @@ func checkMountBackend(opts *Options) CheckResult {
 		backend = nb
 	}
 	label := mounter.BackendLabel(backend)
-	if mounter.IsPythonBackend(backend) {
-		return infoCheck("mount_backend",
-			fmt.Sprintf("using %s; 7z random-access backends live inside Python ratarmount", label),
-			map[string]any{"mount_backend": backend},
-		)
-	}
 	return infoCheck("mount_backend",
-		fmt.Sprintf("using %s; Python ratarmountcore sevenzip/py7zr checks skipped", label),
+		fmt.Sprintf("using %s (only supported engine)", label),
 		map[string]any{"mount_backend": backend},
 	)
 }

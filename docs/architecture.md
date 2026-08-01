@@ -6,7 +6,7 @@ See [TODO.md](../TODO.md) for the full phased plan and decisions log.
 SPA (TS/Svelte) ──HTTP/SSE──► Go serve (SQLite, scanner, mounter, hooks, cleaner)
 CLI ────────────UDS JSON────► same process
                                 │ exec
-                          ratarmount(-rs) / archiveconverter / 7z tools
+                          ratarmount-rs / archiveconverter / 7z tools
 ```
 
 | Layer | Choice (decided) |

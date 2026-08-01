@@ -90,19 +90,19 @@ export const SETTINGS_SCHEMA: SettingsGroup[] = [
   },
   {
     id: 'mount',
-    title: 'Mount / ratarmount',
+    title: 'Mount / ratarmount-rs',
     fields: [
       {
         key: 'recursive_mount',
         label: 'recursive_mount',
         type: 'bool',
-        help: 'ratarmount --recursive for nested archives',
+        help: 'ratarmount-rs --recursive for nested archives',
       },
       {
         key: 'recursive_mount_extensions',
         label: 'recursive_mount_extensions',
         type: 'string_list',
-        help: 'ratarmount --recursive-extensions (one rule per line)',
+        help: 'ratarmount-rs --recursive-extensions (one rule per line)',
       },
       {
         key: 'index_smallest_first',
@@ -128,16 +128,16 @@ export const SETTINGS_SCHEMA: SettingsGroup[] = [
         key: 'mount_backend',
         label: 'mount_backend',
         type: 'select',
-        options: ['python', 'rust'],
+        options: ['rust'],
         restart: true,
-        help: 'python = ratarmount (PyPI/venv); rust = ratarmount-rs',
+        help: 'Only rust (ratarmount-rs) is supported',
       },
       {
         key: 'ratarmount_bin',
         label: 'ratarmount_bin',
         type: 'text',
         restart: true,
-        help: 'Binary path (defaults depend on mount_backend)',
+        help: 'Path to ratarmount-rs (default: ratarmount-rs on PATH)',
       },
       { key: 'ratarmount_index_workers', label: 'ratarmount_index_workers', type: 'int' },
       { key: 'ratarmount_debug', label: 'ratarmount_debug', type: 'bool' },

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/hilather/mount-wrapper/internal/platform"
 )
@@ -30,8 +31,7 @@ var DefaultRecursiveMountExtensions = []string{
 
 // DefaultPaths holds Linux FHS path defaults for mount-wrapper.
 // Note: ratarmount_bin is not applied when omitted from YAML; FromMap uses
-// DefaultRatarmountBin(mount_backend) so the default backend (rust) resolves to
-// DefaultRustRatarmountBin. The map entry documents the python PATH name only.
+// DefaultRatarmountBin so the default engine resolves to DefaultRustRatarmountBin.
 var DefaultPaths = map[string]string{
 	"mount_root":                  "/var/lib/mount-wrapper/mounts",
 	"index_dir":                   "/var/lib/mount-wrapper/indexes",
@@ -45,10 +45,9 @@ var DefaultPaths = map[string]string{
 	"archiveconverter_output_dir": "/var/lib/mount-wrapper/converted",
 }
 
-// PATH names (no vendored venv); doctor/resolver may search PATH later.
+// PATH names; doctor/resolver may search PATH later. Only ratarmount-rs is supported.
 const (
-	DefaultPythonRatarmountBin = "ratarmount"
-	DefaultRustRatarmountBin   = "ratarmount-rs"
+	DefaultRustRatarmountBin = "ratarmount-rs"
 )
 
 // DefaultArchiveconverterBin returns $HOME/.local/bin/archiveconverter, or
@@ -61,14 +60,12 @@ func DefaultArchiveconverterBin() string {
 	return filepath.Join(home, ".local", "bin", "archiveconverter")
 }
 
-// DefaultRatarmountBin returns the default binary name for backend.
+// DefaultRatarmountBin returns the default engine binary name (always ratarmount-rs).
+// The backend argument is accepted for API stability; only rust is valid.
 func DefaultRatarmountBin(backend string) string {
-	b, err := NormalizeMountBackend(backend)
-	if err != nil {
+	if _, err := NormalizeMountBackend(backend); err != nil && strings.TrimSpace(backend) != "" {
+		// Invalid backend still returns the rust binary name for messaging.
 		return DefaultRustRatarmountBin
-	}
-	if b == BackendPython {
-		return DefaultPythonRatarmountBin
 	}
 	return DefaultRustRatarmountBin
 }

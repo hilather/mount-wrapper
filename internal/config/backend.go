@@ -6,27 +6,31 @@ import (
 )
 
 // Mount backend identifiers (YAML: mount_backend).
+// Only the Rust engine (ratarmount-rs) is supported.
 const (
-	BackendPython = "python"
-	BackendRust   = "rust"
+	BackendRust = "rust"
 )
 
-// NormalizeMountBackend maps aliases to "python" or "rust".
+// NormalizeMountBackend maps aliases to "rust".
 //
 // Accepted aliases:
-//   - python, ratarmount, py, cpython
 //   - rust, ratarmount-rs, ratarmount_rs, rs, native
+//
+// Python ratarmount is not supported; those aliases return an error.
 func NormalizeMountBackend(value string) (string, error) {
 	key := strings.ToLower(strings.TrimSpace(value))
 	key = strings.ReplaceAll(key, "_", "-")
 	switch key {
-	case "python", "ratarmount", "py", "cpython":
-		return BackendPython, nil
-	case "rust", "ratarmount-rs", "rs", "native":
+	case "", "rust", "ratarmount-rs", "rs", "native":
 		return BackendRust, nil
+	case "python", "ratarmount", "py", "cpython":
+		return "", &ConfigError{Message: fmt.Sprintf(
+			"mount_backend: python/ratarmount is no longer supported; use rust (ratarmount-rs); got %q",
+			value,
+		)}
 	default:
 		return "", &ConfigError{Message: fmt.Sprintf(
-			"mount_backend: must be one of [python rust] (aliases: ratarmount, ratarmount-rs); got %q",
+			"mount_backend: must be rust (aliases: ratarmount-rs, rs, native); got %q",
 			value,
 		)}
 	}

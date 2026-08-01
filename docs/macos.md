@@ -3,7 +3,7 @@
 **Status:** portable adapters + packaging examples; **GitHub Actions** runs
 unit tests + binary smoke on `macos-latest` (no macFUSE).  
 **Primary product target remains Ubuntu WSL2.** macOS is a best-effort
-desktop port via **macFUSE + ratarmount(-rs)**.
+desktop port via **macFUSE + ratarmount-rs**.
 
 ### CI vs local
 
@@ -21,7 +21,7 @@ desktop port via **macFUSE + ratarmount(-rs)**.
 1. **macOS** 12+ (Apple Silicon or Intel).  
 2. **[macFUSE](https://macfuse.github.io/)** installed and allowed in
    System Settings → Privacy & Security (system extension prompts).  
-3. **ratarmount-rs** (preferred, `mount_backend: rust`) or Python **ratarmount**
+3. **ratarmount-rs** (`mount_backend: rust` only)
    on `PATH`.  
 4. Optional: **archiveconverter**, **p7zip** for convert paths.
 

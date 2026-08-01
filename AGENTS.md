@@ -173,7 +173,7 @@ Do **not** present work as complete after step 1–4 only when 2–5 apply.
 | SPA | Svelte 5; embedded in `serve` |
 | Live UI | SSE + poll fallback |
 | Hooks env | `MOUNT_WRAPPER_*` only (no `TARMOUNT_*`) |
-| Default mount backend | `rust` (ratarmount-rs) |
+| Default / only mount backend | `rust` (`ratarmount-rs` only; Python `ratarmount` unsupported) |
 | License | MIT |
 
 Full log: `TODO.md` → Decisions log.

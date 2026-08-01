@@ -2,7 +2,6 @@ package mounter
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/hilather/mount-wrapper/internal/state"
@@ -28,14 +27,10 @@ func IndexFileReady(indexPath string) bool {
 	return info.Size() > 0
 }
 
-// ArchiveUsesInMemoryIndex reports when the engine may keep the archive index
-// in memory only (Python backend + .7z: py7zr/libarchive force :memory:).
-// ratarmount-rs writes on-disk indexes for 7z.
+// ArchiveUsesInMemoryIndex is always false: ratarmount-rs writes on-disk indexes.
+// Kept for API stability (was true only for the removed Python ratarmount 7z path).
 func ArchiveUsesInMemoryIndex(archivePath, mountBackend string) bool {
-	if !IsPythonBackend(mountBackend) {
-		return false
-	}
-	return strings.EqualFold(filepath.Ext(archivePath), ".7z")
+	return false
 }
 
 // IndexBuildVerified reports when a --no-mount index pass is complete.
@@ -73,36 +68,17 @@ func ForcedBackend(extraArgs []string) string {
 	return ""
 }
 
-// UsesSinglePhaseMount reports when Python sevenzip should index+mount in one process.
-//
-// The hilather Python sevenzip backend builds a usable on-disk index only when
-// FUSE mount initialization runs in the same process. ratarmount-rs does not
-// need this workaround.
-//
-// sevenzipAvailable should be true when ratarmountcore's sevenzip backend is usable.
-// Callers without that probe may pass false (safe: two-phase index remains).
+// UsesSinglePhaseMount is always false for ratarmount-rs (two-phase index+mount).
+// Kept for API stability after removal of the Python sevenzip single-phase path.
 func UsesSinglePhaseMount(archivePath string, extraArgs []string, mountBackend string, sevenzipAvailable bool) bool {
-	if !IsPythonBackend(mountBackend) {
-		return false
-	}
-	if !strings.EqualFold(filepath.Ext(archivePath), ".7z") {
-		return false
-	}
-	if !sevenzipAvailable {
-		return false
-	}
-	forced := ForcedBackend(extraArgs)
-	if forced == "py7zr" || forced == "libarchive" {
-		return false
-	}
-	return true
+	return false
 }
 
 // ResolveNeedsIndex decides whether to run index-only before mount.
 //
-// A missing on-disk index always forces rebuild, even after first_mounted_at,
-// except for .7z archives on the Python sevenzip backend (single-phase mount).
+// A missing on-disk index always forces rebuild, even after first_mounted_at.
 // firstIndex, when non-nil, forces index when true.
+// mountBackend / sevenzipAvailable are retained for API stability (rust only).
 func ResolveNeedsIndex(
 	indexPath, archivePath string,
 	firstIndex *bool,
@@ -110,9 +86,6 @@ func ResolveNeedsIndex(
 	mountBackend string,
 	sevenzipAvailable bool,
 ) bool {
-	if archivePath != "" && UsesSinglePhaseMount(archivePath, extraArgs, mountBackend, sevenzipAvailable) {
-		return false
-	}
 	if NeedsFreshIndex(indexPath) {
 		return true
 	}

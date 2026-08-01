@@ -120,7 +120,7 @@ as you run them.
 
 - [ ] Install binary built with **`CGO_ENABLED=0`** (release default) or optional `make build-musl` static — glibc 2.28 constraint
 - [ ] `fuse3` / `/dev/fuse`; `modprobe fuse` if needed
-- [ ] Install `ratarmount-rs` (or python ratarmount) + optional p7zip / archiveconverter
+- [ ] Install `ratarmount-rs` + optional p7zip / archiveconverter
 - [ ] `create-user.sh` + config + systemd unit; `systemctl enable --now mount-wrapper`
 - [ ] `doctor`; mount a small **tar.gz** and **zip**; confirm status + metrics
 - [ ] Logs via journald; stop unit unmounts cleanly within TimeoutStopSec

@@ -28,7 +28,7 @@ Expect: `version`, `doctor --json`, `config show --local`, `serve --once` all su
 
 ## Real mount (needs engine)
 
-1. Install **ratarmount-rs** (or `ratarmount`) and **fuse3** / **macFUSE**.
+1. Install **ratarmount-rs** and **fuse3** / **macFUSE**.
 2. Copy `packaging/examples/config.debug.yaml.example` → a writable config; set `source_dirs`, paths under a temp or `/var/lib/mount-wrapper`.
 3. Drop a small `sample.tar.gz` into a source dir.
 4. `mount-wrapper serve --config … --allow-unauth` (dev) or systemd unit.

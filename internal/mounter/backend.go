@@ -8,26 +8,17 @@ import (
 	"github.com/hilather/mount-wrapper/internal/config"
 )
 
-// Backend identifiers (YAML: mount_backend). Re-exported for callers that
-// import mounter without pulling config for constants only.
+// Backend identifiers (YAML: mount_backend). Only rust / ratarmount-rs is supported.
 const (
-	BackendPython = config.BackendPython
-	BackendRust   = config.BackendRust
+	BackendRust = config.BackendRust
 )
 
-// NormalizeMountBackend maps aliases to "python" or "rust".
+// NormalizeMountBackend maps aliases to "rust".
 //
-// Accepted aliases (parity with config.NormalizeMountBackend / backends.py):
-//   - python, ratarmount, py, cpython
-//   - rust, ratarmount-rs, ratarmount_rs, rs, native
+// Accepted: rust, ratarmount-rs, rs, native.
+// Python/ratarmount aliases are rejected.
 func NormalizeMountBackend(value string) (string, error) {
 	return config.NormalizeMountBackend(value)
-}
-
-// IsPythonBackend reports whether backend normalizes to python.
-func IsPythonBackend(backend string) bool {
-	b, err := NormalizeMountBackend(backend)
-	return err == nil && b == BackendPython
 }
 
 // IsRustBackend reports whether backend normalizes to rust.
@@ -45,10 +36,10 @@ func BackendLabel(backend string) string {
 	if b == BackendRust {
 		return "ratarmount-rs (Rust)"
 	}
-	return "ratarmount (Python)"
+	return backend
 }
 
-// DefaultRatarmountBin returns the packaged/default binary name for backend.
+// DefaultRatarmountBin returns the packaged/default binary name (ratarmount-rs).
 func DefaultRatarmountBin(backend string) string {
 	return config.DefaultRatarmountBin(backend)
 }
@@ -66,27 +57,24 @@ type ResolveOptions struct {
 	Which WhichFunc
 	// IsExecutable checks a candidate path. Nil uses a default os.Stat/X_OK check.
 	IsExecutable ExecutableFunc
-	// SearchPath enables PATH lookup (default true when zero-value false is
-	// awkward — use SearchPathDisabled to turn off).
+	// SearchPath enables PATH lookup. Use SearchPathDisabled to turn off.
 	SearchPathDisabled bool
 	// SiblingRustRelease is an optional absolute path to a cargo release binary
-	// (e.g. .../ratarmount-rs/target/release/ratarmount). Checked for rust only.
+	// (e.g. .../ratarmount-rs/target/release/ratarmount-rs).
 	SiblingRustRelease string
-	// ExtraCandidates are additional paths checked (in order) after the default
-	// path and before PATH search. Useful for ~/.local/bin without hardcoding
-	// machine-private paths in production callers.
+	// ExtraCandidates are additional paths checked after the default and before PATH.
 	ExtraCandidates []string
 }
 
-// ResolveRatarmountBin chooses the ratarmount executable for backend.
+// ResolveRatarmountBin chooses the ratarmount-rs executable.
 //
-// Priority (parity with backends.resolve_ratarmount_bin):
+// Priority:
 //  1. Explicit non-empty configured path (always wins, not existence-checked)
-//  2. Backend default path/name if executable (absolute path or on PATH)
+//  2. Backend default name if executable (PATH or absolute)
 //  3. ExtraCandidates that are executable
-//  4. For rust: SiblingRustRelease if executable
-//  5. PATH search for backend binary names (when search enabled)
-//  6. Backend default name/path even if missing (caller/doctor report the miss)
+//  4. SiblingRustRelease if executable
+//  5. PATH search for ratarmount-rs (when search enabled)
+//  6. Default name even if missing (caller/doctor report the miss)
 func ResolveRatarmountBin(backend, configured string, opts ResolveOptions) (string, error) {
 	b, err := NormalizeMountBackend(backend)
 	if err != nil {
@@ -120,17 +108,13 @@ func ResolveRatarmountBin(backend, configured string, opts ResolveOptions) (stri
 		}
 	}
 
-	if b == BackendRust {
-		sib := strings.TrimSpace(opts.SiblingRustRelease)
-		if sib != "" && isExec(sib) {
-			return sib, nil
-		}
+	sib := strings.TrimSpace(opts.SiblingRustRelease)
+	if sib != "" && isExec(sib) {
+		return sib, nil
 	}
 
 	if !opts.SearchPathDisabled {
-		// Prefer backend-specific PATH names, then the common "ratarmount".
-		names := backendPATHNames(b)
-		for _, name := range names {
+		for _, name := range []string{config.DefaultRustRatarmountBin} {
 			if p := which(name); p != "" {
 				return p, nil
 			}
@@ -140,30 +124,19 @@ func ResolveRatarmountBin(backend, configured string, opts ResolveOptions) (stri
 	return defaultBin, nil
 }
 
-func backendPATHNames(backend string) []string {
-	if backend == BackendPython {
-		return []string{config.DefaultPythonRatarmountBin, "ratarmount"}
-	}
-	// rust: try ratarmount-rs then plain ratarmount (cargo install name often plain)
-	return []string{config.DefaultRustRatarmountBin, "ratarmount"}
-}
-
 func resolveIfExecutable(bin string, which WhichFunc, isExec ExecutableFunc) string {
 	if bin == "" {
 		return ""
 	}
-	// Absolute or relative path with a separator: check as path.
 	if strings.Contains(bin, string(filepath.Separator)) || strings.HasPrefix(bin, ".") {
 		if isExec(bin) {
 			return bin
 		}
 		return ""
 	}
-	// Bare name: if Which finds it and it is executable, use resolved path.
 	if p := which(bin); p != "" && isExec(p) {
 		return p
 	}
-	// Bare name that is itself a path that happens to exist (rare).
 	if isExec(bin) {
 		return bin
 	}
@@ -183,6 +156,5 @@ func defaultIsExecutable(path string) bool {
 	if err != nil || info.IsDir() {
 		return false
 	}
-	// Best-effort execute bit check (Unix).
 	return info.Mode().IsRegular() && info.Mode()&0o111 != 0
 }

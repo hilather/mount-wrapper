@@ -124,13 +124,11 @@ func TestIndexFileReady(t *testing.T) {
 
 func TestArchiveUsesInMemoryIndex(t *testing.T) {
 	t.Parallel()
-	if !mounter.ArchiveUsesInMemoryIndex("/a/b.7z", "python") {
-		t.Fatal("python 7z should use in-memory")
-	}
+	// Always false with ratarmount-rs only.
 	if mounter.ArchiveUsesInMemoryIndex("/a/b.7z", "rust") {
-		t.Fatal("rust 7z should not")
+		t.Fatal("rust 7z should not use in-memory index")
 	}
-	if mounter.ArchiveUsesInMemoryIndex("/a/b.tar", "python") {
+	if mounter.ArchiveUsesInMemoryIndex("/a/b.tar", "rust") {
 		t.Fatal("tar should not")
 	}
 }
@@ -146,15 +144,12 @@ func TestIndexBuildVerified(t *testing.T) {
 		t.Fatal("disk index should verify")
 	}
 	zero := 0
-	if !mounter.IndexBuildVerified("/missing", "/a.7z", &zero, "python") {
-		t.Fatal("python 7z exit 0 should verify without disk")
-	}
-	one := 1
-	if mounter.IndexBuildVerified("/missing", "/a.7z", &one, "python") {
-		t.Fatal("exit 1 should not verify")
-	}
 	if mounter.IndexBuildVerified("/missing", "/a.7z", &zero, "rust") {
 		t.Fatal("rust needs disk index")
+	}
+	one := 1
+	if mounter.IndexBuildVerified("/missing", "/a.7z", &one, "rust") {
+		t.Fatal("exit 1 should not verify")
 	}
 }
 
@@ -162,18 +157,6 @@ func TestUsesSinglePhaseMount(t *testing.T) {
 	t.Parallel()
 	if mounter.UsesSinglePhaseMount("/a.7z", nil, "rust", true) {
 		t.Fatal("rust never single-phase")
-	}
-	if !mounter.UsesSinglePhaseMount("/a.7z", nil, "python", true) {
-		t.Fatal("python sevenzip available → single-phase")
-	}
-	if mounter.UsesSinglePhaseMount("/a.7z", nil, "python", false) {
-		t.Fatal("sevenzip unavailable → two-phase")
-	}
-	if mounter.UsesSinglePhaseMount("/a.7z", []string{"--use-backend", "py7zr"}, "python", true) {
-		t.Fatal("forced py7zr disables single-phase")
-	}
-	if mounter.UsesSinglePhaseMount("/a.tar", nil, "python", true) {
-		t.Fatal("non-7z")
 	}
 }
 
@@ -195,9 +178,9 @@ func TestResolveNeedsIndex(t *testing.T) {
 	if !mounter.ResolveNeedsIndex(ready, "/a.tar", &trueVal, nil, "rust", false) {
 		t.Fatal("firstIndex forces rebuild")
 	}
-	// Single-phase 7z skips index-only even without disk index.
-	if mounter.ResolveNeedsIndex(missing, "/a.7z", &trueVal, nil, "python", true) {
-		t.Fatal("single-phase should skip index-only")
+	// 7z still needs on-disk index for rust.
+	if !mounter.ResolveNeedsIndex(missing, "/a.7z", &trueVal, nil, "rust", true) {
+		t.Fatal("7z missing index still needs index-only for rust")
 	}
 }
 

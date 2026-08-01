@@ -15,7 +15,7 @@ Related: [architecture.md](./architecture.md), [install.md](./install.md),
 | Control Unix socket | Local only (`/run/mount-wrapper/control.sock`) | Peer credentials: **root** or group **`mount-wrapper`** |
 | HTTP API + SPA | Loopback `127.0.0.1:8787` | Optional Bearer `web_token` (empty = open on bind host) |
 | Hooks (`hooks.d`) | Root-owned scripts under config path | Owner + not group/other-writable + realpath under hooks dir |
-| FUSE mounts | Service user | External engines (`ratarmount-rs` / `ratarmount`); not reimplemented in Go |
+| FUSE mounts | Service user | External engine (`ratarmount-rs`); not reimplemented in Go |
 | State DB | `/var/lib/mount-wrapper/state.db` | Single-writer `serve`; filesystem permissions |
 
 mount-wrapper is an **orchestrator**: compromise of the service user implies

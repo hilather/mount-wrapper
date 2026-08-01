@@ -10,24 +10,23 @@ import (
 
 func TestNormalizeMountBackend_aliases(t *testing.T) {
 	t.Parallel()
-	python := []string{"python", "Python", "ratarmount", "py", "cpython", "RATARMOUNT"}
-	for _, a := range python {
-		got, err := mounter.NormalizeMountBackend(a)
-		if err != nil || got != mounter.BackendPython {
-			t.Fatalf("alias %q: got %q err=%v want python", a, got, err)
+	// Python aliases are rejected.
+	for _, a := range []string{"python", "Python", "ratarmount", "py", "cpython", "RATARMOUNT"} {
+		if _, err := mounter.NormalizeMountBackend(a); err == nil {
+			t.Fatalf("expected error for python alias %q", a)
 		}
-		if !mounter.IsPythonBackend(a) || mounter.IsRustBackend(a) {
-			t.Fatalf("Is* helpers wrong for %q", a)
+		if mounter.IsRustBackend(a) {
+			t.Fatalf("IsRustBackend should be false for %q", a)
 		}
 	}
-	rust := []string{"rust", "Rust", "ratarmount-rs", "ratarmount_rs", "rs", "native"}
+	rust := []string{"rust", "Rust", "ratarmount-rs", "ratarmount_rs", "rs", "native", ""}
 	for _, a := range rust {
 		got, err := mounter.NormalizeMountBackend(a)
 		if err != nil || got != mounter.BackendRust {
 			t.Fatalf("alias %q: got %q err=%v want rust", a, got, err)
 		}
-		if !mounter.IsRustBackend(a) || mounter.IsPythonBackend(a) {
-			t.Fatalf("Is* helpers wrong for %q", a)
+		if !mounter.IsRustBackend(a) {
+			t.Fatalf("IsRustBackend wrong for %q", a)
 		}
 	}
 	if _, err := mounter.NormalizeMountBackend("java"); err == nil {
@@ -37,11 +36,12 @@ func TestNormalizeMountBackend_aliases(t *testing.T) {
 
 func TestDefaultRatarmountBin(t *testing.T) {
 	t.Parallel()
-	if got := mounter.DefaultRatarmountBin("python"); got != config.DefaultPythonRatarmountBin {
-		t.Fatalf("python default=%q", got)
-	}
 	if got := mounter.DefaultRatarmountBin("rust"); got != config.DefaultRustRatarmountBin {
 		t.Fatalf("rust default=%q", got)
+	}
+	// Invalid still returns rust binary name for messaging.
+	if got := mounter.DefaultRatarmountBin("python"); got != config.DefaultRustRatarmountBin {
+		t.Fatalf("invalid backend default=%q", got)
 	}
 }
 
@@ -49,9 +49,6 @@ func TestBackendLabel(t *testing.T) {
 	t.Parallel()
 	if got := mounter.BackendLabel("rust"); got == "" || got == "rust" {
 		t.Fatalf("label=%q", got)
-	}
-	if got := mounter.BackendLabel("python"); got == "" {
-		t.Fatalf("empty python label")
 	}
 }
 
@@ -63,26 +60,18 @@ func TestResolveRatarmountBin(t *testing.T) {
 
 	whichMap := map[string]string{}
 	which := func(name string) string { return whichMap[name] }
-	isExec := func(path string) bool {
-		if path == explicit {
-			return true
-		}
-		for _, v := range whichMap {
-			if v == path {
-				return true
-			}
-		}
-		return path == filepath.Join(tmp, "sibling")
+
+	// Explicit wins.
+	got, err := mounter.ResolveRatarmountBin("rust", explicit, mounter.ResolveOptions{
+		Which: which, IsExecutable: func(path string) bool { return path == explicit },
+	})
+	if err != nil || got != explicit {
+		t.Fatalf("explicit: got %q err=%v", got, err)
 	}
 
-	// Explicit wins for both backends.
-	for _, backend := range []string{"python", "rust"} {
-		got, err := mounter.ResolveRatarmountBin(backend, explicit, mounter.ResolveOptions{
-			Which: which, IsExecutable: isExec,
-		})
-		if err != nil || got != explicit {
-			t.Fatalf("explicit %s: got %q err=%v", backend, got, err)
-		}
+	// Python backend rejected.
+	if _, err := mounter.ResolveRatarmountBin("python", explicit, mounter.ResolveOptions{}); err == nil {
+		t.Fatal("expected python backend error")
 	}
 
 	// Default name executable via PATH.
@@ -90,14 +79,14 @@ func TestResolveRatarmountBin(t *testing.T) {
 	isExecPath := func(path string) bool {
 		return path == filepath.Join(tmp, "from-path") || path == filepath.Join(tmp, "sibling")
 	}
-	got, err := mounter.ResolveRatarmountBin("rust", "", mounter.ResolveOptions{
+	got, err = mounter.ResolveRatarmountBin("rust", "", mounter.ResolveOptions{
 		Which: which, IsExecutable: isExecPath,
 	})
 	if err != nil || got != filepath.Join(tmp, "from-path") {
 		t.Fatalf("path resolve: got %q err=%v", got, err)
 	}
 
-	// Sibling release for rust when PATH empty.
+	// Sibling release when PATH empty.
 	delete(whichMap, "ratarmount-rs")
 	sibling := filepath.Join(tmp, "sibling")
 	got, err = mounter.ResolveRatarmountBin("rust", "", mounter.ResolveOptions{
@@ -110,12 +99,12 @@ func TestResolveRatarmountBin(t *testing.T) {
 	}
 
 	// Fallback to default name when nothing found.
-	got, err = mounter.ResolveRatarmountBin("python", "", mounter.ResolveOptions{
+	got, err = mounter.ResolveRatarmountBin("rust", "", mounter.ResolveOptions{
 		Which:        func(string) string { return "" },
 		IsExecutable: func(string) bool { return false },
 	})
-	if err != nil || got != config.DefaultPythonRatarmountBin {
-		t.Fatalf("fallback python: got %q err=%v", got, err)
+	if err != nil || got != config.DefaultRustRatarmountBin {
+		t.Fatalf("fallback: got %q err=%v", got, err)
 	}
 
 	// Invalid backend.
@@ -124,13 +113,13 @@ func TestResolveRatarmountBin(t *testing.T) {
 	}
 
 	// SearchPath disabled skips PATH.
-	whichMap["ratarmount"] = filepath.Join(tmp, "from-path")
-	got, err = mounter.ResolveRatarmountBin("python", "", mounter.ResolveOptions{
+	whichMap["ratarmount-rs"] = filepath.Join(tmp, "from-path")
+	got, err = mounter.ResolveRatarmountBin("rust", "", mounter.ResolveOptions{
 		Which:              which,
 		IsExecutable:       func(string) bool { return false },
 		SearchPathDisabled: true,
 	})
-	if err != nil || got != config.DefaultPythonRatarmountBin {
+	if err != nil || got != config.DefaultRustRatarmountBin {
 		t.Fatalf("search disabled: got %q err=%v", got, err)
 	}
 }

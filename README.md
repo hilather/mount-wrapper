@@ -12,7 +12,7 @@ Go rewrite of the [tarmount-wsl](https://github.com/mbrewer/tarmount-wsl) archiv
 | Daemon / CLI | Go (`mount-wrapper`) |
 | Dashboard | TypeScript SPA (Svelte 5), embedded in `serve` |
 | Live updates | SSE + poll fallback |
-| Mount engines | External `ratarmount` / `ratarmount-rs` (default: rust) |
+| Mount engines | External `ratarmount-rs` only |
 | Service user | `mount-wrapper` |
 | Paths | `/etc/mount-wrapper`, `/var/lib/mount-wrapper`, `/run/mount-wrapper` |
 | Platforms | Ubuntu (WSL2 primary), Rocky 8, macOS (macFUSE) |

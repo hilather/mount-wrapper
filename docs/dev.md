@@ -4,7 +4,7 @@
 
 - Go 1.25+ (module requires 1.25 for pure-Go SQLite; CI uses `1.25.x`)
 - Node 22+ (for SPA)
-- Optional: golangci-lint, fuse3 + ratarmount(-rs) (for optional FUSE integration tests)
+- Optional: golangci-lint, fuse3 + ratarmount-rs (for optional FUSE integration tests)
 
 ## CI (GitHub Actions)
 

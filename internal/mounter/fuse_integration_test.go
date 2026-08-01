@@ -34,14 +34,12 @@ func requireFUSEEnv(t *testing.T) (backend, bin string) {
 	if _, err := os.Stat("/dev/fuse"); err != nil {
 		t.Skip("/dev/fuse not available:", err)
 	}
-	// Prefer rust default binary names, then python ratarmount.
+	// Only ratarmount-rs is supported.
 	candidates := []struct {
 		backend string
 		name    string
 	}{
 		{"rust", "ratarmount-rs"},
-		{"rust", "ratarmount"},
-		{"python", "ratarmount"},
 	}
 	for _, c := range candidates {
 		p, err := exec.LookPath(c.name)
@@ -50,7 +48,7 @@ func requireFUSEEnv(t *testing.T) (backend, bin string) {
 		}
 		return c.backend, p
 	}
-	t.Skip("no ratarmount-rs or ratarmount on PATH (install engine or extend PATH)")
+	t.Skip("no ratarmount-rs on PATH (install engine or extend PATH)")
 	return "", ""
 }
 

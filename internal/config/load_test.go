@@ -344,12 +344,11 @@ func TestFromMap_mountBackend(t *testing.T) {
 	if cfg.MountBackend != BackendRust {
 		t.Fatalf("default backend=%s", cfg.MountBackend)
 	}
-	cfg, err = FromMap(map[string]any{"mount_backend": "ratarmount"}, "")
-	if err != nil {
-		t.Fatal(err)
+	if _, err = FromMap(map[string]any{"mount_backend": "ratarmount"}, ""); err == nil {
+		t.Fatal("expected python/ratarmount alias to be rejected")
 	}
-	if cfg.MountBackend != BackendPython || cfg.RatarmountBin != DefaultPythonRatarmountBin {
-		t.Fatalf("python alias backend=%s bin=%s", cfg.MountBackend, cfg.RatarmountBin)
+	if _, err = FromMap(map[string]any{"mount_backend": "python"}, ""); err == nil {
+		t.Fatal("expected python backend to be rejected")
 	}
 	cfg, err = FromMap(map[string]any{"mount_backend": "ratarmount-rs"}, "")
 	if err != nil {
@@ -416,18 +415,21 @@ func TestLoad_fileRoundtrip(t *testing.T) {
 func TestNormalizeMountBackend(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"python":        BackendPython,
-		"ratarmount":    BackendPython,
-		"py":            BackendPython,
 		"rust":          BackendRust,
 		"ratarmount-rs": BackendRust,
 		"rs":            BackendRust,
 		"native":        BackendRust,
+		"":              BackendRust,
 	}
 	for in, want := range cases {
 		got, err := NormalizeMountBackend(in)
 		if err != nil || got != want {
 			t.Fatalf("%q -> %q (%v) want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"python", "ratarmount", "py", "go"} {
+		if _, err := NormalizeMountBackend(bad); err == nil {
+			t.Fatalf("expected reject for %q", bad)
 		}
 	}
 }
