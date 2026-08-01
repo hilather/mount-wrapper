@@ -1,8 +1,18 @@
 # macOS support
 
-**Status:** portable adapters + packaging examples landable on Linux CI.  
+**Status:** portable adapters + packaging examples; **GitHub Actions** runs
+unit tests + binary smoke on `macos-latest` (no macFUSE).  
 **Primary product target remains Ubuntu WSL2.** macOS is a best-effort
 desktop port via **macFUSE + ratarmount(-rs)**.
+
+### CI vs local
+
+| Surface | CI (`ci.yml` → `macos-unit-smoke`) | Local / friend-test |
+|---------|------------------------------------|---------------------|
+| `go test ./...` | yes | yes |
+| `make build` + `scripts/smoke-binary.sh` | yes (no FUSE) | yes |
+| macFUSE install / real mount | **no** (not on default runners) | manual — this doc |
+| launchd service | no | manual — packaging example |
 
 ---
 
@@ -69,7 +79,37 @@ cp packaging/launchd/com.hilather.mount-wrapper.plist.example \
 launchctl load "$HOME/Library/LaunchAgents/com.hilather.mount-wrapper.plist"
 ```
 
-Homebrew formula sketch: [`packaging/homebrew/mount-wrapper.rb.example`](../packaging/homebrew/mount-wrapper.rb.example).
+### Homebrew formula sketch
+
+Formula example (not a published tap):
+[`packaging/homebrew/mount-wrapper.rb.example`](../packaging/homebrew/mount-wrapper.rb.example).
+
+Installs the **prebuilt** GitHub Release tarball:
+
+```text
+mount-wrapper_#{version}_darwin_arm64.tar.gz   # Apple Silicon
+mount-wrapper_#{version}_darwin_amd64.tar.gz   # Intel
+```
+
+Local install after editing `version` + `sha256` (from release `SHA256SUMS`):
+
+```bash
+cp packaging/homebrew/mount-wrapper.rb.example packaging/homebrew/mount-wrapper.rb
+# set version and platform sha256
+brew install --formula ./packaging/homebrew/mount-wrapper.rb
+```
+
+**macFUSE** is a cask/system extension — allow it in System Settings; the formula
+does not hard-require the cask. Engines (`ratarmount-rs`, etc.) stay external.
+
+After install, seed config under Application Support (see formula `caveats`):
+
+```bash
+mkdir -p "$HOME/Library/Application Support/mount-wrapper"/{mounts,indexes,overlays,hooks.d}
+mkdir -p "$HOME/Library/Caches/mount-wrapper/run" "$HOME/Library/Logs/mount-wrapper"
+cp "$(brew --prefix)/share/mount-wrapper/config.yaml.macos.example" \
+  "$HOME/Library/Application Support/mount-wrapper/config.yaml"
+```
 
 Full install steps: [install.md](./install.md).
 

@@ -23,12 +23,18 @@ Local multi-arch snapshot (no publish):
 make release-snapshot   # needs goreleaser + node; writes dist/
 ```
 
-Binary smoke (no FUSE; works on Ubuntu host and Rocky 8 via container):
+Binary smoke (no FUSE; works on Ubuntu host, Rocky 8 via container, and macOS):
 
 ```bash
 make smoke
 make smoke-rocky        # docker/podman + rockylinux:8
+make smoke-musl         # Alpine musl/static build + smoke (optional D7 path)
+# On macOS (or anywhere with a built binary): ./scripts/smoke-binary.sh
 ```
+
+GitHub Actions: Ubuntu + **macOS** unit/smoke in [`ci.yml`](../.github/workflows/ci.yml)
+(`macos-unit-smoke` — no macFUSE); Rocky 8 + **`musl-static-smoke`** in
+[`smoke.yml`](../.github/workflows/smoke.yml). Real FUSE is not default CI.
 
 Field-test checklist: [field-test.md](./field-test.md).
 
@@ -95,8 +101,26 @@ sudo dnf install fuse3 p7zip p7zip-plugins
 **glibc note:** Rocky 8 ships **glibc 2.28**. Binaries built on Ubuntu 22.04+
 with dynamic glibc may fail with “GLIBC_2.xx not found”. Prefer:
 
-1. Release builds with `CGO_ENABLED=0` (this project’s SQLite driver is pure Go), or  
-2. Long-term: musl static matrix (decision D7).
+1. **Primary (release default):** `CGO_ENABLED=0` pure-Go builds (SQLite is
+   `modernc.org/sqlite`). GoReleaser and `make build` use this path; the
+   binary is already **statically linked** and runs on Rocky 8 / Ubuntu / WSL2.
+2. **Optional (D7 musl/static path):** build inside Alpine for an explicit
+   static artifact and CI smoke — does **not** replace the goreleaser matrix:
+
+```bash
+make build-musl
+# → bin/mount-wrapper-linux-amd64-musl (+ bin/mount-wrapper-musl for host arch)
+# Optional multi-arch: ARCHS=amd64,arm64 make build-musl
+file bin/mount-wrapper-linux-amd64-musl   # expect "statically linked"
+BIN=./bin/mount-wrapper-musl ./scripts/smoke-binary.sh
+# or: make smoke-musl
+```
+
+Script details: [`scripts/build-musl.sh`](../scripts/build-musl.sh) (docker/podman +
+`golang:1.25-alpine`). CI job: `smoke.yml` → **`musl-static-smoke`**.
+
+True dual goreleaser musl matrix is residual if operators need a separate
+published artifact name; until then use the script/CI path above.
 
 **fuse3:** enable the FUSE kernel module if needed (`modprobe fuse`); ensure
 `/dev/fuse` is present. Doctor reports FUSE availability.
@@ -194,8 +218,31 @@ mount-wrapper doctor --config "$HOME/Library/Application Support/mount-wrapper/c
 `~/Library/Caches/mount-wrapper/run/control.sock`. Deep Application Support
 paths can fail `bind`.
 
-Homebrew formula sketch: `packaging/homebrew/mount-wrapper.rb.example` (not a
-published tap).
+### Homebrew formula sketch
+
+Example formula: [`packaging/homebrew/mount-wrapper.rb.example`](../packaging/homebrew/mount-wrapper.rb.example)
+(not a published tap). Prefer **release tarballs**:
+
+```text
+https://github.com/hilather/mount-wrapper/releases/download/vVERSION/mount-wrapper_VERSION_darwin_ARCH.tar.gz
+```
+
+(`ARCH` = `arm64` or `amd64`, matching GoReleaser.)
+
+```bash
+cp packaging/homebrew/mount-wrapper.rb.example packaging/homebrew/mount-wrapper.rb
+# edit version + sha256 from SHA256SUMS for your Mac
+brew install --formula ./packaging/homebrew/mount-wrapper.rb
+brew info mount-wrapper   # caveats: macFUSE + Application Support config path
+```
+
+Formula `caveats` cover macFUSE System Settings approval, external engines, and
+config under `~/Library/Application Support/mount-wrapper/`. Keep
+`control_socket` under `~/Library/Caches/mount-wrapper/run/` (path length).
+
+Future: `brew install hilather/tap/mount-wrapper` once a tap exists.
+
+See [macos.md](./macos.md).
 
 ---
 
@@ -216,13 +263,26 @@ LDFLAGS  := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(D
 ### goreleaser
 
 Sketch: [`.goreleaser.yaml`](../.goreleaser.yaml) — linux/darwin × amd64/arm64,
-`CGO_ENABLED=0`, checksum file **`SHA256SUMS`**.
+`CGO_ENABLED=0` (**primary** release default), checksum file **`SHA256SUMS`**.
+Musl/static is an **extra** local/CI path (`make build-musl`), not a second
+goreleaser build id (avoids fragile dual matrix).
 
 ```bash
 goreleaser release --snapshot --clean
 # dist/*.tar.gz + dist/SHA256SUMS
 sha256sum -c dist/SHA256SUMS
 ```
+
+### Musl / Alpine static (optional D7)
+
+```bash
+make build-musl          # scripts/build-musl.sh → bin/*-musl
+make smoke-musl          # build + smoke-binary with BIN=./bin/mount-wrapper-musl
+```
+
+Needs **docker** or **podman**. Override image with `GO_IMAGE=golang:1.25-alpine`.
+Cross-compile arm64 without QEMU: `ARCHS=arm64 ./scripts/build-musl.sh`
+(run smoke only for host arch).
 
 ### nfpm (deb/rpm sketch)
 
@@ -243,10 +303,11 @@ sha256sum -c SHA256SUMS
 
 ## Residual (not done in this polish)
 
-- Automated CI publish of deb/rpm/Homebrew  
+- Automated CI publish of Homebrew formula (deb/rpm publish on `v*` tags via release.yml)  
 - Full nfpm/goreleaser postinst (user, `user_allow_other`, conffiles)  
-- man page  
-- Rocky 8 container smoke job  
+- Optional: second goreleaser build id for published `*-musl` artifacts (local
+  `make build-musl` + CI `musl-static-smoke` already cover the D7 path)  
+- macOS CI with **macFUSE** (default CI is unit + binary smoke only; see [dev.md](./dev.md))  
 - Notarized macOS app / automatic macFUSE install  
 
 ---

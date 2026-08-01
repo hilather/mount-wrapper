@@ -113,10 +113,112 @@ Method = LZMA2:12
 Block = 0
 `
 
+const sampleEncryptedWrongPassword = `
+ERROR: Wrong password : /data/secret.7z
+Enter password (will not be echoed):
+ERROR: Can not open encrypted archive. Wrong password?
+`
+
+const sampleEncryptedMember = `
+Listing archive: /data/enc.7z
+
+--
+Path = /data/enc.7z
+Type = 7z
+Solid = +
+Method = LZMA2:12 7zAES
+
+----------
+Path = secret.txt
+Size = 10
+Encrypted = +
+Method = LZMA2:12 7zAES:19
+Block = 0
+`
+
+func TestParse7zListEncrypted(t *testing.T) {
+	t.Parallel()
+	if !convert.Parse7zListEncrypted(sampleEncryptedWrongPassword) {
+		t.Fatal("wrong password")
+	}
+	if !convert.Parse7zListEncrypted(sampleEncryptedMember) {
+		t.Fatal("Encrypted = +")
+	}
+	if convert.Parse7zListEncrypted(sampleSolidList) {
+		t.Fatal("plain solid must not be encrypted")
+	}
+	if convert.Parse7zListEncrypted(sampleNonSolidList) {
+		t.Fatal("plain non-solid")
+	}
+	if convert.Parse7zListEncrypted("") {
+		t.Fatal("empty")
+	}
+	// Case / CRLF
+	crlf := strings.ReplaceAll("ERROR: Wrong Password : x.7z\n", "\n", "\r\n")
+	if !convert.Parse7zListEncrypted(crlf) {
+		t.Fatal("crlf wrong password")
+	}
+}
+
+func TestParse7zListIsSolid(t *testing.T) {
+	t.Parallel()
+	if !convert.Parse7zListIsSolid(sampleSolidList) {
+		t.Fatal("solid")
+	}
+	if convert.Parse7zListIsSolid(sampleNonSolidList) {
+		t.Fatal("non-solid")
+	}
+	if convert.Parse7zListIsSolid("") {
+		t.Fatal("empty")
+	}
+}
+
+func TestParse7zListNeedsFlatten_EncryptedRefuses(t *testing.T) {
+	t.Parallel()
+	// Solid+encrypted must NOT auto-flatten.
+	if convert.Parse7zListNeedsFlatten(sampleEncryptedMember) {
+		t.Fatal("encrypted solid must not need flatten")
+	}
+	if convert.Parse7zListNeedsFlatten(sampleEncryptedWrongPassword) {
+		t.Fatal("wrong password must not need flatten")
+	}
+}
+
 func TestParse7zListNeedsFlatten_Solid(t *testing.T) {
 	t.Parallel()
 	if !convert.Parse7zListNeedsFlatten(sampleSolidList) {
 		t.Fatal("expected solid=true")
+	}
+}
+
+func TestRefuseIfEncrypted7z(t *testing.T) {
+	t.Parallel()
+	list := func(string, []string, string) (string, error) {
+		return sampleEncryptedWrongPassword, errors.New("exit 2")
+	}
+	err := convert.RefuseIfEncrypted7z("7z", "/tmp/a.7z", list)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), convert.Encrypted7zMessage) {
+		t.Fatalf("msg=%v", err)
+	}
+	okList := func(string, []string, string) (string, error) { return sampleSolidList, nil }
+	if err := convert.RefuseIfEncrypted7z("7z", "/tmp/a.7z", okList); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProbe7zEncrypted_FakeList(t *testing.T) {
+	t.Parallel()
+	list := func(string, []string, string) (string, error) {
+		return sampleEncryptedMember, nil
+	}
+	if !convert.Probe7zEncrypted("7z", "/tmp/a.7z", list) {
+		t.Fatal("expected encrypted")
+	}
+	if convert.Probe7zNeedsFlatten("7z", "/tmp/a.7z", list) {
+		t.Fatal("encrypted must not need flatten")
 	}
 }
 

@@ -62,7 +62,7 @@ SPA source lives in `web/`; production assets are copied into `internal/webui/di
 | `internal/mounter` | Backend normalize/resolve, ratarmount argv + child env, live registry (`index_only`/`mount`), process-group start/kill/wait, unmount sequence (SIGTERM → fusermount → lazy), partial-index cleanup, concurrent-limit + mount-attempt helpers, DrvFs index refuse, nested-automount line parse |
 | `internal/mounter.Engine` | Claim + spawn, `CheckChild` / index→mount, mark mounted/failed, convert jobs (async: archiveconverter → zip repack → flatten), relocate (sync v1), `ProgressLive`, `Unmount` |
 
-**Still deferred:** stderr drain thread parity; outer nonsolid cache populate. Flatten probe is best-effort CLI (`7z l -slt`), not a full solid-folder parser. Optional real-FUSE smoke: `go test -tags=fuse ./internal/mounter/` (skips without `/dev/fuse` or engine on PATH; not in default `make test`).
+**Still deferred:** stderr drain thread parity; stream-flatten / full solid-folder parse. Flatten + outer-cache probes are best-effort CLI (`7z l -slt`), not ratarmountcore. Optional real-FUSE smoke: `go test -tags=fuse ./internal/mounter/` (skips without `/dev/fuse` or engine on PATH; not in default `make test`).
 
 #### Windows visibility / parent traverse (Linux + WSL)
 
@@ -87,7 +87,7 @@ macOS: keep `windows_visible: false` (single-user agent; allow_other not the WSL
 
 | Package | Responsibility |
 |---------|----------------|
-| `internal/convert` | Sidecar `*.tarmount-convert.json` read/write; archiveconverter bin resolve + argv; `ShouldConvert`; 7z nonsolid scope/env/cache + `ShouldFlattenConvert` (injectable probe); zip→7z repack predicates/cmd/peak-disk; **process runners** `RunZipRepack` / `RunFlattenConvert` (injectable `Run7zFunc`); free-space gates; concurrent convert limit; progress_label / enter-leave converting |
+| `internal/convert` | Sidecar `*.tarmount-convert.json` read/write; archiveconverter bin resolve + argv; `ShouldConvert`; 7z nonsolid scope/env/cache + `ShouldFlattenConvert` (injectable probe); zip→7z repack predicates/cmd/peak-disk; **process runners** `RunZipRepack` / `RunFlattenConvert` / `EnsureNonsolidCachedCopy` (injectable `Run7zFunc` / `List7zFunc`); free-space gates; concurrent convert limit; progress_label / enter-leave converting |
 
 **Paths:**
 
@@ -96,18 +96,19 @@ macOS: keep `windows_visible: false` (single-user agent; allow_other not the WSL
 | archiveconverter | Preferred solid→non-solid for `.7z` when enabled; output under `archiveconverter_output_dir/{archive_id}.7z` |
 | 7z nonsolid | `convert_7z_scope`: nested/outer/all apply child env; flatten is pre-mount in-place via `RunFlattenConvert` when `FlattenNeededFunc` says true |
 | zip repack | When `convert_zip_to_7z` + nonsolid and zip has embedded archive members → `RunZipRepack` → stored non-solid `.7z` beside source (+ metadata sidecar) |
-| Flatten probe | Default when nonsolid + scope `flatten`: `convert.DefaultFlattenNeeded` → `7z l -slt` heuristics (`Solid=+` or nested member `*.7z`); false on uncertainty / missing 7z |
+| Flatten probe | Default when nonsolid + scope `flatten`: `convert.DefaultFlattenNeeded` → `7z l -slt` heuristics (`Solid=+` or nested member `*.7z`); **false** on uncertainty / missing 7z / encryption markers (`Encrypted=+`, Wrong password, …) |
+| Outer nonsolid cache | Scope `outer`/`all`: mount path calls `EnsureNonsolidCachedCopy` — solid → CLI extract + `a -ms=off` under content-keyed cache dest; non-solid keeps source; encrypted fails with clear error |
 
-**Engine convert order** (parity with Python `_run_convert`): archiveconverter (if available / `.7z` / not zip-repack) → zip repack → flatten. Success updates `archive_path` + fingerprint, leaves `converting` → `discovered`, then continues to mount/index. Failure → `index_failed` / `mount_failed` with `last_error`.
+**Engine convert order** (parity with Python `_run_convert`): archiveconverter (if available / `.7z` / not zip-repack) → zip repack → flatten. Success updates `archive_path` + fingerprint, leaves `converting` → `discovered`, then continues to mount/index. Failure → `index_failed` / `mount_failed` with `last_error`. Outer/all cache populate runs at **mount** start (not the convert job), like Python `resolve_mount_archive_path`.
 
 **Residual gaps:**
 
 | Gap | Detail |
 |-----|--------|
-| Solid/nested probe | Best-effort `7z l -slt` only — not ratarmountcore solid-folder parse; no encrypted-folder detect; inject `NeedsFlatten` to override |
-| Flatten depth | Best-effort CLI: extract, walk nested `*.7z`, repack `-ms=off`; no stream-flatten / encrypted folders / post-rebuild nested-header check |
-| Outer cache | `ResolveMountArchivePath` computes cache path only; does not create nonsolid cached copy |
-| Real engines in CI | Unit tests use fake 7z scripts / injectable `Run7z` / list output; nested mini fixture + `*.l-slt.txt` under `testdata/nested7z/` for offline parse; real `7z l` / multi generation skips when 7z missing; no FUSE required for default `make test` |
+| Solid/nested probe | Best-effort `7z l -slt` only — not ratarmountcore solid-folder parse; encrypted detect is CLI phrase/`Encrypted=+` only; inject `NeedsFlatten` to override |
+| Flatten depth | Best-effort CLI: extract, walk nested `*.7z`, repack `-ms=off`; encrypted refused clearly; **no stream-flatten** / post-rebuild nested-header check |
+| Outer cache | CLI extract+repack only (no stream-repack / flock); nested `.7z` members not expanded in outer cache (child env still used for nested when scope allows) |
+| Real engines in CI | Unit tests use fake 7z scripts / injectable `Run7z` / list output; nested mini + encrypted `*.l-slt.txt` under `testdata/nested7z/` for offline parse; real `7z l` / multi generation skips when 7z missing; no FUSE required for default `make test` |
 
 ### Phase 6.1 — reconcile (library)
 
@@ -200,7 +201,7 @@ reconciler.Boot()
 
 **CLI:** `mount-wrapper serve [--config] [--once] [--allow-unauth]` plus socket-backed ops (Phase 7.2).
 
-**Still deferred:** real FUSE CI; outer nonsolid cache populate; full solid-folder parse (CLI probe only).
+**Still deferred:** real FUSE CI; stream-flatten; full solid-folder parse (CLI probe only).
 
 **Doctor API:** `Run(Options) *Report` with injectable probes. Formatters: `FormatText`, `FormatJSON`, `Report.ToMap`. Systemd: `BuildSystemdDropin` / `ApplyFixSystemd`.
 
@@ -281,7 +282,7 @@ Defaults (overridable via `api.ServerOptions`): refresh **2s**, heartbeat **15s*
 | systemd | `TimeoutStopSec=300` (unmount pool), `DeviceAllow=/dev/fuse`, `ProtectSystem=strict` + state `ReadWritePaths`, optional `EnvironmentFile=-/etc/mount-wrapper/env` |
 | macOS | launchd **user agent**; socket under Caches (path length); macFUSE external |
 | Engines | Not bundled; PATH resolve ratarmount-rs / fuse3 / archiveconverter / 7z |
-| Rocky | Prefer `CGO_ENABLED=0` pure-Go binary; musl static matrix residual (D7) |
+| Rocky | Prefer `CGO_ENABLED=0` pure-Go (release default); optional Alpine musl/static via `make build-musl` + CI `musl-static-smoke` (D7) |
 | Release | `.goreleaser.yaml` + `SHA256SUMS`; Makefile ldflags → `main.version`/`commit`/`date` |
 
 Operator docs: [install.md](./install.md), [macos.md](./macos.md), [migration.md](./migration.md), [parity.md](./parity.md). Artifacts under `packaging/`. Full deb/rpm CI publish is residual.

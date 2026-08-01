@@ -6,7 +6,8 @@
 #   BIN=/path/to/mount-wrapper ./scripts/smoke-binary.sh
 #   ./scripts/smoke-binary.sh --build         # make build first
 #
-# Exit 0 on success. Safe for CI containers (Ubuntu, Rocky 8, …).
+# Exit 0 on success. Safe for CI (Ubuntu, Rocky 8 container, macOS runners).
+# Does not need fuse3 / macFUSE — version, doctor, config show, serve --once only.
 
 set -euo pipefail
 

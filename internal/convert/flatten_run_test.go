@@ -181,6 +181,40 @@ func TestRunFlattenConvert_ProbeFalseSkips(t *testing.T) {
 	}
 }
 
+func TestRunFlattenConvert_EncryptedForcedProbe(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	archive := filepath.Join(dir, "enc.7z")
+	if err := os.WriteFile(archive, []byte("encrypted-payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	list := func(string, []string, string) (string, error) {
+		return `
+ERROR: Wrong password : enc.7z
+`, nil
+	}
+	ran := false
+	run := func(string, []string, string) error {
+		ran = true
+		return nil
+	}
+	// Custom probe forces true; runner must still refuse encrypted.
+	_, err := convert.RunFlattenConvert(archive, convert.NonsolidFlattenParams{
+		SevenZipBin: "7z",
+		Run7z:       run,
+		List7z:      list,
+	}, func(string) bool { return true })
+	if err == nil {
+		t.Fatal("expected encrypted error")
+	}
+	if !strings.Contains(err.Error(), convert.Encrypted7zMessage) {
+		t.Fatalf("err=%v", err)
+	}
+	if ran {
+		t.Fatal("must not extract encrypted archive")
+	}
+}
+
 func TestRunFlattenConvert_NilProbeSkips(t *testing.T) {
 	dir := t.TempDir()
 	archive := filepath.Join(dir, "a.7z")

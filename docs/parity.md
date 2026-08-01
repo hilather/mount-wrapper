@@ -71,10 +71,11 @@ rot. Prefer fixing code over changing this list without evidence.
 | **Flatten / convert edge paths** | medium | Built-in 7z flatten & zip repack library+runners exist; production hardening and some engine probe edges residual |
 | **Real FUSE integration tests** | low for CI | Optional `//go:build fuse` test; optional Actions job `smoke.yml` → `run_fuse` (not on every PR) |
 | **Rocky 8 binary smoke** | done in CI | `smoke.yml` builds CGO=0 binary on Ubuntu, runs `scripts/smoke-rocky8.sh` in `rockylinux:8` |
-| **Full musl static matrix (D7)** | residual | Pure-Go `CGO_ENABLED=0` interim; true musl toolchain residual |
+| **macOS unit + binary smoke** | done in CI | `ci.yml` → `macos-unit-smoke` on `macos-latest`: `go test ./...`, CGO=0 build, `scripts/smoke-binary.sh`; **no macFUSE** (real mount remains local/manual) |
+| **Musl/static path (D7)** | path + CI done; dual goreleaser residual | `make build-musl` / `scripts/build-musl.sh` (Alpine); CI job `musl-static-smoke`; primary releases remain `CGO_ENABLED=0` |
 | **Full deb/rpm CI publish** | done on tags | `release.yml` publishes deb/rpm/tarballs on `v*` |
-| **Playwright SPA smoke** | optional / local | Landed: `web/e2e` mocked `/api/*` shell; `RUN_E2E=1` / optional CI job. Residual: settings validate E2E |
-| **OpenAPI / generated SPA client** | optional residual | Hand-written TS (`api-types.ts` + `types.ts`, D11); OpenAPI later |
+| **Playwright SPA smoke** | optional / local | Landed: `web/e2e` mocked `/api/*` Archives shell + Settings validate/apply; `RUN_E2E=1` / optional CI job |
+| **OpenAPI / generated SPA client** | optional residual | Hand-written TS (`api-types.ts` + `types.ts`, D11); OpenAPI later (keep open) |
 | **Windows parent `o+x` traverse notes** | docs/ops | Platform quirk; document/operate as needed |
 | **Prometheus metrics endpoint** | done | `GET /metrics` hand-written text; loopback open / non-loopback token |
 | **Separate `web` CLI** | n/a | Embedded serve (D4) by design |
@@ -117,7 +118,7 @@ as you run them.
 
 ### Rocky 8 / RHEL-like
 
-- [ ] Install binary built with **`CGO_ENABLED=0`** (or musl static when available) — glibc 2.28 constraint
+- [ ] Install binary built with **`CGO_ENABLED=0`** (release default) or optional `make build-musl` static — glibc 2.28 constraint
 - [ ] `fuse3` / `/dev/fuse`; `modprobe fuse` if needed
 - [ ] Install `ratarmount-rs` (or python ratarmount) + optional p7zip / archiveconverter
 - [ ] `create-user.sh` + config + systemd unit; `systemctl enable --now mount-wrapper`

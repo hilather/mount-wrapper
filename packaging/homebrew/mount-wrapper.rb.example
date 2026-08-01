@@ -1,48 +1,95 @@
 # Homebrew formula *sketch* for mount-wrapper (not published to a tap yet).
-# Copy into a tap as Formula/mount-wrapper.rb and adjust url/sha256 per release.
 #
-# Suggested deps (manual; formula does not vendor engines):
-#   brew install macfuse   # system extension approval required
-#   # ratarmount-rs: install from upstream release or cargo
+# Install from a local copy (still example until a real tap + release checksums):
+#
+#   cp packaging/homebrew/mount-wrapper.rb.example /tmp/mount-wrapper.rb
+#   # set version + sha256 for your platform below
+#   brew install --formula /tmp/mount-wrapper.rb
+#
+# Or rename in-tree (Homebrew requires a .rb path, not .example):
+#
+#   cp packaging/homebrew/mount-wrapper.rb.example packaging/homebrew/mount-wrapper.rb
+#   # edit version / sha256
+#   brew install --formula ./packaging/homebrew/mount-wrapper.rb
+#
+# Future tap:
+#   brew install hilather/tap/mount-wrapper
+#
+# Engines and FUSE are NOT bundled:
+#   brew install --cask macfuse   # system extension approval required
+#   # ratarmount-rs: upstream release or cargo install
 #   # optional: archiveconverter, p7zip
 #
-# Install sketch after formula is real:
-#   brew install hilather/tap/mount-wrapper
-#   cp "$(brew --prefix)/share/mount-wrapper/config.yaml.macos.example" \
-#     "$HOME/Library/Application Support/mount-wrapper/config.yaml"
+# Release tarball name (GoReleaser archives.name_template):
+#   mount-wrapper_#{version}_darwin_#{arch}.tar.gz
+#   arch = arm64 (Apple Silicon) | amd64 (Intel)
+#
+# After install, seed config under Application Support (see caveats).
 
 class MountWrapper < Formula
   desc "Archive auto-mounter orchestrator (ratarmount / ratarmount-rs)"
   homepage "https://github.com/hilather/mount-wrapper"
-  # url "https://github.com/hilather/mount-wrapper/archive/refs/tags/v0.1.0.tar.gz"
-  # sha256 "REPLACE_ME"
+  version "0.1.0"
   license "MIT"
-  head "https://github.com/hilather/mount-wrapper.git", branch: "main"
 
-  depends_on "go" => :build
-  # macFUSE is a cask / system extension — document, do not hard-require here:
-  # depends_on :macos
+  # Binary install from GitHub Releases (preferred once checksums are known).
+  # Replace sha256 placeholders with values from the release SHA256SUMS file.
+  on_macos do
+    on_arm do
+      url "https://github.com/hilather/mount-wrapper/releases/download/v#{version}/mount-wrapper_#{version}_darwin_arm64.tar.gz"
+      sha256 "REPLACE_ME_DARWIN_ARM64"
+    end
+    on_intel do
+      url "https://github.com/hilather/mount-wrapper/releases/download/v#{version}/mount-wrapper_#{version}_darwin_amd64.tar.gz"
+      sha256 "REPLACE_ME_DARWIN_AMD64"
+    end
+  end
+
+  # Optional: build from source when developing the formula (needs Go + SPA deps).
+  # head "https://github.com/hilather/mount-wrapper.git", branch: "main"
+  # depends_on "go" => :build
+  # depends_on "node" => :build
+
+  # macFUSE is a cask / system extension — document in caveats; do not hard-require:
+  # depends_on cask: "macfuse"
 
   def install
-    ldflags = %W[
-      -s -w
-      -X main.version=#{version}
-      -X main.commit=homebrew
-      -X main.date=#{time.iso8601}
-    ]
-    system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/mount-wrapper"
+    # GoReleaser tarball: binary at archive root + packaging/examples, docs, …
+    bin.install "mount-wrapper"
 
-    pkgshare.install "packaging/examples/config.yaml.macos.example"
-    pkgshare.install "packaging/launchd/com.hilather.mount-wrapper.plist.example"
+    if (buildpath/"packaging/examples/config.yaml.macos.example").exist?
+      pkgshare.install "packaging/examples/config.yaml.macos.example"
+    end
+    if (buildpath/"packaging/launchd/com.hilather.mount-wrapper.plist.example").exist?
+      pkgshare.install "packaging/launchd/com.hilather.mount-wrapper.plist.example"
+    end
+    if (buildpath/"docs/macos.md").exist?
+      doc.install "docs/macos.md"
+    end
   end
 
   def caveats
+    config_dir = "#{Dir.home}/Library/Application Support/mount-wrapper"
+    cache_run = "#{Dir.home}/Library/Caches/mount-wrapper/run"
     <<~EOS
-      macFUSE must be installed and allowed in System Settings.
-      Install engines on PATH (ratarmount-rs recommended; or ratarmount).
-      Example config: #{pkgshare}/config.yaml.macos.example
-      launchd plist:  #{pkgshare}/com.hilather.mount-wrapper.plist.example
-      Keep control_socket under ~/Library/Caches/... (socket path length limit).
+      macFUSE must be installed and allowed in System Settings → Privacy & Security
+      (system extension prompts). Engines are external — install ratarmount-rs
+      (recommended, mount_backend: rust) or Python ratarmount on PATH.
+
+      Suggested layout (login user; no system mount-wrapper user on macOS):
+
+        mkdir -p "#{config_dir}"/{mounts,indexes,overlays,hooks.d}
+        mkdir -p "#{cache_run}" "#{Dir.home}/Library/Logs/mount-wrapper"
+        cp "#{pkgshare}/config.yaml.macos.example" \\
+          "#{config_dir}/config.yaml"
+        # edit source_dirs; keep control_socket under Caches (path length ~104 bytes)
+
+      Config path:  #{config_dir}/config.yaml
+      Control sock: #{cache_run}/control.sock
+      launchd:      #{pkgshare}/com.hilather.mount-wrapper.plist.example
+      Docs:         #{doc}/macos.md  (if shipped in the tarball)
+
+      See docs/macos.md and docs/install.md in the repo for launchd and doctor steps.
     EOS
   end
 

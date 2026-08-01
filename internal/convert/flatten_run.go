@@ -149,7 +149,7 @@ func NestedFlattenPrefix(memberRel, stripPrefix string) string {
 // Residual gaps vs ratarmountcore:
 //   - no solid/folder structure parse; needsFlatten must be injected
 //   - nested discovery is post-extract filesystem walk (not 7z header listing)
-//   - no stream-flatten fallback / encrypted-folder detection
+//   - no stream-flatten fallback (encrypted archives refused with a clear error)
 //   - no post-rebuild nested-7z header validation (would need a 7z parser)
 func RunFlattenConvert(archivePath string, p NonsolidFlattenParams, needsFlatten FlattenNeededFunc) (*ConvertMetadata, error) {
 	archivePath = filepath.Clean(archivePath)
@@ -164,6 +164,15 @@ func RunFlattenConvert(archivePath string, p NonsolidFlattenParams, needsFlatten
 	existing := ReadConvertMetadata(archivePath)
 	if needsFlatten == nil || !needsFlatten(archivePath) {
 		return existing, nil
+	}
+
+	// Surface a clear error if a custom probe forced convert on an encrypted archive.
+	bin := strings.TrimSpace(p.SevenZipBin)
+	if bin == "" {
+		bin = "7z"
+	}
+	if err := RefuseIfEncrypted7z(bin, archivePath, p.List7z); err != nil {
+		return nil, err
 	}
 
 	sourceSize := st.Size()

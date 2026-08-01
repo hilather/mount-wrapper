@@ -1,6 +1,7 @@
 name: smoke
 
-# Install / binary smoke for Ubuntu + Rocky 8 (no FUSE).
+# Install / binary smoke: Ubuntu + Rocky 8 + musl/static (Alpine build).
+# macOS unit tests + binary smoke live in ci.yml (macos-unit-smoke; no macFUSE).
 # Optional FUSE job on workflow_dispatch only (needs /dev/fuse + engine install).
 
 on:
@@ -51,6 +52,48 @@ jobs:
         run: chmod +x bin/mount-wrapper
       - name: Rocky 8 container smoke
         run: ./scripts/smoke-rocky8.sh
+
+  # D7 extra path: static binary built in golang:*-alpine; smoke on Alpine + Rocky 8.
+  # Does not replace default CGO_ENABLED=0 goreleaser releases.
+  musl-static:
+    name: musl-static-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build static (Alpine / musl env)
+        run: ./scripts/build-musl.sh
+      - name: file / ldd checks (host)
+        run: |
+          set -euo pipefail
+          BIN=bin/mount-wrapper-linux-amd64-musl
+          file "$BIN"
+          file "$BIN" | grep -qiE 'statically linked|static-pie'
+          # ldd fails or reports non-dynamic for static binaries
+          if ldd "$BIN" 2>&1 | tee /tmp/ldd.out; then
+            grep -qiE 'not a dynamic|statically linked' /tmp/ldd.out
+          fi
+      - name: Binary smoke inside Alpine
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/bin/mount-wrapper-linux-amd64-musl:/usr/local/bin/mount-wrapper:ro" \
+            -v "$PWD/scripts/smoke-binary.sh:/smoke-binary.sh:ro" \
+            alpine:3.21 \
+            sh -ec 'apk add --no-cache bash coreutils >/dev/null
+              BIN=/usr/local/bin/mount-wrapper bash /smoke-binary.sh'
+      - name: Binary smoke inside Rocky 8 (static on glibc)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/bin/mount-wrapper-linux-amd64-musl:/usr/local/bin/mount-wrapper:ro" \
+            -v "$PWD/scripts/smoke-binary.sh:/smoke-binary.sh:ro" \
+            rockylinux:8 \
+            bash -lc 'BIN=/usr/local/bin/mount-wrapper bash /smoke-binary.sh'
+      - name: Upload musl static binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mount-wrapper-linux-amd64-musl
+          path: bin/mount-wrapper-linux-amd64-musl
 
   # Optional: real FUSE. Not on push/PR by default (engine install + device).
   fuse-integration:

@@ -31,11 +31,11 @@ _Last reviewed: 2026-07-31 (Phase 12)._
 | Area | Status | Notes |
 |------|--------|-------|
 | Convert: archiveconverter | **done** | Engine `PollConvert` / async jobs |
-| Convert: built-in 7z nonsolid / flatten | **partial** | Predicates + runners; some flatten edge residual vs engine load |
+| Convert: built-in 7z nonsolid / flatten | **partial** | Predicates + runners + CLI encrypted detect + outer cache populate; no stream-flatten / full solid-folder parse |
 | Convert: zip→7z repack | **partial** | Library + runners; verify under real archives |
 | Doctor | **done** | Offline CLI + `GET /api/doctor` |
 | WSL UNC hint | **done** | API + SPA |
-| Rocky 8 install path | **partial** | Documented; musl matrix / rocky CI residual (D7) |
+| Rocky 8 install path | **partial** | Documented + rocky CI smoke; optional musl path (`build-musl`); dual goreleaser musl residual (D7) |
 | macOS macFUSE | **partial** | Platform code + docs; friend-test residual |
 | SPA hooks detail drawer | **done** | `HooksDrawer` + `GET /api/hooks` |
 | Real FUSE integration tests | **deferred** | Unit suite offline; optional build-tag later |

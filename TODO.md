@@ -42,7 +42,7 @@ CLI ──────UDS JSON────► same process
 - [x] Tooling: `go.mod`, `Makefile`, `.golangci.yml`, `go test ./...`
 - [x] Frontend scaffold (Vite + Svelte 5 + TypeScript) under `web/`
 - [x] Embed SPA build into Go binary via `embed.FS` (dev: Vite proxy to Go)
-- [x] CI matrix sketch: Ubuntu unit tests; later Rocky 8 + macOS
+- [x] CI matrix: Ubuntu unit tests; Rocky 8 binary smoke (`smoke.yml`); macOS unit+smoke (`ci.yml` `macos-unit-smoke`, no macFUSE)
 - [x] License (MIT to match upstream) + root README (status: rewrite in progress)
 - [x] Map tarmount-wsl modules → Go packages (see Appendix A)
 
@@ -212,7 +212,9 @@ metadata, free-space, limits, `RunZipRepack` / `RunFlattenConvert`). Engine
 - [x] Flatten process runner (`RunFlattenConvert`): best-effort CLI extract → expand nested `*.7z` → `7z a -ms=off` in-place; injectable `Run7z` / `FlattenNeededFunc`
 - [x] Best-effort solid/nested probe via `7z l -slt` (`Parse7zListNeedsFlatten` / `CLIFlattenNeeded` / `DefaultFlattenNeeded`); service wires default when nonsolid+flatten; conservative false on uncertainty
 - [x] Nested mini 7z fixture + `*.l-slt.txt` listings under `testdata/nested7z/`; multi/solid generated in TempDir when `7z` on PATH (skip otherwise)
-- [ ] **Residual:** no full ratarmountcore solid/folder parser; no stream-flatten path; no encrypted-folder detect; outer nonsolid cache populate still path-only; real FUSE CI deferred; full engine convert still needs `7z` on PATH
+- [x] Encrypted detect (best-effort): `Parse7zListEncrypted` / `RefuseIfEncrypted7z` from `7z l -slt` + stderr phrases; probe returns false; runners surface `encrypted 7z not supported`
+- [x] Outer nonsolid cache populate: `EnsureNonsolidCachedCopy` (CLI extract + `-ms=off`) + content-keyed dest; engine mount path wires for scope outer/all; `ResolveMountArchivePath` remains path prediction
+- [ ] **Residual:** no full ratarmountcore solid/folder parser; no stream-flatten / py7zr folder walk; outer cache is CLI-only (no flock / stream-repack); real FUSE CI deferred; full engine convert still needs `7z` on PATH
 
 ### 5.3 ZIP → non-solid 7z repack
 
@@ -471,7 +473,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 
 - [x] Component/unit tests for formatters (bytes, durations, status labels, convert delta)
 - [x] Store/SSE client unit tests (reconnect, snapshot apply) — backoff + table filter/sort unit tests
-- [x] Playwright smoke optional — `web/e2e` mocks `/api/*` (no daemon); `RUN_E2E=1 npm run test:e2e` / `make web-e2e`; not in default CI (optional `workflow_dispatch` job). Residual: settings-page validate E2E
+- [x] Playwright smoke optional — `web/e2e` mocks `/api/*` (no daemon); `RUN_E2E=1 npm run test:e2e` / `make web-e2e`; not in default CI (optional `workflow_dispatch` job). Includes Archives shell + Settings validate/apply (`settings.spec.ts`)
 
 ---
 
@@ -490,7 +492,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 
 ### 11.2 Rocky 8
 
-- [~] Build against glibc 2.28 **or** musl static binary — document `CGO_ENABLED=0` pure-Go interim; musl matrix residual (D7)
+- [~] Build against glibc 2.28 **or** musl static binary — release default `CGO_ENABLED=0`; optional `make build-musl` + CI `musl-static-smoke` (D7); dual goreleaser musl publish residual
 - [~] `.rpm` via nfpm/goreleaser — sketch only
 - [x] systemd unit parity (same unit file)
 - [x] Document fuse3 / ratarmount install on Rocky (`docs/install.md`)
@@ -499,10 +501,11 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 ### 11.3 macOS
 
 - [x] launchd user agent plist example
-- [x] Homebrew formula sketch (deps: macfuse notes; engines external)
+- [x] Homebrew formula sketch — release tarball `mount-wrapper_#{version}_darwin_#{arch}.tar.gz`, macFUSE caveats, Application Support config path (`packaging/homebrew/mount-wrapper.rb.example`; not a published tap)
 - [x] Document macFUSE permission prompts (`docs/macos.md`, `docs/install.md`)
 - [x] Socket path length limits under Caches
 - [x] Friend-test checklist (port from upstream `docs/macos.md`)
+- [x] CI macOS unit + binary smoke (`ci.yml` `macos-unit-smoke` on `macos-latest`; no macFUSE in default CI)
 
 ### 11.4 Release
 
@@ -519,7 +522,7 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 - [x] Config key inventory 1:1 (Appendix D) or documented renames/aliases — `gen_config_keys.sh` + `config.PublicKeys`
 - [x] Socket op inventory 1:1 (`status`, `metrics`, `config_get/set`, …) — `tools/parity/socket_ops.sh`
 - [x] Status/API JSON shape diff (archives table columns + convert metrics) — summarized in `docs/parity.md`
-- [x] SPA surface checklist vs upstream web UI (Appendix E) — residual: OpenAPI-generated client only (hand-written types + Playwright smoke landed)
+- [x] SPA surface checklist vs upstream web UI (Appendix E) — residual: OpenAPI-generated client only (hand-written types + Playwright Archives/Settings smoke landed)
 - [x] Socket protocol compatibility layer? (**decide:** **new protocol only** — D6; no dual; documented in migration/parity/socket_ops)
 - [x] WSL manual: DrvFs source, UNC visibility, boot remount, Task Scheduler note — `docs/parity.md` checklist
 - [x] Rocky 8 manual: install rpm, mount tar.gz/zip, doctor — `docs/parity.md` checklist
@@ -591,8 +594,9 @@ Upstream is vanilla JS + 15s poll. Target is a **reactive** SPA with live update
 - Theme: system + toggle, localStorage
 
 **Release / CI**
-- goreleaser: linux/darwin amd64+arm64; prefer musl static for Linux where practical
-- CI: Ubuntu unit tests first; Rocky/macOS later
+- goreleaser: linux/darwin amd64+arm64; primary `CGO_ENABLED=0` (pure-Go static)
+- Optional D7 musl/static: `make build-musl` (Alpine) + CI `musl-static-smoke`; dual goreleaser musl id residual
+- CI: Ubuntu unit tests + race; Rocky 8 + musl static smoke; macOS unit+smoke (no macFUSE in default CI)
 
 ### D12 note
 Module path and git remote: `github.com/hilather/mount-wrapper`.
@@ -728,8 +732,8 @@ Mirror upstream `Config` + public snapshot. Mark each key implemented in Go + ex
 - [x] Store-driven re-render without full table wipe
 - [x] Pending/disabled actions during requests
 - [x] Optional hooks detail drawer (`GET /api/hooks?archive_id=`, focus trap / Escape)
-- [~] Optional typed API client — **done as hand-written** `web/src/lib/api-types.ts` re-export + `types.ts` / `api.ts` (D11); **not** OpenAPI codegen (residual)
-- [x] Optional Playwright E2E smoke — mocked API shell (`Archives` heading + connection badge); vitest still covers format/SSE/hooks helpers; settings validate E2E residual
+- [~] Optional typed API client — **done as hand-written** `web/src/lib/api-types.ts` re-export + `types.ts` / `api.ts` (D11); **not** OpenAPI codegen (residual — keep open)
+- [x] Optional Playwright E2E smoke — mocked API shell (`Archives` heading + connection badge) + Settings groups / Validate dry-run / Apply (`web/e2e/settings.spec.ts`); vitest still covers format/SSE/hooks helpers
 
 ---
 

@@ -372,9 +372,30 @@ func (e *Engine) beginMountProcess(
 		targetStatus = state.StatusIndexing
 	}
 
+	// Resolve outer/all nonsolid cache path before building the mount request
+	// (parity with resolve_mount_archive_path → ensure_nonsolid_cached_copy).
+	// Non-solid sources keep the original path; encrypted / convert failures
+	// are recorded after the work-status claim below.
+	mountArchive := archivePath
+	var outerCacheErr error
+	if e.Config != nil && e.Config.Convert7zNonsolid && convert.ScopeUsesOuterCache(e.Config.Convert7zScope) {
+		p := convert.NonsolidCacheParamsFromConfig(e.Config, e.ConvertOpts)
+		if e.Run7z != nil {
+			p.Run7z = e.Run7z
+		}
+		resolved, err := convert.EnsureNonsolidCachedCopy(e.Config, archivePath, p)
+		if err != nil {
+			outerCacheErr = err
+			// Keep original path on the request for index/mount path derivation;
+			// failStart runs after claim.
+		} else {
+			mountArchive = resolved
+		}
+	}
+
 	taken := e.TakenMountNames()
 	mountName := e.mountNameForRec(rec, taken)
-	req := RequestFromConfig(e.Config, rec.ArchiveID, archivePath, rec.ArchiveBasename, taken, mountName, "")
+	req := RequestFromConfig(e.Config, rec.ArchiveID, mountArchive, rec.ArchiveBasename, taken, mountName, "")
 	req.IndexOnly = useIndexOnly
 
 	pathFields := map[string]any{
@@ -396,6 +417,11 @@ func (e *Engine) beginMountProcess(
 	rec, err = e.Store.Transition(rec.ArchiveID, targetStatus, expected, pathFields, "")
 	if err != nil {
 		return nil, err
+	}
+
+	if outerCacheErr != nil {
+		_ = e.failStart(rec, useIndexOnly, outerCacheErr.Error())
+		return nil, mounterErrorf("%s", outerCacheErr.Error())
 	}
 
 	if err := EnginePathsAllowed(req.IndexPath, req.OverlayPath, req.MountPath, e.Config.AllowIndexesOnDrvfs); err != nil {

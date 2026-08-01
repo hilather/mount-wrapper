@@ -114,8 +114,8 @@ testdata/              fixtures
 
 ### Convert (Phase 5 library + Engine runners)
 
-- `internal/convert`: archiveconverter resolve + argv, 7z nonsolid/flatten helpers + best-effort `7z l -slt` solid/nested probe, zip→7z repack predicates/cmd, convert metadata R/W, free-space gates, concurrent convert limits, process runners
-- Engine runs convert jobs async (archiveconverter → zip repack → flatten); service wires default flatten probe when `convert_7z_nonsolid` + scope `flatten`
+- `internal/convert`: archiveconverter resolve + argv, 7z nonsolid/flatten helpers + best-effort `7z l -slt` solid/nested/encrypted probe, outer nonsolid cache populate (`EnsureNonsolidCachedCopy`), zip→7z repack predicates/cmd, convert metadata R/W, free-space gates, concurrent convert limits, process runners
+- Engine runs convert jobs async (archiveconverter → zip repack → flatten); outer/all scope ensures solid→non-solid cache at mount; service wires default flatten probe when `convert_7z_nonsolid` + scope `flatten`
 
 ### Reconcile, cleaner, hooks, metrics (Phase 6 libraries)
 
@@ -164,9 +164,9 @@ testdata/              fixtures
 - Theme: light/dark, persisted as `mw-theme`
 - Checks: `make web-check` (svelte-check), `make web-test` (vitest formatters/table/SSE/hooks helpers)
 - Typed API surface: hand-written TS (`web/src/lib/api-types.ts` + `types.ts`, D11) — not OpenAPI-generated
-- Optional E2E: `cd web && npm run test:e2e:install && RUN_E2E=1 npm run test:e2e` (or `make web-e2e`) — Playwright mocks `/api/*`, no daemon; not in default CI (optional Actions `workflow_dispatch`)
+- Optional E2E: `cd web && npm run test:e2e:install && RUN_E2E=1 npm run test:e2e` (or `make web-e2e`) — Playwright mocks `/api/*` (Archives shell + Settings validate/apply), no daemon; not in default CI
 
-**Still pending:** OpenAPI-generated SPA client; Playwright settings-page validate coverage; full Phase 11 package publish CI.
+**Still pending:** OpenAPI-generated SPA client (hand-written types remain); full Phase 11 package publish CI / Homebrew tap.
 
 ## Packaging & install
 
@@ -177,12 +177,14 @@ testdata/              fixtures
 | create-user / dirs | [`packaging/scripts/create-user.sh`](./packaging/scripts/create-user.sh) |
 | Linux example config | [`packaging/examples/config.yaml.example`](./packaging/examples/config.yaml.example) |
 | macOS example + launchd | [`packaging/examples/config.yaml.macos.example`](./packaging/examples/config.yaml.macos.example), [`packaging/launchd/`](./packaging/launchd/) |
+| Homebrew formula sketch | [`packaging/homebrew/mount-wrapper.rb.example`](./packaging/homebrew/mount-wrapper.rb.example) (release tarball; not a tap) |
 | WSL | [`packaging/wsl.conf.snippet`](./packaging/wsl.conf.snippet), [`packaging/windows-task-scheduler.xml.example`](./packaging/windows-task-scheduler.xml.example) |
 | goreleaser / nfpm sketches | [`.goreleaser.yaml`](./.goreleaser.yaml), [`packaging/nfpm.yaml`](./packaging/nfpm.yaml) |
+| Optional musl/static build (D7) | `make build-musl` → `scripts/build-musl.sh` (Alpine); CI `musl-static-smoke` |
 
 **Service user:** `mount-wrapper`. **Web:** embedded (`web_enabled`). **Control:** `control_socket` under `/run/mount-wrapper/`.
 
-Version embedding: `make build` uses `-ldflags` for `main.version` / `main.commit` / `main.date` (`mount-wrapper version`). Release checksums: `SHA256SUMS` via goreleaser.
+Version embedding: `make build` uses `-ldflags` for `main.version` / `main.commit` / `main.date` (`mount-wrapper version`). Release checksums: `SHA256SUMS` via goreleaser (`CGO_ENABLED=0` primary).
 
 Operator guide: **[docs/install.md](./docs/install.md)** (engines, Rocky glibc, macFUSE, WSL Task Scheduler).
 

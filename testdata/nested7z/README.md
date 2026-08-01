@@ -10,6 +10,8 @@ Small archives and captured `7z l -slt` listings for convert/flatten probe tests
 | `SUP-36264-nested-mini.l-slt.txt` | Captured technical listing for offline `Parse7zListNeedsFlatten` (no 7z required). |
 | `nested-multi-mini.l-slt.txt` | Captured listing for a synthetic multi-inner outer (inners generated in tests when `7z` is available). |
 | `solid-mini.l-slt.txt` | Captured listing for a tiny solid (`Solid = +`) archive. |
+| `encrypted-wrong-password.l-slt.txt` | Synthetic stderr/list when headers need a password (`Wrong password`). |
+| `encrypted-member.l-slt.txt` | Synthetic technical listing with `Encrypted = +` (solid + AES member). |
 | `manifest.json` | Inner member names / sizes for the mini outer. |
 
 ## What is **not** committed

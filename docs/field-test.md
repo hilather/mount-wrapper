@@ -8,7 +8,7 @@ automated inventories and [install.md](./install.md).
 | Platform | Install path |
 |----------|----------------|
 | Ubuntu / Debian | `.deb` or `linux_amd64` tarball |
-| Rocky 8+ / RHEL | `.rpm` or same tarball (`CGO_ENABLED=0`) |
+| Rocky 8+ / RHEL | `.rpm` or same tarball (`CGO_ENABLED=0`; optional `make build-musl` static) |
 | WSL2 | Ubuntu package + optional Task Scheduler sample |
 | macOS | `darwin_*` tarball + macFUSE + launchd example |
 
@@ -20,6 +20,8 @@ From a built binary:
 ./scripts/smoke-binary.sh --build
 # or on Rocky host/container with binary mounted:
 ./scripts/smoke-rocky8.sh --build
+# optional Alpine musl/static path:
+# make smoke-musl
 ```
 
 Expect: `version`, `doctor --json`, `config show --local`, `serve --once` all succeed.
@@ -72,7 +74,7 @@ Capture at least:
 
 | Workflow | What |
 |----------|------|
-| `ci.yml` | Unit tests, race subset, web check/test/build |
+| `ci.yml` | Ubuntu unit tests, race subset, build; **macOS** unit tests + build + binary smoke (`macos-unit-smoke`, no macFUSE); web check/test/build |
 | `smoke.yml` | Ubuntu binary smoke + Rocky 8 container smoke |
-| `smoke.yml` dispatch `run_fuse` | Optional FUSE test |
+| `smoke.yml` dispatch `run_fuse` | Optional FUSE test (Linux) |
 | `release.yml` | Multi-arch publish on `v*` tags |

@@ -1,0 +1,21 @@
+Listing archive: /data/enc-member.7z
+
+--
+Path = /data/enc-member.7z
+Type = 7z
+Physical Size = 2048
+Headers Size = 130
+Method = LZMA2:12 7zAES
+Solid = +
+Blocks = 1
+
+----------
+Path = secret.txt
+Size = 100
+Packed Size = 120
+Modified = 2020-01-01 00:00:00
+Attributes = A
+CRC = 
+Encrypted = +
+Method = LZMA2:12 7zAES:19
+Block = 0

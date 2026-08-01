@@ -67,6 +67,8 @@ func TestParse7zListNeedsFlatten_FixtureListings(t *testing.T) {
 		{"SUP-36264-nested-mini.l-slt.txt", true},  // nested *.7z members
 		{"nested-multi-mini.l-slt.txt", true},      // multi inner *.7z
 		{"solid-mini.l-slt.txt", true},             // Solid = +
+		{"encrypted-wrong-password.l-slt.txt", false}, // cannot auto-flatten
+		{"encrypted-member.l-slt.txt", false},         // Encrypted = +
 	}
 	for _, tc := range cases {
 		tc := tc

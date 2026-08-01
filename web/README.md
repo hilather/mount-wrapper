@@ -20,7 +20,15 @@ RUN_E2E=1 npm run test:e2e   # or from repo root: make web-e2e
 npm run test:e2e             # without RUN_E2E=1 → skip exit 0
 ```
 
-Default GitHub Actions `web-check` job does **not** install browsers. Optional job: Actions → Run workflow → enable `run_e2e`.
+Specs:
+
+| File | Coverage |
+|------|----------|
+| `e2e/smoke.spec.ts` | Archives heading + connection badge |
+| `e2e/settings.spec.ts` | Settings groups, Validate dry-run, Apply (`GET`/`POST /api/config`) |
+| `e2e/helpers.ts` | Shared `page.route` mocks |
+
+Default CI `web-check` does **not** install browsers or set `RUN_E2E`.
 
 Typed API shapes: `src/lib/api-types.ts` (hand-written re-exports; D11 — not OpenAPI).
 

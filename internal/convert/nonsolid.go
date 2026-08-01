@@ -164,6 +164,8 @@ type NonsolidFlattenParams struct {
 	CacheDir           string
 	// Run7z optional process runner; nil uses DefaultRun7z.
 	Run7z Run7zFunc
+	// List7z optional list runner for encryption probe; nil uses DefaultList7z.
+	List7z List7zFunc
 }
 
 // FlattenParamsFromConfig builds NonsolidFlattenParams from cfg.
@@ -187,15 +189,16 @@ func FlattenParamsFromConfig(cfg *config.Config, opts ResolveOptions) NonsolidFl
 	return p
 }
 
-// ResolveMountArchivePath returns the archive path ratarmount should mount.
+// ResolveMountArchivePath returns the predicted cache path for outer/all
+// nonsolid scope without creating or converting anything.
 //
-// For outer/all scopes with nonsolid enabled, returns the path under the
-// nonsolid cache dir (`{cache}/{basename}`) without creating the cached copy
-// (creation is deferred to a runner that calls ratarmountcore / 7z).
-// Flatten and nested scopes return the original path.
+// When the source exists, the dest is `{cache}/{sha256(path|size|mtime)}.7z`
+// (parity with ratarmountcore.cache_key_for_source). When stat fails, falls
+// back to `{cache}/{basename}`.
 //
-// Gap: Python ensure_nonsolid_cached_copy performs the conversion; this helper
-// only computes the expected cache path when outer cache is active.
+// Prefer EnsureNonsolidCachedCopy at mount time: it skips the cache for
+// non-solid archives, refuses encrypted ones, and populates solid→non-solid
+// copies via the 7z CLI when needed.
 func ResolveMountArchivePath(cfg *config.Config, archivePath string) string {
 	if cfg == nil || !cfg.Convert7zNonsolid || !IsSevenzPath(archivePath) {
 		return archivePath
@@ -207,7 +210,7 @@ func ResolveMountArchivePath(cfg *config.Config, archivePath string) string {
 		return archivePath
 	}
 	cache := DefaultNonsolidCacheDir(cfg)
-	return filepath.Join(cache, filepath.Base(archivePath))
+	return NonsolidCacheDestPath(cache, archivePath)
 }
 
 func envSliceToMap(base []string) map[string]string {

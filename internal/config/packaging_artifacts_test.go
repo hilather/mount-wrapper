@@ -96,6 +96,34 @@ func TestPackagingArtifacts(t *testing.T) {
 				"ratarmount-rs",
 				"SHA256SUMS",
 				"create-user.sh",
+				"build-musl",
+				"musl-static-smoke",
+			},
+		},
+		{
+			rel: "scripts/build-musl.sh",
+			contains: []string{
+				"golang:1.25-alpine",
+				"CGO_ENABLED=0",
+				"GOARCH",
+				"mount-wrapper-linux-",
+				"statically linked",
+			},
+		},
+		{
+			rel: "Makefile",
+			contains: []string{
+				"build-musl",
+				"smoke-musl",
+				"scripts/build-musl.sh",
+			},
+		},
+		{
+			rel: ".github/workflows/smoke.yml",
+			contains: []string{
+				"musl-static-smoke",
+				"build-musl.sh",
+				"alpine:3.21",
 			},
 		},
 		{
@@ -115,6 +143,18 @@ func TestPackagingArtifacts(t *testing.T) {
 				"doctor",
 				"config",
 				"status",
+			},
+		},
+		{
+			// Formula sketch (not a published tap): release tarball + macOS caveats.
+			rel: "packaging/homebrew/mount-wrapper.rb.example",
+			contains: []string{
+				"class MountWrapper < Formula",
+				"mount-wrapper_#{version}_darwin_",
+				"macFUSE",
+				"Application Support/mount-wrapper",
+				"brew install --formula",
+				"sha256",
 			},
 		},
 	}

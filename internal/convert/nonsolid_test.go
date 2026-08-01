@@ -163,12 +163,31 @@ func TestResolveMountArchivePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := "/data/a.7z"
-	got := convert.ResolveMountArchivePath(cfg, src)
+	// Missing source → basename fallback under cache.
+	srcMissing := "/data/a.7z"
+	got := convert.ResolveMountArchivePath(cfg, srcMissing)
 	want := filepath.Join("/cache/ns", "a.7z")
 	if got != want {
-		t.Fatalf("got %q want %q", got, want)
+		t.Fatalf("missing source got %q want %q", got, want)
 	}
+
+	// Existing source → content-keyed path.
+	dir := t.TempDir()
+	src := filepath.Join(dir, "solid.7z")
+	if err := os.WriteFile(src, []byte("solid-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Convert7zCacheDir = filepath.Join(dir, "cache")
+	got = convert.ResolveMountArchivePath(cfg, src)
+	key, err := convert.CacheKeyForSource(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = filepath.Join(cfg.Convert7zCacheDir, key+".7z")
+	if got != want {
+		t.Fatalf("keyed got %q want %q", got, want)
+	}
+
 	cfg.Convert7zScope = config.Convert7zScopeFlatten
 	if convert.ResolveMountArchivePath(cfg, src) != src {
 		t.Fatal("flatten keeps path")

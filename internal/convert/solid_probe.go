@@ -32,18 +32,90 @@ func list7zOf(fn List7zFunc) List7zFunc {
 	return DefaultList7z
 }
 
+// Parse7zListEncrypted reports whether `7z l -slt` (or stderr mixed into
+// combined output) indicates an encrypted archive that cannot be auto-flattened
+// without a password. Best-effort CLI signals:
+//
+//   - phrases: "Wrong password", "Enter password", "encrypted archive", …
+//   - technical listing: Encrypted = + (headers or any member)
+//
+// Not a full py7zr folder.is_encrypted() parse; conservative for false
+// positives on clear password/encryption markers only.
+func Parse7zListEncrypted(listOutput string) bool {
+	if strings.TrimSpace(listOutput) == "" {
+		return false
+	}
+	text := strings.ReplaceAll(listOutput, "\r\n", "\n")
+	lower := strings.ToLower(text)
+	for _, phrase := range encryptedListPhrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		// Encrypted = +  (archive headers or member content)
+		if isKeyValFold(line, "Encrypted", "+") {
+			return true
+		}
+	}
+	return false
+}
+
+// Phrases commonly emitted by 7-Zip when headers/content need a password.
+// Matched case-insensitively against combined stdout+stderr.
+var encryptedListPhrases = []string{
+	"wrong password",
+	"enter password",
+	"encrypted archive",
+	"can not open encrypted",
+	"cannot open encrypted",
+	"data error in encrypted file",
+	"encrypted header",
+	"headers encrypted",
+}
+
+// Parse7zListIsSolid reports archive-level Solid = + in `7z l -slt` text.
+// False when absent/ambiguous (not a full solid-folder parser).
+func Parse7zListIsSolid(listOutput string) bool {
+	if strings.TrimSpace(listOutput) == "" {
+		return false
+	}
+	text := strings.ReplaceAll(listOutput, "\r\n", "\n")
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if isKeyValFold(line, "Solid", "+") {
+			return true
+		}
+	}
+	return false
+}
+
 // Parse7zListNeedsFlatten inspects `7z l -slt` (or similar) text for clear
 // signals that a flatten conversion would help:
 //
 //   - archive-level Solid = +
 //   - a member Path ending in .7z (nested archive)
 //
-// Conservative: returns false when output is empty, ambiguous, or lacks those
-// signals. This is a best-effort CLI heuristic — not full ratarmountcore /
-// py7zr solid-folder parity (no encrypted-folder detect, no stream-flatten
-// decision, no multi-block solid inference beyond the Solid flag).
+// Encrypted archives (Parse7zListEncrypted) never need auto-flatten — returns
+// false so callers skip convert; runners still surface a clear error if invoked.
+//
+// Conservative: returns false when output is empty, ambiguous, encrypted, or
+// lacks those signals. Best-effort CLI heuristic — not full ratarmountcore /
+// py7zr solid-folder parity (no stream-flatten decision, no multi-block solid
+// inference beyond the Solid flag).
 func Parse7zListNeedsFlatten(listOutput string) bool {
 	if strings.TrimSpace(listOutput) == "" {
+		return false
+	}
+	// Cannot auto-flatten password-protected archives.
+	if Parse7zListEncrypted(listOutput) {
 		return false
 	}
 	// Normalize newlines for portable matching.
@@ -78,6 +150,27 @@ func Parse7zListNeedsFlatten(listOutput string) bool {
 		}
 	}
 	return false
+}
+
+// Encrypted7zMessage is the stable error text for unsupported encrypted 7z.
+const Encrypted7zMessage = "encrypted 7z not supported"
+
+// RefuseIfEncrypted7z runs `7z l -slt` and returns a clear convert error when
+// encryption is indicated. Nil when not encrypted or listing is empty/unknown
+// (conservative: empty listing does not refuse — probe already skipped).
+func RefuseIfEncrypted7z(bin, archivePath string, list List7zFunc) error {
+	archivePath = strings.TrimSpace(archivePath)
+	if archivePath == "" {
+		return nil
+	}
+	if strings.TrimSpace(bin) == "" {
+		bin = "7z"
+	}
+	out, _ := list7zOf(list)(bin, []string{"l", "-slt", archivePath}, "")
+	if Parse7zListEncrypted(out) {
+		return convertErrorf("encrypted", "%s: %s", Encrypted7zMessage, archivePath)
+	}
+	return nil
 }
 
 // isNested7zMember reports whether a listed member path looks like an embedded
@@ -119,8 +212,9 @@ func keyVal(line, key string) (string, bool) {
 }
 
 // Probe7zNeedsFlatten runs `7z l -slt` on archivePath and returns whether
-// flatten is clearly indicated. On any error, missing output, or uncertainty
-// returns false (conservative — prefer skip over false-positive convert).
+// flatten is clearly indicated. On any error, missing output, uncertainty, or
+// encryption markers returns false (conservative — prefer skip over
+// false-positive convert; encrypted archives are never auto-flattened).
 //
 // Does not claim full solid/folder parser parity with ratarmountcore.
 func Probe7zNeedsFlatten(bin, archivePath string, list List7zFunc) bool {
@@ -139,6 +233,20 @@ func Probe7zNeedsFlatten(bin, archivePath string, list List7zFunc) bool {
 		return false
 	}
 	return Parse7zListNeedsFlatten(out)
+}
+
+// Probe7zEncrypted runs `7z l -slt` and reports encryption markers.
+// False on empty/missing output (conservative).
+func Probe7zEncrypted(bin, archivePath string, list List7zFunc) bool {
+	archivePath = strings.TrimSpace(archivePath)
+	if archivePath == "" || !IsSevenzPath(archivePath) {
+		return false
+	}
+	if strings.TrimSpace(bin) == "" {
+		bin = "7z"
+	}
+	out, _ := list7zOf(list)(bin, []string{"l", "-slt", archivePath}, "")
+	return Parse7zListEncrypted(out)
 }
 
 // CLIFlattenNeeded builds a FlattenNeededFunc using `7z l -slt` heuristics.

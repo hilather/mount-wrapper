@@ -10,13 +10,14 @@ LDFLAGS  := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(D
 
 export PATH := $(HOME)/.local/go/bin:$(HOME)/.local/node-v22.14.0-linux-x64/bin:$(PATH)
 
-.PHONY: all build test vet lint web-install web-dev web-build web-check web-test web-e2e parity release-snapshot smoke smoke-rocky clean tidy fmt help
+.PHONY: all build build-musl test vet lint web-install web-dev web-build web-check web-test web-e2e parity release-snapshot smoke smoke-rocky smoke-musl clean tidy fmt help
 
 all: test build
 
 help:
 	@echo "Targets:"
 	@echo "  make build       Build $(BIN) to ./bin/"
+	@echo "  make build-musl  Static linux binary via Alpine container (D7 extra path)"
 	@echo "  make test        go test ./..."
 	@echo "  make vet         go vet ./..."
 	@echo "  make tidy        go mod tidy"
@@ -32,11 +33,18 @@ help:
 	@echo "  make release-snapshot  goreleaser snapshot (linux/darwin amd64+arm64, deb/rpm)"
 	@echo "  make smoke       Binary smoke (version/doctor/serve --once)"
 	@echo "  make smoke-rocky Rocky 8 container binary smoke (docker/podman)"
+	@echo "  make smoke-musl  Alpine musl/static build + binary smoke (docker/podman)"
 	@echo "  make clean       Remove bin/, dist/, and web/dist"
 
 build:
 	mkdir -p bin
 	go build -ldflags "$(LDFLAGS)" -o bin/$(BIN) $(CMD)
+
+# Static Linux binary inside golang:*-alpine (optional D7 path). Default
+# releases stay CGO_ENABLED=0 via goreleaser; this does not replace them.
+# ARCHS=amd64,arm64 for multi-arch. Needs docker or podman.
+build-musl:
+	./scripts/build-musl.sh
 
 test:
 	go test ./...
@@ -93,6 +101,10 @@ smoke:
 # Needs docker or podman; runs CGO=0 binary inside rockylinux:8.
 smoke-rocky:
 	./scripts/smoke-rocky8.sh --build
+
+# Alpine container build (static) + smoke with that binary (no FUSE).
+smoke-musl: build-musl
+	BIN=./bin/mount-wrapper-musl ./scripts/smoke-binary.sh
 
 web-e2e:
 	cd web && RUN_E2E=1 npm run test:e2e

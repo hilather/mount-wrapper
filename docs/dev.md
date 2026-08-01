@@ -10,9 +10,14 @@
 
 | Workflow | Jobs |
 |----------|------|
-| [`ci.yml`](../.github/workflows/ci.yml) | Unit tests, race subset, web check/test/build, optional Playwright dispatch |
-| [`smoke.yml`](../.github/workflows/smoke.yml) | Ubuntu binary smoke + Rocky 8 container smoke; optional FUSE dispatch |
+| [`ci.yml`](../.github/workflows/ci.yml) | Ubuntu unit tests + race subset + build; **macOS** unit tests + build + binary smoke (`macos-unit-smoke`); web check/test/build; optional Playwright dispatch |
+| [`smoke.yml`](../.github/workflows/smoke.yml) | Ubuntu binary smoke + Rocky 8 container smoke + **musl-static-smoke** (Alpine build); optional FUSE dispatch |
 | [`release.yml`](../.github/workflows/release.yml) | Multi-arch publish on `v*` tags |
+
+**macOS CI scope:** `macos-latest` runs `go test ./...`, `CGO_ENABLED=0 make build`, and
+`scripts/smoke-binary.sh` (version / help / doctor / config show / serve --once).
+It does **not** install or require **macFUSE**; real mount/unmount remains local/manual
+([macos.md](./macos.md)). Unix-specific or FUSE-gated tests skip or use stubs as designed.
 
 Security notes for operators: [security.md](./security.md). Field-test: [field-test.md](./field-test.md). Man page: `packaging/man/mount-wrapper.1`.
 
@@ -23,6 +28,7 @@ Security notes for operators: [security.md](./security.md). Field-test: [field-t
 make test
 make smoke         # version + doctor + serve --once
 # make smoke-rocky # docker/podman + rockylinux:8
+# make build-musl / smoke-musl  # optional D7 Alpine static path (docker/podman)
 # Optional real-FUSE integration (skipped without /dev/fuse or engine on PATH):
 #   go test -tags=fuse ./internal/mounter/ -count=1 -run TestRealFUSEMountUnmount -v
 #   PATH=/path/to/ratarmount-rs/target/release:$PATH go test -tags=fuse ./internal/mounter/ -count=1
@@ -70,9 +76,11 @@ make build
      npm run test:e2e:install          # once: download Chromium
      RUN_E2E=1 npm run test:e2e        # or: make web-e2e
      ```
-     Smoke starts **Vite only** (no mount-wrapper daemon), mocks `/api/health`,
-     `/api/status`, `/api/archives`, `/api/events`, `/api/wsl-info` via
-     `page.route`, asserts Archives heading + connection badge.
+     Smoke starts **Vite only** (no mount-wrapper daemon), mocks `/api/*` via
+     `page.route` (`web/e2e/helpers.ts`):
+     - Archives shell: health/status/archives/events → heading + connection badge
+     - Settings: `GET`/`POST /api/config` → Sources/Paths groups, Validate dry-run,
+       Apply success (`web/e2e/settings.spec.ts`)
      Without `RUN_E2E=1`, `npm run test:e2e` exits 0 (skip) so offline/main CI stay green.
 
 #### SPA layout (`web/src`)

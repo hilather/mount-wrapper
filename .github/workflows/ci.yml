@@ -31,8 +31,28 @@ jobs:
         run: go test -race ./internal/control/... ./internal/state/... ./internal/service/... ./internal/api/... ./internal/mounter/...
       - name: Build
         run: make build
-      # Future: Rocky 8 / glibc-2.28 container smoke (static or older glibc matrix).
-      # Future: macOS + macFUSE job (Phase 11+; needs FUSE entitlement / self-hosted or macOS runner).
+      # Rocky 8 binary smoke: smoke.yml (ubuntu-built CGO=0 binary in rockylinux:8).
+      # Real FUSE: optional smoke.yml workflow_dispatch run_fuse (not default).
+
+  # macOS: unit tests + binary smoke only. No macFUSE on GitHub runners by default;
+  # FUSE mount paths stay local/manual (docs/macos.md).
+  macos:
+    name: macos-unit-smoke
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Match go.mod / ubuntu go-test job (modernc.org/sqlite toolchain).
+          go-version: "1.25.x"
+      - name: Test
+        run: go test ./...
+      - name: Build (CGO=0)
+        env:
+          CGO_ENABLED: "0"
+        run: make build
+      - name: Binary smoke (no macFUSE)
+        run: ./scripts/smoke-binary.sh
 
   web:
     name: web-check
