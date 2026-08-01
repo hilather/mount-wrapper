@@ -12,7 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **macOS CI:** control/service unit tests bind Unix sockets under a short
   `/tmp` path on Darwin so `sun_path` (~104 bytes) is not exceeded by long
   GitHub Actions `t.TempDir()` paths (`internal/testutil.ShortUnixSocketPath`).
-  CI also sets `TMPDIR=/tmp` and package-level test summary on failure.
+  CI also sets `TMPDIR=/tmp` and posts package-level failures as commit comments.
+- **macOS CI root cause:** `tools/parity/cli_surface.sh` failed `bash -n` under
+  macOS bash 3.2 (heredoc-in-`$()` + nested quotes). Parse via
+  `tools/parity/parse_upstream_cli.py`; drop `declare -A` for linear membership.
 - **Doctor (macOS):** `systemd_pid1` no longer suggests `serve --foreground`
   (flag does not exist); points at login-user serve + launchd example.
 

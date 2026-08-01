@@ -37,6 +37,21 @@ func TestParityScripts_bashSyntax(t *testing.T) {
 	}
 }
 
+// macOS GHA uses bash 3.2; nested heredoc-in-$() historically broke bash -n.
+// When docker is available, re-check cli_surface.sh under bash:3.2.
+func TestParityScripts_bash32SyntaxIfDocker(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+	root := repoRoot(t)
+	path := filepath.Join(root, "tools", "parity", "cli_surface.sh")
+	cmd := exec.Command("docker", "run", "--rm", "-v", path+":/s:ro", "bash:3.2", "bash", "-n", "/s")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bash:3.2 bash -n cli_surface.sh: %v\n%s", err, out)
+	}
+}
+
 func TestListKeys_runs(t *testing.T) {
 	root := repoRoot(t)
 	cmd := exec.Command("go", "run", "./tools/parity/cmd/listkeys")

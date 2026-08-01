@@ -54,38 +54,22 @@ if [[ -d "$UPSTREAM" ]]; then
     fi
   done
   if [[ -n "$CLI_PY" ]] && command -v python3 >/dev/null 2>&1; then
-    mapfile -t UP_CMDS < <(python3 - "$CLI_PY" <<'PY'
-import re, sys
-text = open(sys.argv[1], encoding="utf-8").read()
-# argparse add_parser("name") — flatten nested (config show/set, hooks list/status)
-cmds = []
-for m in re.finditer(r'add_parser\(\s*["\']([^"\']+)["\']', text):
-    cmds.append(m.group(1))
-# Heuristic leaf commands
-wanted = {
-    "serve","status","metrics","rescan","retry","doctor","config","show","set",
-    "web","mount","unmount","purge","hooks","list","version",
-}
-# Reconstruct common two-level surface
-flat = []
-has = set(cmds)
-if "config" in has:
-    flat.append("config show")
-    flat.append("config set")
-if "hooks" in has:
-    flat.append("hooks list")
-    flat.append("hooks status")
-for c in ("version","serve","doctor","status","metrics","rescan","retry","web","mount","unmount","purge"):
-    if c in has:
-        flat.append(c)
-for c in flat:
-    print(c)
-PY
-)
+    # External py (not heredoc-in-$()) so bash 3.2 / macOS can bash -n this script.
+    _up_out="$(python3 "$ROOT/tools/parity/parse_upstream_cli.py" "$CLI_PY" 2>/dev/null || true)"
+    UP_CMDS=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ -n "$line" ]] && UP_CMDS+=("$line")
+    done <<< "$_up_out"
+    unset _up_out
   elif [[ -n "$CLI_PY" ]]; then
-    # Fallback grep without python
-    mapfile -t UP_CMDS < <(grep -oE 'add_parser\(\s*["'"'"'][^"'"'"']+' "$CLI_PY" \
-      | sed -E 's/add_parser\(\s*["'"'"']//' | sort -u)
+    # Fallback grep without python — avoid nested quote soups for bash 3.2 -n.
+    _up_out="$(grep -oE 'add_parser\([^)]+' "$CLI_PY" \
+      | sed -E 's/add_parser\(\s*["'\'']//;s/["'\''].*//' | sort -u || true)"
+    UP_CMDS=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ -n "$line" ]] && UP_CMDS+=("$line")
+    done <<< "$_up_out"
+    unset _up_out
   else
     UPSTREAM_NOTE="sibling present but cli.py not found under \`$UPSTREAM\`"
   fi
@@ -136,15 +120,20 @@ fi
     echo
     echo "## Diff (set-level, normalized)"
     echo
-    # Normalize for comparison: web is expected only upstream
-    declare -A GO_SET UP_SET
-    for c in "${GO_CMDS[@]}"; do GO_SET["$c"]=1; done
-    for c in "${UP_CMDS[@]}"; do UP_SET["$c"]=1; done
+    # Linear membership (bash 3.2 has no associative arrays).
+    _in_list() {
+      local needle="$1"; shift
+      local x
+      for x in "$@"; do
+        [[ "$x" == "$needle" ]] && return 0
+      done
+      return 1
+    }
     echo "### In upstream only"
     echo
     only_up=0
     for c in "${UP_CMDS[@]}"; do
-      if [[ -z "${GO_SET[$c]:-}" ]]; then
+      if ! _in_list "$c" "${GO_CMDS[@]}"; then
         echo "- \`$c\`"
         only_up=1
       fi
@@ -155,7 +144,7 @@ fi
     echo
     only_go=0
     for c in "${GO_CMDS[@]}"; do
-      if [[ -z "${UP_SET[$c]:-}" ]]; then
+      if ! _in_list "$c" "${UP_CMDS[@]}"; then
         echo "- \`$c\`"
         only_go=1
       fi
@@ -170,9 +159,9 @@ fi
     echo
     echo "## Live binary help excerpt"
     echo
-    echo '```'
+    printf '%s\n' '```'
     echo "$LIVE_HELP" | head -n 40
-    echo '```'
+    printf '%s\n' '```'
   fi
 } >"$OUT"
 
