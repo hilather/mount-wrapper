@@ -194,9 +194,20 @@ Lifecycle must be `mounted` or `hooks_running` (other statuses → control `BAD_
 
 | Package | Responsibility |
 |---------|----------------|
-| `internal/metrics` | Space-saved formulas, per-archive size fields, convert delta/duration helpers, summary aggregates, TTL cache dual-keyed by `(archive_id, prefer_mount)`, `MetricsCollector` with injectable `SizeProvider` / `ExtractedSizeProvider` / `ArchiveSource` |
+| `internal/metrics` | Space-saved formulas, per-archive size fields (deep/shallow/opaque nesting quality), convert delta/duration helpers, summary aggregates, TTL cache dual-keyed by `(archive_id, prefer_mount)`, `MetricsCollector` with injectable `SizeProvider` / `ExtractedSizeProvider` / `IndexAnalyzer` / `ArchiveSource` |
 
-**Implemented:** pure formulas + FS/SQLite index sum + mount walk fallback; unit tests with map fakes and minimal synthetic indexes. Cache isolates index-first vs `prefer_mount` so neither path returns the other's extracted sizes within TTL; `no_cache` recomputes and refreshes only the matching key; `Invalidate(archive_id)` drops both variants.
+**Extracted / space-saved semantics (nested archives):**
+
+| Mode | Meaning |
+|------|---------|
+| **Deep leaf** (preferred primary) | Logical size of browsable final files. Index path: non-dir rows excluding expanded nested-archive **containers** (so flattened `recursiondepth` rows do not double-count blob+leaves) and excluding **opaque** nested archive members. Mount path: sum of regular files under the mount (includes successful recursive automounts). |
+| **Shallow** | One-level extract: depth-0 non-dir sizes (or all non-dirs when no `recursiondepth`); nested archives counted as packed files. |
+| **Opaque incomplete** | Nested-looking members (`.7z`, `.zip`, `.tar.gz`, …) present in the outer index without expanded leaf rows. Metrics set `extracted_nesting=deep_incomplete`, `opaque_nested_*`; primary `extracted_size_bytes` stays **shallow** until a mount walk can measure deep. Deep is **not** invented from packed nested size alone. |
+| **Mount promotion** | When status is `mounted` / `hooks_running` and index deep is incomplete, default metrics path walks the mount (existing MaxFiles/Timeout caps) so space_saved uses browsable nested content. |
+
+Formulas unchanged: `space_saved = max(0, primary_extracted − index)`, `space_saved_vs_archive = max(0, primary_extracted − archive − index)`. **Non-goal:** offline stream-open of opaque nested members without FUSE.
+
+**Implemented:** pure formulas + FS/SQLite deep/shallow index analysis + mount walk fallback/promotion; unit tests with map fakes and synthetic nested indexes (flatten double-count, opaque-only, mount promote). Cache isolates index-first vs `prefer_mount` so neither path returns the other's extracted sizes within TTL; `no_cache` recomputes and refreshes only the matching key; `Invalidate(archive_id)` drops both variants.
 
 **Wired:** control `metrics` op via `MetricsCollector` + store `ArchiveSource` adapter in service. Production `New` sets `Collector.Meta` to `ConvertSidecarMeta{Config}` (`convert.ReadConvertMetadata` on `archive_path`, then outer nonsolid cache dest when configured); store convert columns still win when both are set (`ComputeArchiveMetrics` / `ResolveConvertFields`). Outer/all mount claim also copies convert size/duration into the store when nil (see outer nonsolid cache row above) so SPA/status do not depend solely on sidecar presence. CLI: `mount-wrapper metrics [ARCHIVE_ID] [--json] [--no-cache] [--prefer-mount]` — default multi-line human (summary + per-archive sizes); `--json` keeps the control payload. Status `include_sizes` (CLI `status --sizes`), control `metrics`, HTTP/SPA also consume the collector.
 

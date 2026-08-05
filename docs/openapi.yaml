@@ -578,7 +578,27 @@ components:
         mount_path: { type: string }
         archive_size_bytes: { type: integer, nullable: true, format: int64 }
         index_size_bytes: { type: integer, nullable: true, format: int64 }
-        extracted_size_bytes: { type: integer, nullable: true, format: int64 }
+        extracted_size_bytes:
+          type: integer
+          nullable: true
+          format: int64
+          description: >
+            Primary logical extracted size used for space_saved: deep leaf when
+            nested content is fully known (index flatten or mount walk); shallow
+            when opaque nested members remain unexpanded and no mount deep is
+            available.
+        extracted_size_shallow_bytes:
+          type: integer
+          nullable: true
+          format: int64
+          description: One-level extract (nested archives counted as packed files).
+        extracted_size_deep_bytes:
+          type: integer
+          nullable: true
+          format: int64
+          description: >
+            Known deep-leaf content from the index (excludes expanded containers
+            and opaque nested blobs). Lower bound when extracted_deep_complete is false.
         space_saved_bytes: { type: integer, nullable: true, format: int64 }
         space_saved_vs_archive_bytes: { type: integer, nullable: true, format: int64 }
         convert_source_size_bytes: { type: integer, nullable: true, format: int64 }
@@ -589,6 +609,12 @@ components:
         extracted_source:
           type: string
           description: '"index" | "mount" | ""'
+        extracted_nesting:
+          type: string
+          description: '"deep" | "shallow" | "deep_incomplete" | "mount" | ""'
+        extracted_deep_complete: { type: boolean, nullable: true }
+        opaque_nested_count: { type: integer }
+        opaque_nested_bytes: { type: integer, format: int64 }
         error: { type: string }
       additionalProperties: true
 

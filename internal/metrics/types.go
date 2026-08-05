@@ -6,6 +6,12 @@ const (
 	ExtractedSourceMount = "mount"
 )
 
+// Statuses treated as live mounts for promoting mount-walk deep extracted.
+const (
+	StatusMounted      = "mounted"
+	StatusHooksRunning = "hooks_running"
+)
+
 // DefaultCacheTTLSeconds is the default TTL for cached per-archive metrics
 // (parity with tarmount-wsl DEFAULT_CACHE_TTL_S).
 const DefaultCacheTTLSeconds = 60.0
@@ -33,10 +39,20 @@ type ArchiveMetrics struct {
 
 	ArchiveSizeBytes   *int64 `json:"archive_size_bytes"`
 	IndexSizeBytes     *int64 `json:"index_size_bytes"`
+	// ExtractedSizeBytes is the primary logical extracted size used for
+	// space_saved formulas: deep leaf when known complete (index flatten or
+	// mount walk); shallow when opaque nested members remain and no mount deep.
 	ExtractedSizeBytes *int64 `json:"extracted_size_bytes"`
+	// ExtractedSizeShallowBytes is one-level extract (nested archives as packed files).
+	ExtractedSizeShallowBytes *int64 `json:"extracted_size_shallow_bytes,omitempty"`
+	// ExtractedSizeDeepBytes is known deep-leaf content from the index (excludes
+	// expanded containers and opaque nested blobs). May be a lower bound when
+	// ExtractedDeepComplete is false.
+	ExtractedSizeDeepBytes *int64 `json:"extracted_size_deep_bytes,omitempty"`
 
 	// SpaceSavedBytes is max(0, extracted − index) when both sizes are known.
 	// Primary: bytes avoided by not fully extracting (mount cost ≈ index only).
+	// Uses primary ExtractedSizeBytes (deep when known).
 	SpaceSavedBytes *int64 `json:"space_saved_bytes"`
 	// SpaceSavedVsArchiveBytes is max(0, extracted − archive − index) when all
 	// three sizes are known. Secondary: net vs keeping packed archive + extract
@@ -50,7 +66,16 @@ type ArchiveMetrics struct {
 	IndexPath       string `json:"index_path,omitempty"`
 	IndexPresent    bool   `json:"index_present"`
 	ExtractedSource string `json:"extracted_source,omitempty"` // "index" | "mount" | ""
-	Error           string `json:"error,omitempty"`
+	// ExtractedNesting is deep | shallow | deep_incomplete | mount (see Nesting* consts).
+	ExtractedNesting string `json:"extracted_nesting,omitempty"`
+	// ExtractedDeepComplete is true when primary deep covers all nested content
+	// (no opaque nested members left unexpanded in the index path).
+	ExtractedDeepComplete *bool `json:"extracted_deep_complete,omitempty"`
+	// OpaqueNestedCount / OpaqueNestedBytes: nested-looking index members without
+	// expanded leaf rows (deep not invented from packed size alone).
+	OpaqueNestedCount int   `json:"opaque_nested_count,omitempty"`
+	OpaqueNestedBytes int64 `json:"opaque_nested_bytes,omitempty"`
+	Error             string `json:"error,omitempty"`
 }
 
 // Summary aggregates totals across archives (parity with MetricsService.summary).

@@ -23,7 +23,12 @@ export interface ArchiveMetrics {
   mount_path?: string
   archive_size_bytes?: number | null
   index_size_bytes?: number | null
+  /** Primary extracted size for space_saved (deep leaf when known; shallow when opaque nests incomplete). */
   extracted_size_bytes?: number | null
+  /** One-level extract: nested archives counted as packed files. */
+  extracted_size_shallow_bytes?: number | null
+  /** Known deep-leaf content from index (excludes expanded containers + opaque blobs). */
+  extracted_size_deep_bytes?: number | null
   space_saved_bytes?: number | null
   space_saved_vs_archive_bytes?: number | null
   convert_source_size_bytes?: number | null
@@ -32,6 +37,11 @@ export interface ArchiveMetrics {
   index_path?: string
   index_present?: boolean
   extracted_source?: string
+  /** deep | shallow | deep_incomplete | mount */
+  extracted_nesting?: string
+  extracted_deep_complete?: boolean | null
+  opaque_nested_count?: number
+  opaque_nested_bytes?: number
   error?: string
 }
 

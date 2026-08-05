@@ -243,12 +243,12 @@ var promSizeGauges = []promSizeGauge{
 	},
 	{
 		name: "mount_wrapper_extracted_size_bytes",
-		help: "Total logical extracted size in bytes (sum of known extracted_size_bytes).",
+		help: "Total primary logical extracted size in bytes (deep leaf when known; shallow when nested incomplete; sum of extracted_size_bytes).",
 		key:  "total_extracted_size_bytes",
 	},
 	{
 		name: "mount_wrapper_space_saved_bytes",
-		help: "Total space saved vs full extract: sum of max(0, extracted − index) over archives with both sizes.",
+		help: "Total space saved vs full extract: sum of max(0, primary_extracted − index); primary prefers deep leaf / mount walk over shallow.",
 		key:  "total_space_saved_bytes",
 	},
 	{

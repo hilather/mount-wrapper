@@ -206,11 +206,22 @@ func writeArchiveMetricsLine(b *strings.Builder, row map[string]any, level int) 
 	idx := formatBytesNullable(row["index_size_bytes"])
 	ext := formatBytesNullable(row["extracted_size_bytes"])
 	src := anyString(row["extracted_source"], "")
+	nesting := anyString(row["extracted_nesting"], "")
 	extNote := ""
-	if src != "" {
+	switch {
+	case src != "" && nesting != "":
+		extNote = " (" + src + ", " + nesting + ")"
+	case src != "":
 		extNote = " (" + src + ")"
+	case nesting != "":
+		extNote = " (" + nesting + ")"
 	}
 	fmt.Fprintf(b, "%sarchive=%s  index=%s  extracted=%s%s\n", detail, arch, idx, ext, extNote)
+	if opaqueN, ok := row["opaque_nested_count"]; ok && opaqueN != nil {
+		if n := anyInt64(opaqueN); n > 0 {
+			fmt.Fprintf(b, "%sopaque_nested=%d (%s)\n", detail, n, formatBytesNullable(row["opaque_nested_bytes"]))
+		}
+	}
 
 	saved := formatBytesNullable(row["space_saved_bytes"])
 	vsArch := formatBytesNullable(row["space_saved_vs_archive_bytes"])

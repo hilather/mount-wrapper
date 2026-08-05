@@ -178,8 +178,16 @@
   <section class="card muted">
     <h2>Details</h2>
     <p class="hint formula-help">
-      <strong>Space saved (vs extract)</strong> = extracted logical size − index size (index is the
-      disk cost of mounting; archive may live elsewhere).<br />
+      <strong>Space saved (vs extract)</strong> = primary extracted logical size − index size (index
+      is the disk cost of mounting; archive may live elsewhere).<br />
+      <strong>Extracted (deep vs shallow)</strong>: primary prefers <em>deep leaf</em> when nested
+      content is fully known (index flatten rows, or a mount walk of browsable recursive mounts).
+      Expanded nested archive blobs are not double-counted with their leaves. When nested members
+      remain <em>opaque</em> in the index (packed size only, e.g. unexpanded .7z/.zip inside the
+      outer archive) and the archive is not mounted for a deep walk, primary falls back to
+      <em>shallow</em> extract and sets incomplete/opaque quality fields — deep size is never
+      invented from packed nested blobs alone. Offline unmounted expansion of opaque nests is not
+      implemented.<br />
       <strong>Original</strong> = pre-flatten 7z size when converted in place (delta vs current
       archive shows conversion cost).<br />
       <strong>Space saved (vs archive)</strong> = extracted − archive − index (mount footprint is

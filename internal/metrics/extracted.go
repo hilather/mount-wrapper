@@ -16,11 +16,17 @@ const sIFDIR = 0o040000 // 16384
 
 // ExtractedSizeProvider resolves logical extracted size from an index or mount.
 // Full SQLite index walks and FUSE walks are injected so tests can fake them.
+//
+// Providers that also implement IndexAnalyzer supply deep/shallow/opaque analysis;
+// ComputeArchiveMetrics uses that when available so space_saved uses deep leaf
+// when complete and stays honest when nested members are opaque.
 type ExtractedSizeProvider interface {
-	// FromIndex sums member sizes from a ratarmount SQLite index.
+	// FromIndex returns the primary extracted size from a ratarmount SQLite index
+	// (deep leaf when complete; shallow when opaque nests remain).
 	// Returns (size, errorMessage). size is nil on failure/missing index.
 	FromIndex(indexPath string) (size *int64, errMsg string)
-	// FromMount sums regular file sizes under a mount point (slow fallback).
+	// FromMount sums regular file sizes under a mount point (deep browsable tree;
+	// slow fallback / promotion when index deep is incomplete).
 	FromMount(mountPath string) (size *int64, errMsg string)
 }
 
@@ -92,81 +98,6 @@ func openIndexDB(indexPath string) (*sql.DB, error) {
 	return tryOpen(dsn)
 }
 
-// ExtractedSizeFromIndex sums member sizes from a ratarmount SQLite index.
-// Directories (S_IFDIR) are excluded when a mode column is present.
-func ExtractedSizeFromIndex(indexPath string) (*int64, string) {
-	if indexPath == "" {
-		return nil, "no index_path"
-	}
-	st, err := os.Stat(indexPath)
-	if err != nil || !st.Mode().IsRegular() {
-		return nil, "index file missing"
-	}
-
-	// Prefer plain path open (parity with Python); fall back to URI mode=ro.
-	db, err := openIndexDB(indexPath)
-	if err != nil {
-		return nil, fmt.Sprintf("cannot open index: %v", err)
-	}
-	defer db.Close()
-
-	var n int
-	err = db.QueryRow(
-		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='files'`,
-	).Scan(&n)
-	if err != nil {
-		return nil, fmt.Sprintf("index query failed: %v", err)
-	}
-	if n == 0 {
-		return nil, "index has no files table"
-	}
-
-	// Column discovery.
-	rows, err := db.Query(`PRAGMA table_info(files)`)
-	if err != nil {
-		return nil, fmt.Sprintf("index query failed: %v", err)
-	}
-	hasSize, hasMode := false, false
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull, pk int
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
-			_ = rows.Close()
-			return nil, fmt.Sprintf("index query failed: %v", err)
-		}
-		switch name {
-		case "size":
-			hasSize = true
-		case "mode":
-			hasMode = true
-		}
-	}
-	_ = rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Sprintf("index query failed: %v", err)
-	}
-	if !hasSize {
-		return nil, "files table has no size column"
-	}
-
-	var total int64
-	if hasMode {
-		// S_IFDIR = 16384; exclude directories; include NULL mode.
-		err = db.QueryRow(
-			`SELECT COALESCE(SUM(size), 0) FROM files WHERE (mode IS NULL OR (mode & ?) = 0)`,
-			sIFDIR,
-		).Scan(&total)
-	} else {
-		err = db.QueryRow(`SELECT COALESCE(SUM(size), 0) FROM files`).Scan(&total)
-	}
-	if err != nil {
-		return nil, fmt.Sprintf("index query failed: %v", err)
-	}
-	return &total, ""
-}
-
 func extractedSizeFromMount(
 	mountPath string,
 	maxFiles int,
@@ -233,30 +164,53 @@ const (
 
 // MapExtractedProvider is a test ExtractedSizeProvider.
 type MapExtractedProvider struct {
-	// Index maps index path → size. Missing key uses IndexErr (default "index file missing").
+	// Index maps index path → primary size. Missing key uses IndexErr (default "index file missing").
 	Index    map[string]int64
 	IndexErr map[string]string
+	// Analysis optional full deep/shallow analysis per index path. When set,
+	// AnalyzeIndex returns it; FromIndex uses Analysis.Primary().
+	Analysis map[string]IndexExtractedAnalysis
 	// Mount maps mount path → size.
 	Mount    map[string]int64
 	MountErr map[string]string
 }
 
-// FromIndex implements ExtractedSizeProvider.
-func (m MapExtractedProvider) FromIndex(indexPath string) (*int64, string) {
+// AnalyzeIndex implements IndexAnalyzer.
+func (m MapExtractedProvider) AnalyzeIndex(indexPath string) IndexExtractedAnalysis {
 	if indexPath == "" {
-		return nil, "no index_path"
+		return IndexExtractedAnalysis{ErrMsg: "no index_path"}
 	}
 	if m.IndexErr != nil {
 		if msg, ok := m.IndexErr[indexPath]; ok {
-			return nil, msg
+			return IndexExtractedAnalysis{ErrMsg: msg}
+		}
+	}
+	if m.Analysis != nil {
+		if a, ok := m.Analysis[indexPath]; ok {
+			return a
 		}
 	}
 	if m.Index != nil {
 		if v, ok := m.Index[indexPath]; ok {
-			return &v, ""
+			// Synthesize complete deep == shallow when only a scalar is provided.
+			return IndexExtractedAnalysis{
+				NaiveSum:     Int64Ptr(v),
+				Shallow:      Int64Ptr(v),
+				DeepLeaf:     Int64Ptr(v),
+				DeepComplete: true,
+			}
 		}
 	}
-	return nil, "index file missing"
+	return IndexExtractedAnalysis{ErrMsg: "index file missing"}
+}
+
+// FromIndex implements ExtractedSizeProvider.
+func (m MapExtractedProvider) FromIndex(indexPath string) (*int64, string) {
+	a := m.AnalyzeIndex(indexPath)
+	if a.ErrMsg != "" {
+		return nil, a.ErrMsg
+	}
+	return a.Primary(), ""
 }
 
 // FromMount implements ExtractedSizeProvider.

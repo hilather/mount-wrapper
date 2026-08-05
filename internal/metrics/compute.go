@@ -8,6 +8,14 @@ import (
 // ComputeArchiveMetrics builds ArchiveMetrics from an ArchiveInput using the
 // given size and extracted-size providers (parity compute_archive_metrics).
 //
+// Extracted primary size (used for space_saved):
+//   - Prefer deep leaf from the index when nested content is fully known
+//     (no opaque nested archive members).
+//   - When the index has opaque nested members (or PreferMount), promote a mount
+//     walk for mounted/walkable paths so browsable nested content is counted.
+//   - Fall back to shallow index extract with incomplete/opaque signals rather
+//     than inventing deep sizes from packed nested blobs.
+//
 // Providers must be non-nil; use FSSizeProvider / DefaultExtractedProvider for
 // production, or Map* fakes in tests.
 func ComputeArchiveMetrics(
@@ -34,26 +42,66 @@ func ComputeArchiveMetrics(
 
 	var (
 		extractedSize *int64
+		shallowSize   *int64
+		deepSize      *int64
 		source        string
+		nesting       string
+		deepComplete  *bool
+		opaqueCount   int
+		opaqueBytes   int64
 		errMsg        string
+		indexAnalysis IndexExtractedAnalysis
+		haveAnalysis  bool
 	)
 
-	// Prefer index (fast, works unmounted) unless PreferMount is set.
-	if !opts.PreferMount && indexPresent {
-		extractedSize, errMsg = extracted.FromIndex(in.IndexPath)
-		if extractedSize != nil {
-			source = ExtractedSourceIndex
-			errMsg = ""
+	// --- Index analysis (deep/shallow/opaque) ---
+	if indexPresent {
+		if analyzer, ok := extracted.(IndexAnalyzer); ok {
+			indexAnalysis = analyzer.AnalyzeIndex(in.IndexPath)
+			haveAnalysis = true
+		} else {
+			// Scalar provider: treat FromIndex as complete deep == primary.
+			sz, err := extracted.FromIndex(in.IndexPath)
+			if sz != nil {
+				indexAnalysis = IndexExtractedAnalysis{
+					NaiveSum:     sz,
+					Shallow:      sz,
+					DeepLeaf:     sz,
+					DeepComplete: true,
+				}
+				haveAnalysis = true
+			} else {
+				errMsg = err
+			}
+		}
+		if haveAnalysis && indexAnalysis.ErrMsg != "" {
+			errMsg = indexAnalysis.ErrMsg
+			haveAnalysis = false
+		}
+		if haveAnalysis {
+			shallowSize = indexAnalysis.Shallow
+			deepSize = indexAnalysis.DeepLeaf
+			opaqueCount = indexAnalysis.OpaqueNestedCount
+			opaqueBytes = indexAnalysis.OpaqueNestedBytes
+			dc := indexAnalysis.DeepComplete
+			deepComplete = &dc
 		}
 	}
 
+	indexDeepIncomplete := haveAnalysis && !indexAnalysis.DeepComplete
+	promoteMount := indexDeepIncomplete && statusLikelyMounted(in.Status)
 	mountWalk := opts.MountWalk != nil && *opts.MountWalk
-	if extractedSize == nil && mountWalk && in.MountPath != "" {
-		if shouldWalkMount(in.MountPath, opts.PreferMount) {
+
+	// PreferMount: try mount first.
+	if opts.PreferMount && mountWalk && in.MountPath != "" {
+		if shouldWalkMount(in.MountPath, true, false) {
 			sz, err := extracted.FromMount(in.MountPath)
 			if sz != nil {
 				extractedSize = sz
 				source = ExtractedSourceMount
+				nesting = NestingMount
+				t := true
+				deepComplete = &t
 				errMsg = ""
 			} else if errMsg == "" {
 				errMsg = err
@@ -61,12 +109,87 @@ func ComputeArchiveMetrics(
 		}
 	}
 
-	// If prefer_mount and walk failed/skipped, fall back to index.
-	if extractedSize == nil && opts.PreferMount && indexPresent {
+	// Default path: index primary when deep complete (or incomplete without walk).
+	if extractedSize == nil && !opts.PreferMount && haveAnalysis {
+		if indexAnalysis.DeepComplete {
+			extractedSize = indexAnalysis.DeepLeaf
+			source = ExtractedSourceIndex
+			nesting = NestingDeep
+			errMsg = ""
+		} else {
+			// Incomplete: try mount promotion for live mounts before falling back.
+			if mountWalk && in.MountPath != "" && shouldWalkMount(in.MountPath, false, promoteMount) {
+				sz, err := extracted.FromMount(in.MountPath)
+				if sz != nil {
+					extractedSize = sz
+					source = ExtractedSourceMount
+					nesting = NestingMount
+					t := true
+					deepComplete = &t
+					errMsg = ""
+				} else if errMsg == "" {
+					errMsg = err
+				}
+			}
+			if extractedSize == nil {
+				// Honest shallow: do not invent deep from packed nested blobs.
+				extractedSize = indexAnalysis.Shallow
+				source = ExtractedSourceIndex
+				nesting = indexAnalysis.NestingLabel()
+				errMsg = ""
+			}
+		}
+	}
+
+	// Index missing / analysis failed: legacy scalar FromIndex + mount fallback.
+	if extractedSize == nil && !opts.PreferMount && !haveAnalysis && indexPresent {
 		sz, err := extracted.FromIndex(in.IndexPath)
 		if sz != nil {
 			extractedSize = sz
 			source = ExtractedSourceIndex
+			nesting = NestingDeep
+			t := true
+			deepComplete = &t
+			shallowSize = sz
+			deepSize = sz
+			errMsg = ""
+		} else if errMsg == "" {
+			errMsg = err
+		}
+	}
+
+	// Mount walk when index missing/failed (original fallback).
+	if extractedSize == nil && mountWalk && in.MountPath != "" {
+		if shouldWalkMount(in.MountPath, opts.PreferMount, promoteMount) {
+			sz, err := extracted.FromMount(in.MountPath)
+			if sz != nil {
+				extractedSize = sz
+				source = ExtractedSourceMount
+				nesting = NestingMount
+				t := true
+				deepComplete = &t
+				errMsg = ""
+			} else if errMsg == "" {
+				errMsg = err
+			}
+		}
+	}
+
+	// PreferMount walk failed: fall back to index primary.
+	if extractedSize == nil && opts.PreferMount && haveAnalysis {
+		extractedSize = indexAnalysis.Primary()
+		if extractedSize != nil {
+			source = ExtractedSourceIndex
+			nesting = indexAnalysis.NestingLabel()
+			errMsg = ""
+		}
+	}
+	if extractedSize == nil && opts.PreferMount && indexPresent && !haveAnalysis {
+		sz, err := extracted.FromIndex(in.IndexPath)
+		if sz != nil {
+			extractedSize = sz
+			source = ExtractedSourceIndex
+			nesting = NestingDeep
 			errMsg = ""
 		} else if errMsg == "" {
 			errMsg = err
@@ -100,23 +223,29 @@ func ComputeArchiveMetrics(
 	)
 
 	return ArchiveMetrics{
-		ArchiveID:                in.ArchiveID,
-		ArchivePath:              in.ArchivePath,
-		ArchiveBasename:          in.ArchiveBasename,
-		Status:                   in.Status,
-		MountPath:                in.MountPath,
-		ArchiveSizeBytes:         archSize,
-		IndexSizeBytes:           idxSize,
-		ExtractedSizeBytes:       extractedSize,
-		SpaceSavedBytes:          saved,
-		SpaceSavedVsArchiveBytes: savedVsArch,
-		ConvertSourceSizeBytes:   convertSource,
-		ConvertSizeDeltaBytes:    convertDelta,
-		ConvertDurationSeconds:   convertDuration,
-		IndexPath:                in.IndexPath,
-		IndexPresent:             indexPresent,
-		ExtractedSource:          source,
-		Error:                    errMsg,
+		ArchiveID:                 in.ArchiveID,
+		ArchivePath:               in.ArchivePath,
+		ArchiveBasename:           in.ArchiveBasename,
+		Status:                    in.Status,
+		MountPath:                 in.MountPath,
+		ArchiveSizeBytes:          archSize,
+		IndexSizeBytes:            idxSize,
+		ExtractedSizeBytes:        extractedSize,
+		ExtractedSizeShallowBytes: shallowSize,
+		ExtractedSizeDeepBytes:    deepSize,
+		SpaceSavedBytes:           saved,
+		SpaceSavedVsArchiveBytes:  savedVsArch,
+		ConvertSourceSizeBytes:    convertSource,
+		ConvertSizeDeltaBytes:     convertDelta,
+		ConvertDurationSeconds:    convertDuration,
+		IndexPath:                 in.IndexPath,
+		IndexPresent:              indexPresent,
+		ExtractedSource:           source,
+		ExtractedNesting:          nesting,
+		ExtractedDeepComplete:     deepComplete,
+		OpaqueNestedCount:         opaqueCount,
+		OpaqueNestedBytes:         opaqueBytes,
+		Error:                     errMsg,
 	}
 }
 
@@ -139,25 +268,28 @@ func indexFilePresent(indexPath string, sizes SizeProvider) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
-// shouldWalkMount mirrors Python: walk real mounts always; plain dirs only when
-// prefer_mount (tests). For MapExtractedProvider, always allow when path set
-// and PreferMount or when the path is an actual mount/dir.
-func shouldWalkMount(mountPath string, preferMount bool) bool {
+// statusLikelyMounted reports statuses where a mount path may hold browsable
+// nested content for deep extracted promotion.
+func statusLikelyMounted(status string) bool {
+	return status == StatusMounted || status == StatusHooksRunning
+}
+
+// shouldWalkMount mirrors Python: walk real mounts always; plain dirs when
+// prefer_mount (tests) or when promoteIncomplete (index deep incomplete + live
+// mount status). MapExtractedProvider fakes: missing path allowed when
+// preferMount or promoteIncomplete so tests inject FromMount without real dirs.
+func shouldWalkMount(mountPath string, preferMount, promoteIncomplete bool) bool {
 	if mountPath == "" {
 		return false
 	}
 	st, err := os.Stat(mountPath)
 	if err != nil {
-		// Fake providers may not have real dirs; allow when preferMount so tests
-		// can inject FromMount results without creating directories.
-		return preferMount
+		return preferMount || promoteIncomplete
 	}
 	if !st.IsDir() {
 		return false
 	}
-	// Best-effort ismount: check if path is listed as a mount (Linux/macOS).
-	// Parity allows non-ismount plain dirs when prefer_mount.
-	if preferMount {
+	if preferMount || promoteIncomplete {
 		return true
 	}
 	return isMountPoint(mountPath)
