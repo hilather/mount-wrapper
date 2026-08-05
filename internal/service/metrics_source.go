@@ -62,5 +62,9 @@ func archiveRecordToInput(rec *state.ArchiveRecord) metrics.ArchiveInput {
 	if rec.IndexPath != nil {
 		in.IndexPath = *rec.IndexPath
 	}
+	// Sample FUSE child RSS once mount_pid is set (MarkMounted / live remount).
+	if rec.MountPID != nil && *rec.MountPID > 0 {
+		in.MountPID = int(*rec.MountPID)
+	}
 	return in
 }

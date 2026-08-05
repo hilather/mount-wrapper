@@ -615,6 +615,17 @@ components:
         extracted_deep_complete: { type: boolean, nullable: true }
         opaque_nested_count: { type: integer }
         opaque_nested_bytes: { type: integer, format: int64 }
+        mount_rss_bytes:
+          type: integer
+          nullable: true
+          format: int64
+          description: FUSE child process RSS (bytes) when mount_pid is live.
+        mount_rss_peak_bytes:
+          type: integer
+          nullable: true
+          format: int64
+          description: Peak RSS (Linux VmHWM) when available.
+        mount_pid: { type: integer, description: Sampled FUSE child PID when set. }
         error: { type: string }
       additionalProperties: true
 
@@ -624,10 +635,19 @@ components:
         archive_count: { type: integer }
         archives_with_extracted_size: { type: integer }
         archives_with_convert_metadata: { type: integer }
+        archives_with_mount_rss: { type: integer }
         total_archive_size_bytes: { type: integer, format: int64 }
         total_index_size_bytes: { type: integer, format: int64 }
         total_extracted_size_bytes: { type: integer, format: int64 }
         total_space_saved_bytes: { type: integer, format: int64 }
+        total_mount_rss_bytes:
+          type: integer
+          format: int64
+          description: Sum of per-archive FUSE child RSS samples.
+        total_mount_rss_peak_bytes:
+          type: integer
+          format: int64
+          description: Sum of peak RSS samples when known (Linux).
         total_convert_source_size_bytes: { type: integer, nullable: true, format: int64 }
         total_convert_size_delta_bytes: { type: integer, nullable: true, format: int64 }
         archives_with_convert_duration: { type: integer, nullable: true }

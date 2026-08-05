@@ -151,6 +151,12 @@
           <th class="num" scope="col">Extracted</th>
           <th class="num" scope="col" title="extracted − index">Saved (vs extract)</th>
           <th class="num" scope="col" title="extracted − archive − index">Saved (vs archive)</th>
+          <th
+            class="num"
+            scope="col"
+            title="FUSE child process resident set size (RSS) from mount_pid"
+            >Mount RSS</th
+          >
           <th scope="col">Mount / path</th>
           <th scope="col">Actions</th>
         </tr>
@@ -239,6 +245,16 @@
               {/if}
             </td>
             <td class="num">{formatBytesCell(m.space_saved_vs_archive_bytes)}</td>
+            <td
+              class="num"
+              title={m.mount_rss_peak_bytes != null
+                ? `peak ${formatBytesCell(m.mount_rss_peak_bytes)}` +
+                  (m.mount_pid ? ` · pid ${m.mount_pid}` : '')
+                : m.mount_pid
+                  ? `pid ${m.mount_pid}`
+                  : undefined}
+              >{formatBytesCell(m.mount_rss_bytes)}</td
+            >
             <td class="path-cell">
               {#if mount}
                 <div>{mount}</div>

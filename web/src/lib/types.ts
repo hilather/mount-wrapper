@@ -42,6 +42,11 @@ export interface ArchiveMetrics {
   extracted_deep_complete?: boolean | null
   opaque_nested_count?: number
   opaque_nested_bytes?: number
+  /** FUSE child process RSS (bytes) when mount_pid is live. */
+  mount_rss_bytes?: number | null
+  /** Peak RSS (Linux VmHWM) when available. */
+  mount_rss_peak_bytes?: number | null
+  mount_pid?: number
   error?: string
 }
 
@@ -88,10 +93,13 @@ export interface MetricsSummary {
   archive_count?: number
   archives_with_extracted_size?: number
   archives_with_convert_metadata?: number
+  archives_with_mount_rss?: number
   total_archive_size_bytes?: number
   total_index_size_bytes?: number
   total_extracted_size_bytes?: number
   total_space_saved_bytes?: number
+  total_mount_rss_bytes?: number
+  total_mount_rss_peak_bytes?: number
   total_convert_source_size_bytes?: number | null
   total_convert_size_delta_bytes?: number | null
   archives_with_convert_duration?: number | null
@@ -287,6 +295,7 @@ export type SortKey =
   | 'mount_duration'
   | 'extracted_size'
   | 'space_saved'
+  | 'mount_rss'
 
 export type ToastKind = 'ok' | 'err' | 'warn' | 'info'
 

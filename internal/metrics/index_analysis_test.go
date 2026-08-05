@@ -190,7 +190,7 @@ func TestComputeArchiveMetrics_DeepLeafSpaceSaved(t *testing.T) {
 		Status:          "discovered",
 		IndexPath:       idx,
 	}
-	m := metrics.ComputeArchiveMetrics(in, metrics.FSSizeProvider{}, metrics.DefaultExtractedProvider{}, nil, metrics.ComputeOptions{})
+	m := metrics.ComputeArchiveMetrics(in, metrics.FSSizeProvider{}, metrics.DefaultExtractedProvider{}, nil, nil, metrics.ComputeOptions{})
 	if m.ExtractedSizeBytes == nil || *m.ExtractedSizeBytes != 16 {
 		t.Fatalf("primary extracted=%v want 16 (deep leaf)", m.ExtractedSizeBytes)
 	}
@@ -241,7 +241,7 @@ func TestComputeArchiveMetrics_OpaqueNestedIncomplete(t *testing.T) {
 		Status:      "discovered", // not mounted → no mount promotion
 		IndexPath:   idx,
 	}
-	m := metrics.ComputeArchiveMetrics(in, metrics.FSSizeProvider{}, metrics.DefaultExtractedProvider{}, nil, metrics.ComputeOptions{})
+	m := metrics.ComputeArchiveMetrics(in, metrics.FSSizeProvider{}, metrics.DefaultExtractedProvider{}, nil, nil, metrics.ComputeOptions{})
 	if m.ExtractedSizeBytes == nil || *m.ExtractedSizeBytes != 50_100 {
 		t.Fatalf("primary=%v want shallow 50100", m.ExtractedSizeBytes)
 	}
@@ -302,7 +302,7 @@ func TestComputeArchiveMetrics_MountPromoteWhenOpaqueIncomplete(t *testing.T) {
 		IndexPath:   idx,
 		MountPath:   mnt,
 	}
-	m := metrics.ComputeArchiveMetrics(in, metrics.FSSizeProvider{}, metrics.DefaultExtractedProvider{}, nil, metrics.ComputeOptions{})
+	m := metrics.ComputeArchiveMetrics(in, metrics.FSSizeProvider{}, metrics.DefaultExtractedProvider{}, nil, nil, metrics.ComputeOptions{})
 	// Mount walk: readme 100 + secret 900 = 1000 (deep browsable).
 	if m.ExtractedSizeBytes == nil || *m.ExtractedSizeBytes != 1000 {
 		t.Fatalf("primary extracted=%v want 1000 (mount deep)", m.ExtractedSizeBytes)
@@ -356,7 +356,7 @@ func TestComputeArchiveMetrics_MountPromoteViaMapProvider(t *testing.T) {
 		},
 		Mount: map[string]int64{"/mnt/a": 12_345},
 	}
-	m := metrics.ComputeArchiveMetrics(in, sizes, extracted, nil, metrics.ComputeOptions{})
+	m := metrics.ComputeArchiveMetrics(in, sizes, extracted, nil, nil, metrics.ComputeOptions{})
 	if m.ExtractedSizeBytes == nil || *m.ExtractedSizeBytes != 12_345 {
 		t.Fatalf("primary=%v want mount 12345", m.ExtractedSizeBytes)
 	}

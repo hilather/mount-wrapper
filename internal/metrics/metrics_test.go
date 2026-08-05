@@ -191,7 +191,7 @@ func TestComputeArchiveMetricsWithFakes(t *testing.T) {
 		Index: map[string]int64{"/idx/a.sqlite": 10_000},
 	}
 
-	m := metrics.ComputeArchiveMetrics(in, sizes, extracted, nil, metrics.ComputeOptions{})
+	m := metrics.ComputeArchiveMetrics(in, sizes, extracted, nil, nil, metrics.ComputeOptions{})
 	if m.ArchiveSizeBytes == nil || *m.ArchiveSizeBytes != 500 {
 		t.Fatalf("archive=%v", m.ArchiveSizeBytes)
 	}
@@ -227,7 +227,7 @@ func TestComputeArchiveMetricsPreferMount(t *testing.T) {
 		Index: map[string]int64{"/idx/a.sqlite": 999},
 		Mount: map[string]int64{"/mnt/a": 50},
 	}
-	m := metrics.ComputeArchiveMetrics(in, sizes, extracted, nil, metrics.ComputeOptions{
+	m := metrics.ComputeArchiveMetrics(in, sizes, extracted, nil, nil, metrics.ComputeOptions{
 		PreferMount: true,
 	})
 	if m.ExtractedSource != metrics.ExtractedSourceMount {
@@ -254,7 +254,7 @@ func TestComputeArchiveMetricsPreferMountFallsBackToIndex(t *testing.T) {
 		Index:    map[string]int64{"/idx/a.sqlite": 777},
 		MountErr: map[string]string{"/mnt/missing": "mount path not a directory"},
 	}
-	m := metrics.ComputeArchiveMetrics(in, sizes, extracted, nil, metrics.ComputeOptions{
+	m := metrics.ComputeArchiveMetrics(in, sizes, extracted, nil, nil, metrics.ComputeOptions{
 		PreferMount: true,
 	})
 	if m.ExtractedSource != metrics.ExtractedSourceIndex {
@@ -294,7 +294,7 @@ func TestComputeArchiveMetricsFullRecordFS(t *testing.T) {
 		IndexPath:       idx,
 		MountPath:       filepath.Join(dir, "mounts", "data"),
 	}
-	m := metrics.ComputeArchiveMetrics(in, metrics.FSSizeProvider{}, metrics.DefaultExtractedProvider{}, nil, metrics.ComputeOptions{})
+	m := metrics.ComputeArchiveMetrics(in, metrics.FSSizeProvider{}, metrics.DefaultExtractedProvider{}, nil, nil, metrics.ComputeOptions{})
 	if m.ArchiveSizeBytes == nil || *m.ArchiveSizeBytes != 500 {
 		t.Fatalf("archive=%v", m.ArchiveSizeBytes)
 	}
@@ -334,7 +334,7 @@ func TestComputeArchiveMetricsConvertFromMeta(t *testing.T) {
 			ConvertDurationSeconds: f64(9.5),
 		},
 	}
-	m := metrics.ComputeArchiveMetrics(in, sizes, metrics.MapExtractedProvider{}, meta, metrics.ComputeOptions{})
+	m := metrics.ComputeArchiveMetrics(in, sizes, metrics.MapExtractedProvider{}, meta, nil, metrics.ComputeOptions{})
 	assertInt64Ptr(t, "convert_source", m.ConvertSourceSizeBytes, i64(10000))
 	assertInt64Ptr(t, "convert_delta", m.ConvertSizeDeltaBytes, i64(-2000))
 	if m.ConvertDurationSeconds == nil || *m.ConvertDurationSeconds != 9.5 {

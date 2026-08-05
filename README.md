@@ -133,7 +133,7 @@ testdata/              fixtures
 - `internal/reconcile`: status-aware PID/ismount liveness, boot remount plan, partial-index cleanup; injectable probes
 - `internal/cleaner`: grace purge, overlay quarantine/delete/retain, quarantine prune, outer nonsolid cache hygiene (`cleanup_after`), admin purge, path-safe FS cleanup, boot orphan `/tmp/.tmp*` prune via `DefaultPathInUse`
 - `internal/hooks`: discover `hooks.d`, security, `MOUNT_WRAPPER_*` env only, exit 0/75/timeout, sequential/parallel runner
-- `internal/metrics`: space-saved formulas (deep-leaf primary when nested content is known; shallow + opaque quality when not), index/mount size providers, summary aggregates, TTL cache collector
+- `internal/metrics`: space-saved formulas (deep-leaf primary when nested content is known; shallow + opaque quality when not), mount FUSE child RSS sampling, index/mount size providers, summary aggregates, TTL cache collector
 
 ### Control plane (Phase 7.1)
 

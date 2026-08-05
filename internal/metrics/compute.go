@@ -16,13 +16,17 @@ import (
 //   - Fall back to shallow index extract with incomplete/opaque signals rather
 //     than inventing deep sizes from packed nested blobs.
 //
+// Mount process memory: when in.MountPID > 0, samples RSS (and peak when
+// available) via mem. Nil mem uses DefaultProcessMem.
+//
 // Providers must be non-nil; use FSSizeProvider / DefaultExtractedProvider for
-// production, or Map* fakes in tests.
+// production, or Map* fakes in tests. mem may be nil.
 func ComputeArchiveMetrics(
 	in ArchiveInput,
 	sizes SizeProvider,
 	extracted ExtractedSizeProvider,
 	meta ConvertMetaProvider,
+	mem ProcessMemProvider,
 	opts ComputeOptions,
 ) ArchiveMetrics {
 	opts = NormalizeComputeOptions(opts)
@@ -34,6 +38,9 @@ func ComputeArchiveMetrics(
 	}
 	if meta == nil {
 		meta = NoConvertMeta{}
+	}
+	if mem == nil {
+		mem = DefaultProcessMem{}
 	}
 
 	archSize := sizes.FileSize(in.ArchivePath)
@@ -222,6 +229,13 @@ func ComputeArchiveMetrics(
 		convertMeta,
 	)
 
+	var mountRSS, mountRSSPeak *int64
+	mountPID := in.MountPID
+	if mountPID > 0 {
+		mountRSS = mem.RSSBytes(mountPID)
+		mountRSSPeak = mem.RSSPeakBytes(mountPID)
+	}
+
 	return ArchiveMetrics{
 		ArchiveID:                 in.ArchiveID,
 		ArchivePath:               in.ArchivePath,
@@ -245,6 +259,9 @@ func ComputeArchiveMetrics(
 		ExtractedDeepComplete:     deepComplete,
 		OpaqueNestedCount:         opaqueCount,
 		OpaqueNestedBytes:         opaqueBytes,
+		MountRSSBytes:             mountRSS,
+		MountRSSPeakBytes:         mountRSSPeak,
+		MountPID:                  mountPID,
 		Error:                     errMsg,
 	}
 }

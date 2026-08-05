@@ -128,6 +128,7 @@ func TestConvertSidecarMeta_ComputeUsesSidecarWhenStoreEmpty(t *testing.T) {
 		metrics.FSSizeProvider{},
 		metrics.MapExtractedProvider{},
 		service.ConvertSidecarMeta{},
+		nil,
 		metrics.ComputeOptions{},
 	)
 	if m.ConvertSourceSizeBytes == nil || *m.ConvertSourceSizeBytes != 10_000 {
@@ -167,6 +168,7 @@ func TestConvertSidecarMeta_StoreFieldsPreferredOverSidecar(t *testing.T) {
 		metrics.FSSizeProvider{},
 		metrics.MapExtractedProvider{},
 		service.ConvertSidecarMeta{},
+		nil,
 		metrics.ComputeOptions{},
 	)
 	if m.ConvertSourceSizeBytes == nil || *m.ConvertSourceSizeBytes != storeSrc {

@@ -173,7 +173,7 @@ See [parity.md](./parity.md) and [migration.md](./migration.md).
 | `internal/reconcile` | Liveness + boot plan — unit-tested |
 | `internal/cleaner` | Grace purge + overlay quarantine + outer nonsolid cache hygiene + boot `/tmp/.tmp*` prune (`DefaultPathInUse`) — unit-tested |
 | `internal/hooks` | hooks.d discovery, security, runner — unit-tested |
-| `internal/metrics` | Space-saved formulas (deep/shallow/opaque nesting) + collector — unit-tested |
+| `internal/metrics` | Space-saved formulas (deep/shallow/opaque nesting), mount RSS sampling, collector — unit-tested |
 | `internal/doctor` | Offline diagnostics report — unit-tested |
 | `internal/status` | Rich status payload + human formatter — unit-tested |
 | `internal/control` | Unix socket JSON-lines server/client + peercred auth — unit-tested |

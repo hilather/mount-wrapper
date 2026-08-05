@@ -90,11 +90,14 @@ func Summarize(items []ArchiveMetrics) Summary {
 		totalIndex         int64
 		totalExtracted     int64
 		totalSaved         int64
+		totalMountRSS      int64
+		totalMountRSSPeak  int64
 		totalConvertSource int64
 		totalConvertDelta  int64
 		nWithExtracted     int
 		nWithConvert       int
 		nWithConvertDur    int
+		nWithMountRSS      int
 		maxConvertDuration float64
 	)
 	for i := range items {
@@ -111,6 +114,13 @@ func Summarize(items []ArchiveMetrics) Summary {
 		}
 		if m.SpaceSavedBytes != nil {
 			totalSaved += *m.SpaceSavedBytes
+		}
+		if m.MountRSSBytes != nil {
+			totalMountRSS += *m.MountRSSBytes
+			nWithMountRSS++
+		}
+		if m.MountRSSPeakBytes != nil {
+			totalMountRSSPeak += *m.MountRSSPeakBytes
 		}
 		if m.ConvertSourceSizeBytes != nil {
 			totalConvertSource += *m.ConvertSourceSizeBytes
@@ -131,10 +141,13 @@ func Summarize(items []ArchiveMetrics) Summary {
 		ArchiveCount:                len(items),
 		ArchivesWithExtractedSize:   nWithExtracted,
 		ArchivesWithConvertMetadata: nWithConvert,
+		ArchivesWithMountRSS:        nWithMountRSS,
 		TotalArchiveSizeBytes:       totalArchive,
 		TotalIndexSizeBytes:         totalIndex,
 		TotalExtractedSizeBytes:     totalExtracted,
 		TotalSpaceSavedBytes:        totalSaved,
+		TotalMountRSSBytes:          totalMountRSS,
+		TotalMountRSSPeakBytes:      totalMountRSSPeak,
 	}
 	// Python: total_convert_source_size_bytes: total_convert_source or None
 	if totalConvertSource != 0 {

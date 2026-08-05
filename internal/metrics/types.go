@@ -25,6 +25,9 @@ type ArchiveInput struct {
 	Status                 string
 	MountPath              string
 	IndexPath              string
+	// MountPID is the live FUSE child PID when mounted (from state.mount_pid).
+	// Used to sample process RSS for mount memory metrics.
+	MountPID               int
 	ConvertSourceSizeBytes *int64
 	ConvertDurationSeconds *float64
 }
@@ -75,7 +78,16 @@ type ArchiveMetrics struct {
 	// expanded leaf rows (deep not invented from packed size alone).
 	OpaqueNestedCount int   `json:"opaque_nested_count,omitempty"`
 	OpaqueNestedBytes int64 `json:"opaque_nested_bytes,omitempty"`
-	Error             string `json:"error,omitempty"`
+
+	// MountRSSBytes is the FUSE child process resident set size (RSS) when
+	// mount_pid is live. Sampled when metrics are computed (not a durable DB field).
+	MountRSSBytes *int64 `json:"mount_rss_bytes,omitempty"`
+	// MountRSSPeakBytes is peak RSS (Linux VmHWM) when available.
+	MountRSSPeakBytes *int64 `json:"mount_rss_peak_bytes,omitempty"`
+	// MountPID echoes the sampled process id (0 omitted).
+	MountPID int `json:"mount_pid,omitempty"`
+
+	Error string `json:"error,omitempty"`
 }
 
 // Summary aggregates totals across archives (parity with MetricsService.summary).
@@ -83,10 +95,16 @@ type Summary struct {
 	ArchiveCount                 int      `json:"archive_count"`
 	ArchivesWithExtractedSize    int      `json:"archives_with_extracted_size"`
 	ArchivesWithConvertMetadata  int      `json:"archives_with_convert_metadata"`
+	// ArchivesWithMountRSS is the number of archives with a known mount RSS sample.
+	ArchivesWithMountRSS         int      `json:"archives_with_mount_rss"`
 	TotalArchiveSizeBytes        int64    `json:"total_archive_size_bytes"`
 	TotalIndexSizeBytes          int64    `json:"total_index_size_bytes"`
 	TotalExtractedSizeBytes      int64    `json:"total_extracted_size_bytes"`
 	TotalSpaceSavedBytes         int64    `json:"total_space_saved_bytes"`
+	// TotalMountRSSBytes is the sum of per-archive mount_rss_bytes (live FUSE children).
+	TotalMountRSSBytes           int64    `json:"total_mount_rss_bytes"`
+	// TotalMountRSSPeakBytes is the sum of peak RSS when known (Linux); 0 if none.
+	TotalMountRSSPeakBytes       int64    `json:"total_mount_rss_peak_bytes"`
 	TotalConvertSourceSizeBytes  *int64   `json:"total_convert_source_size_bytes"`
 	TotalConvertSizeDeltaBytes   *int64   `json:"total_convert_size_delta_bytes"`
 	ArchivesWithConvertDuration  *int     `json:"archives_with_convert_duration"`

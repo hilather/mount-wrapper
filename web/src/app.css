@@ -408,6 +408,13 @@ main.shell {
   color: var(--bad);
 }
 
+.savings-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
 .savings-bar {
   display: flex;
   flex-wrap: wrap;
@@ -417,7 +424,10 @@ main.shell {
   padding: 0.65rem 0.75rem;
   border-radius: 8px;
   background: var(--badge);
-  margin-bottom: 0.75rem;
+}
+
+.savings-bar-mem {
+  background: color-mix(in srgb, var(--badge) 85%, var(--accent, #6af) 15%);
 }
 
 .savings-bar .big {

@@ -191,7 +191,10 @@
       <strong>Original</strong> = pre-flatten 7z size when converted in place (delta vs current
       archive shows conversion cost).<br />
       <strong>Space saved (vs archive)</strong> = extracted − archive − index (mount footprint is
-      archive + index on the same disk).
+      archive + index on the same disk).<br />
+      <strong>Mount memory (RSS)</strong> = resident set size of each live FUSE child process
+      (<code>mount_pid</code>), sampled when metrics are computed (cache TTL applies). Peak RSS
+      (Linux VmHWM) is shown when available. Totals are summed across mounts with a sample.
     </p>
     <button type="button" class="linkish" onclick={() => (showRaw = !showRaw)}>
       {showRaw ? 'Hide raw JSON' : 'Show raw JSON'}

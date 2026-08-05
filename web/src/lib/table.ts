@@ -16,6 +16,7 @@ function numForSort(r: ArchiveRow, key: SortKey): number {
     mount_duration: r.mount_duration_seconds,
     extracted_size: m.extracted_size_bytes,
     space_saved: m.space_saved_bytes,
+    mount_rss: m.mount_rss_bytes,
   }
   const v = map[key]
   return v === null || v === undefined ? -1 : Number(v)
@@ -59,4 +60,5 @@ export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'mount_duration', label: 'Mount time' },
   { value: 'extracted_size', label: 'Extracted size' },
   { value: 'space_saved', label: 'Space saved' },
+  { value: 'mount_rss', label: 'Mount RSS' },
 ]

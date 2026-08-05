@@ -165,6 +165,14 @@ func formatMetricsSummaryBlock(sum map[string]any) string {
 	fmt.Fprintf(&b, "    index total:     %s\n", formatBytes(anyInt64(sum["total_index_size_bytes"])))
 	fmt.Fprintf(&b, "    extracted total: %s\n", formatBytes(anyInt64(sum["total_extracted_size_bytes"])))
 	fmt.Fprintf(&b, "    space saved:     %s\n", formatBytes(anyInt64(sum["total_space_saved_bytes"])))
+	withRSS := anyInt(sum["archives_with_mount_rss"])
+	if withRSS > 0 || anyInt64(sum["total_mount_rss_bytes"]) > 0 {
+		fmt.Fprintf(&b, "    mount RSS total: %s  (n=%d)\n",
+			formatBytes(anyInt64(sum["total_mount_rss_bytes"])), withRSS)
+		if peak := anyInt64(sum["total_mount_rss_peak_bytes"]); peak > 0 {
+			fmt.Fprintf(&b, "    mount RSS peak:  %s\n", formatBytes(peak))
+		}
+	}
 
 	if v, ok := sum["total_convert_source_size_bytes"]; ok && v != nil {
 		fmt.Fprintf(&b, "    convert source:  %s\n", formatBytes(anyInt64(v)))
@@ -226,6 +234,15 @@ func writeArchiveMetricsLine(b *strings.Builder, row map[string]any, level int) 
 	saved := formatBytesNullable(row["space_saved_bytes"])
 	vsArch := formatBytesNullable(row["space_saved_vs_archive_bytes"])
 	fmt.Fprintf(b, "%sspace_saved=%s  vs_archive=%s\n", detail, saved, vsArch)
+	if rss := formatBytesNullable(row["mount_rss_bytes"]); rss != "—" {
+		peak := formatBytesNullable(row["mount_rss_peak_bytes"])
+		pid := anyInt64(row["mount_pid"])
+		if peak != "—" {
+			fmt.Fprintf(b, "%smount_rss=%s  peak=%s  pid=%d\n", detail, rss, peak, pid)
+		} else {
+			fmt.Fprintf(b, "%smount_rss=%s  pid=%d\n", detail, rss, pid)
+		}
+	}
 
 	var convParts []string
 	if v, ok := row["convert_source_size_bytes"]; ok && v != nil {

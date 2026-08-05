@@ -12,12 +12,13 @@ type ArchiveSource interface {
 // Collector computes and caches archive metrics (parity MetricsService).
 // Full index DB walks are behind ExtractedSizeProvider.
 type Collector struct {
-	Source    ArchiveSource
-	Sizes     SizeProvider
-	Extracted ExtractedSizeProvider
-	Meta      ConvertMetaProvider
-	Cache     *Cache
-	Config    CollectorConfig
+	Source     ArchiveSource
+	Sizes      SizeProvider
+	Extracted  ExtractedSizeProvider
+	Meta       ConvertMetaProvider
+	ProcessMem ProcessMemProvider
+	Cache      *Cache
+	Config     CollectorConfig
 }
 
 // NewCollector builds a Collector with defaults for nil providers.
@@ -32,12 +33,13 @@ func NewCollector(src ArchiveSource, cfg CollectorConfig) *Collector {
 		ttl = 0
 	}
 	return &Collector{
-		Source:    src,
-		Sizes:     FSSizeProvider{},
-		Extracted: DefaultExtractedProvider{},
-		Meta:      NoConvertMeta{},
-		Cache:     NewCache(ttl),
-		Config:    CollectorConfig{CacheTTLSeconds: ttl},
+		Source:     src,
+		Sizes:      FSSizeProvider{},
+		Extracted:  DefaultExtractedProvider{},
+		Meta:       NoConvertMeta{},
+		ProcessMem: DefaultProcessMem{},
+		Cache:      NewCache(ttl),
+		Config:     CollectorConfig{CacheTTLSeconds: ttl},
 	}
 }
 
@@ -137,7 +139,7 @@ func (c *Collector) Invalidate(archiveID string) {
 }
 
 func (c *Collector) compute(in ArchiveInput, opts QueryOptions) ArchiveMetrics {
-	return ComputeArchiveMetrics(in, c.Sizes, c.Extracted, c.Meta, ComputeOptions{
+	return ComputeArchiveMetrics(in, c.Sizes, c.Extracted, c.Meta, c.ProcessMem, ComputeOptions{
 		PreferMount: opts.PreferMount,
 	})
 }

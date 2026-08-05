@@ -252,6 +252,21 @@ var promSizeGauges = []promSizeGauge{
 		key:  "total_space_saved_bytes",
 	},
 	{
+		name: "mount_wrapper_mount_rss_bytes",
+		help: "Total resident set size (RSS) of live FUSE mount children (sum of mount_rss_bytes).",
+		key:  "total_mount_rss_bytes",
+	},
+	{
+		name: "mount_wrapper_mount_rss_peak_bytes",
+		help: "Total peak RSS of live FUSE mount children when known (Linux VmHWM sum).",
+		key:  "total_mount_rss_peak_bytes",
+	},
+	{
+		name: "mount_wrapper_archives_with_mount_rss",
+		help: "Number of tracked archives with a known FUSE child RSS sample.",
+		key:  "archives_with_mount_rss",
+	},
+	{
 		name: "mount_wrapper_archives_with_extracted_size",
 		help: "Number of tracked archives with a known extracted (logical) size.",
 		key:  "archives_with_extracted_size",

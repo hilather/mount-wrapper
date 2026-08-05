@@ -100,6 +100,9 @@ export const MOCK_MOUNTED_ARCHIVE = {
     extracted_size_bytes: 4_194_304,
     space_saved_bytes: 4_128_768,
     space_saved_vs_archive_bytes: 3_080_192,
+    mount_rss_bytes: 48_000_000,
+    mount_rss_peak_bytes: 64_000_000,
+    mount_pid: 12345,
   },
 }
 
@@ -270,6 +273,11 @@ function buildArchivesPayload(
         (n, a) => n + (Number(a.metrics?.space_saved_bytes) || 0),
         0,
       ),
+      total_mount_rss_bytes: archives.reduce(
+        (n, a) => n + (Number(a.metrics?.mount_rss_bytes) || 0),
+        0,
+      ),
+      archives_with_mount_rss: archives.filter((a) => a.metrics?.mount_rss_bytes != null).length,
       ...summary,
     },
     version: 'e2e-test',

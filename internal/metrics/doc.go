@@ -19,9 +19,11 @@
 //
 // Offline expansion of opaque zip/7z members without FUSE is intentionally out
 // of scope. File and index inspection is interface-injected (SizeProvider,
-// ExtractedSizeProvider / IndexAnalyzer) so unit tests use fakes;
-// FSSizeProvider and DefaultExtractedProvider talk to the real filesystem and
-// modernc.org/sqlite.
+// ExtractedSizeProvider / IndexAnalyzer, ProcessMemProvider) so unit tests use
+// fakes; FSSizeProvider and DefaultExtractedProvider talk to the real filesystem
+// and modernc.org/sqlite. Mount RSS is sampled from mount_pid (Linux /proc or
+// Darwin ps) when the FUSE child is live.
+
 //
 // CollectorConfig + QueryOptions model cache TTL, no_cache, and prefer_mount for the
 // MetricsCollector interface used by control/API layers.
