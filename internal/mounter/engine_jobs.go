@@ -11,9 +11,17 @@ import (
 	"time"
 
 	"github.com/hilather/mount-wrapper/internal/archives"
+	"github.com/hilather/mount-wrapper/internal/config"
 	"github.com/hilather/mount-wrapper/internal/convert"
+	"github.com/hilather/mount-wrapper/internal/paths"
 	"github.com/hilather/mount-wrapper/internal/state"
 )
+
+var postConvertFromStatuses = []string{
+	state.StatusConverting,
+	state.StatusMountFailed,
+	state.StatusIndexFailed,
+}
 
 // convertJob is a background convert/repack unit. Store writes happen only
 // on the service tick via PollConvert.
@@ -269,6 +277,120 @@ func (e *Engine) runFlatten(source string) (string, *convert.ConvertMetadata, er
 	return source, meta, nil
 }
 
+func (e *Engine) removeConvertJob(archiveID string) {
+	e.mu.Lock()
+	delete(e.convertJobs, archiveID)
+	e.mu.Unlock()
+}
+
+// archiveBasenameAfterConvert keeps the operator-visible name when convert
+// writes to `{archive_id}.7z` under archiveconverter_output_dir.
+func archiveBasenameAfterConvert(cfg *config.Config, rec *state.ArchiveRecord, resultPath string) string {
+	if rec == nil {
+		return filepath.Base(resultPath)
+	}
+	prior := strings.TrimSpace(rec.ArchiveBasename)
+	if prior == "" {
+		return filepath.Base(resultPath)
+	}
+	if convert.IsConvertedPath(cfg, resultPath) {
+		return prior
+	}
+	base := filepath.Base(resultPath)
+	if strings.EqualFold(base, rec.ArchiveID+".7z") || strings.EqualFold(base, rec.ArchiveID) {
+		return prior
+	}
+	return base
+}
+
+func (e *Engine) adoptExistingConversion(rec *state.ArchiveRecord, existingPath string) (*state.ArchiveRecord, error) {
+	meta := convert.ReadConvertMetadata(existingPath)
+	updated, err := e.completeConvertSuccess(rec.ArchiveID, rec, nil, existingPath, meta, 0)
+	if err != nil {
+		return rec, err
+	}
+	slog.Info("adopted existing conversion",
+		"event", "adopt_existing_conversion",
+		"archive_id", rec.ArchiveID,
+		"path", existingPath,
+	)
+	return updated, nil
+}
+
+func (e *Engine) completeConvertSuccess(
+	archiveID string,
+	rec *state.ArchiveRecord,
+	job *convertJob,
+	resultPath string,
+	meta *convert.ConvertMetadata,
+	sourceSize int64,
+) (*state.ArchiveRecord, error) {
+	if resultPath == "" && job != nil {
+		resultPath = job.sourcePath
+	}
+	_ = ApplyPartialIndexCleanup(rec.Status, rec.FirstMountedAt, indexPathOf(rec))
+	if fresh, _ := e.Store.GetArchive(archiveID); fresh != nil {
+		rec = fresh
+	}
+
+	fp, size, mtimeNs, err := fingerprintPath(resultPath, e.Config.ContentFingerprint)
+	if err != nil {
+		return nil, err
+	}
+
+	newBasename := archiveBasenameAfterConvert(e.Config, rec, resultPath)
+	fields := map[string]any{
+		"archive_path":     resultPath,
+		"archive_basename": newBasename,
+		"size_bytes":       size,
+		"mtime_ns":         mtimeNs,
+		"fingerprint":      fp,
+		"last_error":       nil,
+	}
+	if rec.MountPath != nil && strings.TrimSpace(*rec.MountPath) != "" {
+		expected := paths.SanitizeMountName(newBasename, archiveID, nil)
+		if filepath.Base(*rec.MountPath) != expected {
+			fields["mount_path"] = nil
+		}
+	}
+	if meta != nil {
+		fields["convert_source_size_bytes"] = meta.OriginalSizeBytes
+		if rec.ConvertDurationSeconds == nil && meta.ConvertDurationSeconds != nil {
+			fields["convert_duration_seconds"] = *meta.ConvertDurationSeconds
+		}
+	} else if job != nil && job.sourceSize > 0 {
+		fields["convert_source_size_bytes"] = job.sourceSize
+	} else if sourceSize > 0 {
+		fields["convert_source_size_bytes"] = sourceSize
+	}
+	if rec.ConvertDurationSeconds == nil {
+		if _, ok := fields["convert_duration_seconds"]; !ok && job != nil {
+			elapsed := e.now().Sub(job.startedAt).Seconds()
+			if elapsed < 0 {
+				elapsed = 0
+			}
+			fields["convert_duration_seconds"] = float64(int(elapsed*1000)) / 1000
+		}
+	}
+
+	updated, err := e.Store.Transition(archiveID, state.StatusDiscovered, postConvertFromStatuses, fields, "")
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("archive convert done",
+		"event", "archive_convert_done",
+		"archive_id", archiveID,
+		"path", resultPath,
+		"size", size,
+	)
+	if e.Config.MoveArchivesToLinux && job != nil && job.sourcePath != resultPath {
+		e.mu.Lock()
+		e.pendingSourceRemovals[archiveID] = job.sourcePath
+		e.mu.Unlock()
+	}
+	return updated, nil
+}
+
 // PollConvert finishes completed convert jobs and may start mount.
 func (e *Engine) PollConvert() {
 	if e == nil || e.Store == nil {
@@ -292,12 +414,10 @@ func (e *Engine) PollConvert() {
 		if !done {
 			continue
 		}
-		e.mu.Lock()
-		delete(e.convertJobs, archiveID)
-		e.mu.Unlock()
 
 		rec, err := e.Store.GetArchive(archiveID)
 		if err != nil || rec == nil {
+			e.removeConvertJob(archiveID)
 			continue
 		}
 
@@ -307,12 +427,13 @@ func (e *Engine) PollConvert() {
 				failStatus = state.StatusIndexFailed
 			}
 			attempts, retryable := NextMountAttempt(rec.MountAttempts, e.Config.MaxMountAttempts)
-			_, _ = e.Store.Transition(archiveID, failStatus, state.StatusConverting, map[string]any{
+			_, _ = e.Store.Transition(archiveID, failStatus, rec.Status, map[string]any{
 				"mount_pid":       nil,
 				"mount_attempts":  attempts,
 				"mount_retryable": retryable,
 				"last_error":      errMsg,
 			}, "")
+			e.removeConvertJob(archiveID)
 			slog.Error("archive convert failed",
 				"event", "archive_convert_failed",
 				"archive_id", archiveID,
@@ -322,73 +443,28 @@ func (e *Engine) PollConvert() {
 			continue
 		}
 
-		if resultPath == "" {
-			resultPath = job.sourcePath
-		}
-		_ = ApplyPartialIndexCleanup(rec.Status, rec.FirstMountedAt, indexPathOf(rec))
-		if fresh, _ := e.Store.GetArchive(archiveID); fresh != nil {
-			rec = fresh
-		}
-
-		fp, size, mtimeNs, err := fingerprintPath(resultPath, e.Config.ContentFingerprint)
+		rec, err = e.completeConvertSuccess(archiveID, rec, job, resultPath, meta, job.sourceSize)
 		if err != nil {
+			fresh, _ := e.Store.GetArchive(archiveID)
+			if fresh != nil {
+				rec = fresh
+			}
 			failStatus := state.StatusMountFailed
 			if rec.FirstMountedAt == nil {
 				failStatus = state.StatusIndexFailed
 			}
 			attempts, retryable := NextMountAttempt(rec.MountAttempts, e.Config.MaxMountAttempts)
-			_, _ = e.Store.Transition(archiveID, failStatus, state.StatusConverting, map[string]any{
+			_, _ = e.Store.Transition(archiveID, failStatus, rec.Status, map[string]any{
 				"mount_pid":       nil,
 				"mount_attempts":  attempts,
 				"mount_retryable": retryable,
 				"last_error":      err.Error(),
 			}, "")
-			continue
-		}
-
-		fields := map[string]any{
-			"archive_path":     resultPath,
-			"archive_basename": filepath.Base(resultPath),
-			"size_bytes":       size,
-			"mtime_ns":         mtimeNs,
-			"fingerprint":      fp,
-			"last_error":       nil,
-		}
-		if meta != nil {
-			fields["convert_source_size_bytes"] = meta.OriginalSizeBytes
-			if rec.ConvertDurationSeconds == nil && meta.ConvertDurationSeconds != nil {
-				fields["convert_duration_seconds"] = *meta.ConvertDurationSeconds
-			}
-		} else if job.sourceSize > 0 {
-			fields["convert_source_size_bytes"] = job.sourceSize
-		}
-		if rec.ConvertDurationSeconds == nil {
-			if _, ok := fields["convert_duration_seconds"]; !ok {
-				elapsed := e.now().Sub(job.startedAt).Seconds()
-				if elapsed < 0 {
-					elapsed = 0
-				}
-				fields["convert_duration_seconds"] = float64(int(elapsed*1000)) / 1000
-			}
-		}
-
-		rec, err = e.Store.Transition(archiveID, state.StatusDiscovered, state.StatusConverting, fields, "")
-		if err != nil {
+			e.removeConvertJob(archiveID)
 			slog.Error("post-convert transition failed", "event", "post_convert_transition_failed", "archive_id", archiveID, "err", err)
 			continue
 		}
-		slog.Info("archive convert done",
-			"event", "archive_convert_done",
-			"archive_id", archiveID,
-			"path", resultPath,
-			"size", size,
-		)
-
-		if e.Config.MoveArchivesToLinux && job.sourcePath != resultPath {
-			e.mu.Lock()
-			e.pendingSourceRemovals[archiveID] = job.sourcePath
-			e.mu.Unlock()
-		}
+		e.removeConvertJob(archiveID)
 
 		fi := job.needsIndex
 		if _, err := e.BeginMount(rec, &fi); err != nil {

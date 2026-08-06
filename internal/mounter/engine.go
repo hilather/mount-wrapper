@@ -301,8 +301,30 @@ func (e *Engine) BeginMount(rec *state.ArchiveRecord, firstIndex *bool) (*Manage
 		false, // sevenzipAvailable probe not wired; two-phase is safe default
 	)
 
-	if e.HasRelocateJob(rec.ArchiveID) || e.HasConvertJob(rec.ArchiveID) {
+	if rec.Status == state.StatusConverting || e.HasConvertJob(rec.ArchiveID) {
 		return nil, nil
+	}
+
+	if e.HasRelocateJob(rec.ArchiveID) {
+		return nil, nil
+	}
+
+	// Reuse a finished conversion product instead of starting a duplicate job.
+	if existing := convert.ExistingConvertedPath(e.Config, rec.ArchiveID); existing != "" && rec.ArchivePath != existing {
+		updated, err := e.adoptExistingConversion(rec, existing)
+		if err != nil {
+			slog.Error("adopt existing conversion failed",
+				"event", "adopt_existing_conversion_failed",
+				"archive_id", rec.ArchiveID,
+				"path", existing,
+				"err", err,
+			)
+			return nil, nil
+		}
+		rec = updated
+		if fresh, err := e.Store.GetArchive(rec.ArchiveID); err == nil && fresh != nil {
+			rec = fresh
+		}
 	}
 
 	// Resume mid-flight indexing/mounting without re-queueing convert/relocate.
