@@ -346,6 +346,14 @@ func (s *Service) Start() error {
 		slog.Info("boot remount actions", "count", len(result.Actions))
 	}
 
+	if s.Engine != nil && s.Store != nil {
+		if recs, err := s.Store.ListArchives(nil); err == nil {
+			s.Engine.ReconcileOrphanMounts(recs)
+		} else {
+			slog.Warn("orphan mount reconcile: list archives failed", "err", err)
+		}
+	}
+
 	if removed := s.Cleaner.PruneStaleMountDirs(); len(removed) > 0 {
 		slog.Info("boot mount dir cleanup", "removed", len(removed))
 	}

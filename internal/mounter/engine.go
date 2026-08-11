@@ -272,6 +272,13 @@ func indexPathOf(rec *state.ArchiveRecord) string {
 	return *rec.IndexPath
 }
 
+func mountPathOf(rec *state.ArchiveRecord) string {
+	if rec == nil || rec.MountPath == nil {
+		return ""
+	}
+	return *rec.MountPath
+}
+
 // BeginMount claims work and starts convert, relocate, or ratarmount.
 //
 // firstIndex nil is inferred as first_mounted_at == nil.
@@ -329,6 +336,15 @@ func (e *Engine) BeginMount(rec *state.ArchiveRecord, firstIndex *bool) (*Manage
 
 	// Resume mid-flight indexing/mounting without re-queueing convert/relocate.
 	if rec.Status == state.StatusIndexing || rec.Status == state.StatusMounting || rec.Status == state.StatusHooksRunning {
+		if existing := e.Live.Get(rec.ArchiveID); existing != nil {
+			return existing, nil
+		}
+		mountPath := mountPathOf(rec)
+		if rec.MountPID != nil && IsProcessAlive(int(*rec.MountPID)) {
+			if mountPath != "" && e.isMount(mountPath) {
+				return nil, nil
+			}
+		}
 		if needsIndex {
 			if e.indexLimitReached() {
 				return nil, nil
@@ -466,6 +482,18 @@ func (e *Engine) beginMountProcess(
 	if err := EnginePathsAllowed(req.IndexPath, req.OverlayPath, req.MountPath, e.Config.AllowIndexesOnDrvfs); err != nil {
 		_ = e.failStart(rec, useIndexOnly, err.Error())
 		return nil, mounterErrorf("%s", err.Error())
+	}
+
+	if req.MountPath != "" && !useIndexOnly {
+		killed, _ := ClearStaleMountHolders(req.MountPath, 0, e.unmountOpts())
+		if len(killed) > 0 {
+			slog.Info("cleared stale ratarmount before spawn",
+				"event", "clear_stale_mount_holders",
+				"archive_id", rec.ArchiveID,
+				"mount_path", req.MountPath,
+				"killed_pids", killed,
+			)
+		}
 	}
 
 	env := ChildEnvFromConfig(os.Environ(), e.Config.Ratarmount7zDebug, e.Config.RatarmountRustLog)
@@ -692,6 +720,10 @@ func (e *Engine) CompleteIndexAndStartMount(archiveID string) (*ManagedMount, er
 		extra["last_error"] = sum
 	}
 
+	e.mu.Lock()
+	indexPoll := e.polls[archiveID]
+	e.mu.Unlock()
+	TerminateProcessGroupPoll(managed.Cmd, 5*time.Second, indexPoll)
 	e.dropLive(archiveID)
 
 	rec, err = e.Store.Transition(archiveID, state.StatusMounting, state.StatusIndexing, extra, "")

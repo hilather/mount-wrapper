@@ -158,6 +158,15 @@ reconciler.Boot()
 | Nil `PathInUse` | Package helper keeps all files (safe); `Cleaner.New` / `service.New` set `DefaultPathInUse` so production can free unused temps |
 | Serve wiring | `service` start calls prune once after partial-index cleanup; skips open materializations so live recursive mounts keep their `/tmp/.tmp*` files |
 
+**Orphan ratarmount FUSE children** (`Engine.ReconcileOrphanMounts`, **boot only**; `ClearStaleMountHolders` before each FUSE spawn):
+
+| Piece | Behavior |
+|-------|----------|
+| Boot | After `Reconciler.Boot`, scan `/proc` for `ratarmount` children whose mount path is under `mount_root`; kill any PID that is not the tracked `mount_pid` / live registry entry for an active archive row |
+| Pre-spawn | Before starting a FUSE-phase ratarmount, kill any other ratarmount bound to the same mount path and fusermount the stale mountpoint |
+| Index→mount | `CompleteIndexAndStartMount` SIGTERM-reaps the index-phase (`--no-mount`) child before starting the FUSE child |
+| Resume guard | `BeginMount` skips duplicate spawns when the archive is already in the live registry, or when `mount_pid` is alive and the mount path is up |
+
 **Outer nonsolid cache hygiene** (`PruneNonsolidCache`, part of `Run`): under `DefaultNonsolidCacheDir` only (direct children).
 
 | Action | Policy |
