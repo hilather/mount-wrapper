@@ -106,16 +106,16 @@ Prometheus: `curl -sS http://127.0.0.1:8788/metrics | head`
 Size/savings aggregates (default scrape; may be slower than count-only status):
 
 ```bash
-curl -sS http://127.0.0.1:8788/metrics | grep -E 'mount_wrapper_(archive|index|extracted|space_saved)_'
+curl -sS http://127.0.0.1:8788/metrics | grep -E 'mount_wrapper_(archive|index|extracted|space_saved|mount_rss)_'
 ```
 
 Expect `mount_wrapper_archive_size_bytes`, `…_index_size_bytes`,
-`…_extracted_size_bytes`, `…_space_saved_bytes` (and optional convert totals).
-No per-archive label sets.
+`…_extracted_size_bytes`, `…_space_saved_bytes`, `…_mount_rss_bytes` (and
+optional convert totals / peak RSS). No per-archive label sets.
 
-## Operator surfaces (through v0.1.6)
+## Operator surfaces (through v0.1.7)
 
-Exercise operator polish (v0.1.3–v0.1.6) before filing issues. CLI control ops
+Exercise operator polish (v0.1.3–v0.1.7) before filing issues. CLI control ops
 default to **human** stdout; add **`--json`** for the control payload.
 
 | Surface | How to check |
@@ -128,12 +128,14 @@ default to **human** stdout; add **`--json`** for the control payload.
 | **SPA hooks force re-run** | Open Archives → row **Hooks** drawer. **Re-run** on terminal success → toast `Hooks skipped` (no force). **Force re-run** → confirm → toast `Hooks ran` (or API error). Same as `POST /api/hooks` `{archive_id, force}`. |
 | **SSE deltas** | Web UI open with badge **`live (SSE)`**: change one archive status (rescan / unmount single row) and confirm Archives table patches that row without a full wipe/flash; badge stays `live (SSE)`. Stop/block `/api/events` briefly and confirm badge moves to **`reconnecting`** / **`poll (SSE down)`** while data still refreshes via poll. |
 | **Nested skip (remount if known)** | Mount an outer archive that triggers nested automount skips. Confirm chip/summary on **mounted** status. If the archive is already known/mounted, **unmount + remount** (or restart serve with boot remount) and confirm skip advisory still appears after remount/hooks success. |
-| **Doctor live probes** | With `control_socket` / `pid_file` set: `doctor --json` → `control_socket_live`, `pidfile_live` (and on Linux/systemd PID 1: `systemd_unit`; on Darwin: `launchd_agent`). Offline/unreachable → **warn**, never hard-fail; live → **info**. See [Smoke](#smoke-no-fuse) table. |
-| **Prometheus size gauges** | `GET /metrics` (or `curl …/metrics \| grep mount_wrapper_`) → aggregate `archive` / `index` / `extracted` / `space_saved` size gauges (no per-archive labels). May be slower than count-only status. See [Web UI](#web-ui) scrape examples. |
+| **Doctor live probes** | With `control_socket` / `pid_file` set: `doctor --json` → `control_socket_live`, `pidfile_live` (and on Linux/systemd PID 1: `systemd_unit`; on Darwin: `launchd_agent`). Offline/unreachable / Darwin unclassifiable launchd → **warn**, never hard-fail; live / clear loaded shape → **info**. See [Smoke](#smoke-no-fuse) table. |
+| **Prometheus size gauges** | `GET /metrics` (or `curl …/metrics \| grep mount_wrapper_`) → aggregate `archive` / `index` / `extracted` / `space_saved` size gauges plus `mount_rss` totals when mounts are live (no per-archive labels). May be slower than count-only status. See [Web UI](#web-ui) scrape examples. |
+| **Per-mount FUSE RSS** | With at least one live mount: `metrics` human output and SPA SavingsBar / Mount RSS column show `mount_rss`; `GET /metrics` has `mount_wrapper_mount_rss_bytes`. |
+| **Convert basename / remount** | After archiveconverter: status `archive_basename` stays the source name (not a UUID under `converted/`). Remount / boot remount should not leave extra ratarmount children on the same mount path (`ps` / `mount`). |
 
 Also re-check convert paths and Web UI smoke above when those features are in scope.
 
-## File bugs for v0.1.6 (released)
+## File bugs for v0.1.7
 
 Capture at least:
 

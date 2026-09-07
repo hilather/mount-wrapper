@@ -1,8 +1,9 @@
 # Cutting a release
 
-How to ship the next patch after **v0.1.6** (e.g. **v0.1.7**). Operators
-install from GitHub Releases — see [install.md](./install.md). Change log:
-[CHANGELOG.md](../CHANGELOG.md). Field verification: [field-test.md](./field-test.md).
+How to ship **v0.1.7** (CHANGELOG already folded; tag when ready) or the next
+patch after that (e.g. **v0.1.8**). Operators install from GitHub Releases —
+see [install.md](./install.md). Change log: [CHANGELOG.md](../CHANGELOG.md).
+Field verification: [field-test.md](./field-test.md).
 
 Do **not** tag until tests, docs, and review for the change set are green.
 
@@ -20,17 +21,20 @@ Do **not** tag until tests, docs, and review for the change set are green.
 1. Move items under `## [Unreleased]` into a new section, e.g.:
 
    ```markdown
-   ## [0.1.7] - YYYY-MM-DD
+   ## [0.1.8] - YYYY-MM-DD
    ```
+
+   **v0.1.7 notes are already folded** in [CHANGELOG.md](../CHANGELOG.md). Skip
+   this step when tagging `v0.1.7`; use it for the following patch.
 
 2. Leave an empty `## [Unreleased]` at the top for later work.
 3. Add compare / tag links at the bottom (Keep a Changelog style):
 
    ```markdown
    [Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.7...HEAD
+   [0.1.7]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.7
    [0.1.6]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.6
    [0.1.5]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.5
-   [0.1.4]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.4
    …
    ```
 
@@ -133,7 +137,7 @@ To exercise packaging without publishing:
 After `dist/SHA256SUMS` exists (snapshot or real release assets):
 
 ```bash
-VERSION=0.1.6 SHA256SUMS=dist/SHA256SUMS \
+VERSION=0.1.7 SHA256SUMS=dist/SHA256SUMS \
   OUT=packaging/homebrew/mount-wrapper.rb \
   ./scripts/update-homebrew-formula.sh
 # Local only — do not commit real digests unless publishing a tap:

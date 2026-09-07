@@ -7,12 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-07
+
+Operator polish after v0.1.6: default web port, doctor launchd harden, nested
+space-saved, per-mount FUSE RSS, convert race/basename, orphan FUSE kill.
+Mount backend remains **ratarmount-rs only**.
+
+### Added
+
+- Per-mount FUSE process **RSS**: sample `mount_pid` RSS (Linux
+  `/proc/<pid>/status` `VmRSS`; Darwin `ps -o rss=`) and Linux peak
+  (`VmHWM`) when computing metrics. Surfaces: per-archive `mount_rss_bytes` /
+  `mount_rss_peak_bytes` / `mount_pid`; summary `total_mount_rss_*` +
+  `archives_with_mount_rss`; Prometheus `mount_wrapper_mount_rss_bytes` (+
+  peak + count); SPA SavingsBar second line + table column; CLI human
+  metrics.
+
 ### Changed
 
 - Default **`web_port`** is **8788** (was 8787). Bind remains loopback
   `127.0.0.1` unless configured; Vite dev proxy and packaging examples track
   the new default. Constants: `config.DefaultWebPort` / `DefaultWebHost`.
-- Hand-written OpenAPI (`docs/openapi.yaml`) **info.version** **0.1.6**;
+- Hand-written OpenAPI (`docs/openapi.yaml`) **info.version** **0.1.7**;
   `GET /api/doctor` description documents live/platform checks that never
   hard-fail offline (`control_socket_live`, `pidfile_live`, `systemd_unit`,
   `launchd_agent`). Codegen residual (D11) unchanged.
@@ -23,6 +39,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not-loaded phrases → **warn** “cannot classify” (never hard-fail; was
   previously treated as loaded/info). `list` empty+err still falls back to
   `print`.
+
+### Fixed
+
+- Space-saved for nested/embedded archives: use deep-leaf extracted size when
+  index flatten is complete; flag opaque nested members without inventing
+  deep sizes from packed blobs; promote mount walks for live mounts so
+  savings reflect browsable recursive content.
+- Convert race / basename: prevent duplicate convert/mount attempts during
+  post-convert transitions (`BeginMount` skips `converting` / active convert
+  job; reuse `ExistingConvertedPath`); preserve operator-visible
+  `archive_basename` instead of UUID paths under `converted/`.
+- Orphan ratarmount FUSE children: reconcile untracked PIDs at boot, clear
+  stale holders before FUSE spawn, and skip duplicate `BeginMount` spawns
+  when a live child or mount is already up.
 
 ## [0.1.6] - 2026-08-01
 
@@ -245,7 +275,8 @@ feature-complete orchestrator with multi-arch packaging.
 - Engines not bundled: install **ratarmount-rs**, fuse3/macFUSE, optional
   archiveconverter and 7z separately.
 
-[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.7
 [0.1.6]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.6
 [0.1.5]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.5
 
