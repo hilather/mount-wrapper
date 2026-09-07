@@ -5,7 +5,7 @@
 openapi: 3.0.3
 info:
   title: mount-wrapper HTTP API
-  version: 0.1.6
+  version: 0.1.7
   description: |
     Embedded operator API served by `mount-wrapper serve` when `web_enabled: true`.
     Default bind `127.0.0.1:8788`. Optional Bearer token (`web_token`) or `?token=` on GET.
@@ -464,6 +464,9 @@ paths:
         when available: `mount_wrapper_archive_size_bytes`,
         `mount_wrapper_index_size_bytes`, `mount_wrapper_extracted_size_bytes`,
         `mount_wrapper_space_saved_bytes`,
+        `mount_wrapper_mount_rss_bytes`,
+        `mount_wrapper_mount_rss_peak_bytes`,
+        `mount_wrapper_archives_with_mount_rss`,
         `mount_wrapper_archives_with_extracted_size`,
         `mount_wrapper_archives_with_convert_metadata`, and optional convert
         totals (`mount_wrapper_convert_source_size_bytes`,
