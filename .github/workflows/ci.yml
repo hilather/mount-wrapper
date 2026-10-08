@@ -26,8 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          # go.mod requires 1.25 (modernc.org/sqlite and toolchain).
-          go-version: "1.25.x"
+          # Match go.mod (go 1.26.8).
+          go-version: "1.26.8"
       - name: Vet
         run: go vet ./...
       - name: Test
@@ -49,8 +49,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          # Match go.mod / ubuntu go-test job (modernc.org/sqlite toolchain).
-          go-version: "1.25.x"
+          # Match go.mod (go 1.26.8) / ubuntu go-test job.
+          go-version: "1.26.8"
       - name: Test
         # TMPDIR=/tmp shortens Unix socket paths (macOS sun_path ~104 bytes).
         # On failure re-run package-by-package and capture output for a public

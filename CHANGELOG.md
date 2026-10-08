@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Go 1.25.0 → 1.26.8 in go.mod, CI, and the musl build image (1.25 is out of security support).
+
 ## [0.1.7] - 2026-09-07
 
 Operator polish after v0.1.6: default web port, doctor launchd harden, nested
