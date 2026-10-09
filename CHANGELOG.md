@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Go 1.25.0 → 1.26.8 in go.mod, CI, and the musl build image (1.25 is out of security support).
+- Go 1.25.0 → 1.26.9 in go.mod, CI, and the musl build image (1.25 is out of security support; 1.26.0–1.26.8 lack the stdlib fixes for GO-2026-6603..6617).
 
 ## [0.1.7] - 2026-09-07
 

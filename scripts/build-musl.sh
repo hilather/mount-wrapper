@@ -12,7 +12,7 @@
 # Usage (repo root, needs docker or podman):
 #   ./scripts/build-musl.sh                 # linux/amd64 → bin/mount-wrapper-linux-amd64-musl
 #   ARCHS=amd64,arm64 ./scripts/build-musl.sh
-#   GO_IMAGE=golang:1.26.8-alpine ./scripts/build-musl.sh
+#   GO_IMAGE=golang:1.26.9-alpine ./scripts/build-musl.sh
 #   VERIFY=0 ./scripts/build-musl.sh        # skip file/ldd checks
 #
 # Release packaging (optional tarballs; used by release.yml after GoReleaser):
@@ -40,8 +40,8 @@ else
   exit 1
 fi
 
-# Match go.mod (go 1.26.8); override with GO_IMAGE if needed.
-GO_IMAGE="${GO_IMAGE:-golang:1.26.8-alpine}"
+# Match go.mod (go 1.26.9); override with GO_IMAGE if needed.
+GO_IMAGE="${GO_IMAGE:-golang:1.26.9-alpine}"
 ARCHS="${ARCHS:-amd64}"
 VERIFY="${VERIFY:-1}"
 OUT_DIR="${OUT_DIR:-$ROOT/bin}"

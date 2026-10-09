@@ -10,7 +10,7 @@ Do **not** tag until tests, docs, and review for the change set are green.
 ## Prerequisites
 
 - Clean `main` (or the release branch), pushed to `origin`
-- Local tools: Go 1.26.8+, Node 22+ (for SPA embed), optional docker/podman for
+- Local tools: Go 1.26.9+, Node 22+ (for SPA embed), optional docker/podman for
   Rocky/musl smoke
 - `PATH` includes your Go/Node bins (see [dev.md](./dev.md) / root `Makefile`)
 - GitHub Actions enabled; `contents: write` on `release.yml` (default for
