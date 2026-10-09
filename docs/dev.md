@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.26.8+ (CI uses `1.26.8`, matching `go.mod`)
+- Go 1.26.9+ (CI uses `1.26.9`, matching `go.mod`)
 - Node 22+ (for SPA)
 - Optional: golangci-lint, fuse3 + ratarmount-rs (for optional FUSE integration tests)
 

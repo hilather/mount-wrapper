@@ -134,7 +134,7 @@ BIN=./bin/mount-wrapper-musl ./scripts/smoke-binary.sh
 
 Scripts: [`scripts/build-musl.sh`](../scripts/build-musl.sh),
 [`scripts/package-musl-release.sh`](../scripts/package-musl-release.sh)
-(docker/podman + `golang:1.26.8-alpine`). CI: `smoke.yml` → **`musl-static-smoke`**;
+(docker/podman + `golang:1.26.9-alpine`). CI: `smoke.yml` → **`musl-static-smoke`**;
 `release.yml` packages and `gh release upload`s musl tarballs after GoReleaser.
 
 **fuse3:** enable the FUSE kernel module if needed (`modprobe fuse`); ensure
@@ -340,7 +340,7 @@ make package-musl        # build + package into dist/*_musl.tar.gz
 make smoke-musl          # build + smoke-binary with BIN=./bin/mount-wrapper-musl
 ```
 
-Needs **docker** or **podman**. Override image with `GO_IMAGE=golang:1.26.8-alpine`.
+Needs **docker** or **podman**. Override image with `GO_IMAGE=golang:1.26.9-alpine`.
 Cross-compile arm64 without QEMU: `ARCHS=arm64 ./scripts/build-musl.sh`
 (run smoke only for host arch). Tarball layout: `mount-wrapper` binary +
 `LICENSE` / `README.md` / `install.md` / `MUSL.txt`.
