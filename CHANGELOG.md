@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-19
+
+Go toolchain only.
+
 ### Changed
 
 - Go 1.25.0 → 1.26.9 in go.mod, CI, and the musl build image (1.25 is out of security support; 1.26.0–1.26.8 lack the stdlib fixes for GO-2026-6603..6617).
+- Hand-written OpenAPI (`docs/openapi.yaml`) **info.version** **0.1.8**.
 
 ## [0.1.7] - 2026-09-07
 
@@ -279,7 +284,8 @@ feature-complete orchestrator with multi-arch packaging.
 - Engines not bundled: install **ratarmount-rs**, fuse3/macFUSE, optional
   archiveconverter and 7z separately.
 
-[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.8
 [0.1.7]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.7
 [0.1.6]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.6
 [0.1.5]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.5
