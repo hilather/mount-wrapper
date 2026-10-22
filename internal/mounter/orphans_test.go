@@ -26,7 +26,7 @@ func TestParseRatarmountMountPath(t *testing.T) {
 }
 
 func TestClearStaleMountHolders_killsOthers(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps package-level test hooks (export_test.go).
 	restore := mounter.SetTestRatarmountProcLister(func() ([]mounter.RatarmountProc, error) {
 		return []mounter.RatarmountProc{
 			{PID: 100, MountPath: "/mounts/a.7z"},
@@ -54,7 +54,7 @@ func TestClearStaleMountHolders_killsOthers(t *testing.T) {
 }
 
 func TestReconcileOrphanMounts_killsUntracked(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps package-level test hooks (export_test.go).
 	restore := mounter.SetTestRatarmountProcLister(func() ([]mounter.RatarmountProc, error) {
 		return []mounter.RatarmountProc{
 			{PID: 111, MountPath: "/mounts/tracked.7z"},
