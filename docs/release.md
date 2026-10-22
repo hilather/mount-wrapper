@@ -10,7 +10,7 @@ Do **not** tag until tests, docs, and review for the change set are green.
 ## Prerequisites
 
 - Clean `main` (or the release branch), pushed to `origin`
-- Local tools: Go 1.26.9+, Node 22+ (for SPA embed), optional docker/podman for
+- Local tools: Go 1.26.10+, Node 22+ (for SPA embed), optional docker/podman for
   Rocky/musl smoke
 - `PATH` includes your Go/Node bins (see [dev.md](./dev.md) / root `Makefile`)
 - GitHub Actions enabled; `contents: write` on `release.yml` (default for
@@ -99,7 +99,7 @@ published; cut `v0.1.9` instead if a fix is needed.
 
 1. Open **Actions** → workflow **release** for tag `v0.1.8`.
 2. Expect job **goreleaser** green:
-   - checkout (full history), Go 1.26.9, Node 22, `npm ci` in `web/`
+   - checkout (full history), Go 1.26.10, Node 22, `npm ci` in `web/`
    - GoReleaser builds SPA embed + multi-arch binaries
 3. Open the GitHub **Release** for `v0.1.8` and confirm assets:
 
