@@ -19,7 +19,7 @@ func TestConvertSpaceRequired(t *testing.T) {
 }
 
 func TestCheckConvertSpace(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps package-level SetFreeBytesFunc (free.go).
 	dir := t.TempDir()
 
 	restore := convert.SetFreeBytesFunc(func(string) (int64, bool) {
@@ -56,7 +56,7 @@ func TestZipRepackSpaceRequired(t *testing.T) {
 }
 
 func TestCheckZipRepackSpace(t *testing.T) {
-	t.Parallel()
+	// Not parallel: swaps package-level SetFreeBytesFunc (free.go).
 	dir := t.TempDir()
 	restore := convert.SetFreeBytesFunc(func(string) (int64, bool) {
 		return 50, true
