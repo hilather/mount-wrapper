@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Go toolchain 1.26.9 → 1.26.10 in `go.mod`, CI (`ci.yml`, `smoke.yml`, `release.yml` `go-version`), the musl build image default (`scripts/build-musl.sh`), and current-pin docs (`docs/dev.md`, `docs/install.md`, `docs/release.md`). 1.26.9 lacks the crypto/x509 fix for GO-2026-6809.
 
+### Fixed
+
+- Tests: drop `t.Parallel()` on `TestCheckConvertSpace` / `TestCheckZipRepackSpace` so `SetFreeBytesFunc` is not swapped while other convert tests run (`go test -race ./internal/convert/`). Same class as the mounter hook fix in #5. Fixes #6.
+
 ## [0.1.8] - 2026-10-19
 
 Go toolchain only.
