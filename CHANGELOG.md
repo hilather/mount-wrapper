@@ -18,7 +18,7 @@ Go toolchain and test-only race fixes.
 ### Fixed
 
 - Tests: drop `t.Parallel()` on `TestCheckConvertSpace` / `TestCheckZipRepackSpace` so `SetFreeBytesFunc` is not swapped while other convert tests run (`go test -race ./internal/convert/`). Fixes #6.
-- Tests: run the hook-swapping mounter orphan tests (`TestClearStaleMountHolders_*`) serially instead of with `t.Parallel()` (#5).
+- Tests: run the hook-swapping mounter orphan tests (`TestClearStaleMountHolders_killsOthers`, `TestReconcileOrphanMounts_killsUntracked`) serially instead of with `t.Parallel()` (#5).
 
 ## [0.1.8] - 2026-10-19
 
