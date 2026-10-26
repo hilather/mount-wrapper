@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-26
+
+Go toolchain and a test-only race fix.
+
 ### Changed
 
 - Go toolchain 1.26.9 → 1.26.10 in `go.mod`, CI (`ci.yml`, `smoke.yml`, `release.yml` `go-version`), the musl build image default (`scripts/build-musl.sh`), and current-pin docs (`docs/dev.md`, `docs/install.md`, `docs/release.md`). 1.26.9 lacks the crypto/x509 fix for GO-2026-6809.
@@ -292,7 +296,8 @@ feature-complete orchestrator with multi-arch packaging.
 - Engines not bundled: install **ratarmount-rs**, fuse3/macFUSE, optional
   archiveconverter and 7z separately.
 
-[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.9
 [0.1.8]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.8
 [0.1.7]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.7
 [0.1.6]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.6
