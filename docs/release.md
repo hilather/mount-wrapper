@@ -1,7 +1,7 @@
 # Cutting a release
 
-How to ship **v0.1.8** (CHANGELOG already folded; tag when ready) or the next
-patch after that (e.g. **v0.1.9**). Operators install from GitHub Releases —
+How to ship **v0.1.9** (CHANGELOG already folded; tag when ready) or the next
+patch after that (e.g. **v0.1.10**). Operators install from GitHub Releases —
 see [install.md](./install.md). Change log: [CHANGELOG.md](../CHANGELOG.md).
 Field verification: [field-test.md](./field-test.md).
 
@@ -21,20 +21,20 @@ Do **not** tag until tests, docs, and review for the change set are green.
 1. Move items under `## [Unreleased]` into a new section, e.g.:
 
    ```markdown
-   ## [0.1.9] - YYYY-MM-DD
+   ## [0.1.10] - YYYY-MM-DD
    ```
 
-   **v0.1.8 notes are already folded** in [CHANGELOG.md](../CHANGELOG.md). Skip
-   this step when tagging `v0.1.8`; use it for the following patch.
+   **v0.1.9 notes are already folded** in [CHANGELOG.md](../CHANGELOG.md). Skip
+   this step when tagging `v0.1.9`; use it for the following patch.
 
 2. Leave an empty `## [Unreleased]` at the top for later work.
 3. Add compare / tag links at the bottom (Keep a Changelog style):
 
    ```markdown
-   [Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.8...HEAD
+   [Unreleased]: https://github.com/hilather/mount-wrapper/compare/v0.1.9...HEAD
+   [0.1.9]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.9
    [0.1.8]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.8
    [0.1.7]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.7
-   [0.1.6]: https://github.com/hilather/mount-wrapper/releases/tag/v0.1.6
    …
    ```
 
@@ -80,28 +80,28 @@ Annotated tag (preferred; matches v0.1.0 style):
 git status   # clean
 git pull --ff-only origin main
 
-git tag -a v0.1.8 -m "mount-wrapper v0.1.8
+git tag -a v0.1.9 -m "mount-wrapper v0.1.9
 
 Brief summary of the patch (see CHANGELOG)."
 
 # Push branch first if needed, then the tag:
 git push origin main
-git push origin v0.1.8
+git push origin v0.1.9
 ```
 
 Tag pattern must match `v*` so [`.github/workflows/release.yml`](../.github/workflows/release.yml)
 runs GoReleaser publish (`release --clean`).
 
 **Do not** retag or force-push an existing release tag after artifacts are
-published; cut `v0.1.9` instead if a fix is needed.
+published; cut `v0.1.10` instead if a fix is needed.
 
 ## 4. Verify GitHub Actions
 
-1. Open **Actions** → workflow **release** for tag `v0.1.8`.
+1. Open **Actions** → workflow **release** for tag `v0.1.9`.
 2. Expect job **goreleaser** green:
    - checkout (full history), Go 1.26.10, Node 22, `npm ci` in `web/`
    - GoReleaser builds SPA embed + multi-arch binaries
-3. Open the GitHub **Release** for `v0.1.8` and confirm assets:
+3. Open the GitHub **Release** for `v0.1.9` and confirm assets:
 
    | Asset class | Examples |
    |-------------|---------|
@@ -137,7 +137,7 @@ To exercise packaging without publishing:
 After `dist/SHA256SUMS` exists (snapshot or real release assets):
 
 ```bash
-VERSION=0.1.8 SHA256SUMS=dist/SHA256SUMS \
+VERSION=0.1.9 SHA256SUMS=dist/SHA256SUMS \
   OUT=packaging/homebrew/mount-wrapper.rb \
   ./scripts/update-homebrew-formula.sh
 # Local only — do not commit real digests unless publishing a tap:

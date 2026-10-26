@@ -5,7 +5,7 @@
 openapi: 3.0.3
 info:
   title: mount-wrapper HTTP API
-  version: 0.1.8
+  version: 0.1.9
   description: |
     Embedded operator API served by `mount-wrapper serve` when `web_enabled: true`.
     Default bind `127.0.0.1:8788`. Optional Bearer token (`web_token`) or `?token=` on GET.
