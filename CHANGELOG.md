@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Go toolchain 1.26.10 → 1.26.11 in `go.mod`, CI (`ci.yml`, `smoke.yml`, `release.yml` `go-version`), the musl build image default (`scripts/build-musl.sh`), the packaging test assertion (`internal/config/packaging_artifacts_test.go`), and current-pin docs (`docs/dev.md`, `docs/install.md`, `docs/release.md`); go1.26.11 includes security fixes to cgo, the go command, the compiler, the linker and net/http.
+
 ## [0.1.9] - 2026-10-26
 
 Go toolchain and test-only race fixes.

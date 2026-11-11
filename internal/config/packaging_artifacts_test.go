@@ -142,7 +142,7 @@ func TestPackagingArtifacts(t *testing.T) {
 		{
 			rel: "scripts/build-musl.sh",
 			contains: []string{
-				"golang:1.26.10-alpine",
+				"golang:1.26.11-alpine",
 				"CGO_ENABLED=0",
 				"GOARCH",
 				"mount-wrapper-linux-",
